@@ -46,6 +46,30 @@ button {
   font-family: inherit;
 }
 
+@media (max-width: 768px) {
+  /* Tighten page padding on mobile */
+  [class*="page"] {
+    padding: 16px !important;
+  }
+  /* Make tables horizontally scrollable */
+  [class*="table"] {
+    overflow-x: auto;
+  }
+  /* Stack detail layouts vertically */
+  [class*="detailLayout"] {
+    grid-template-columns: 1fr !important;
+  }
+  [class*="formGrid"] {
+    grid-template-columns: 1fr !important;
+  }
+  [class*="summaryGrid"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  [class*="statsGrid"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
 input, textarea, select {
   font-family: inherit;
 }

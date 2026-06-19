@@ -110,6 +110,25 @@ export default function AppShell() {
           <Route path="/users/*" element={<ComingSoon title="Users" />} />
         </Routes>
       </main>
+
+      {/* Mobile bottom navigation */}
+      <nav className={styles.bottomNav}>
+        {[
+          { to: '/',         icon: '⊞', label: 'Home',     exact: true },
+          { to: '/jobs',     icon: '🔧', label: 'Jobs' },
+          { to: '/schedule', icon: '📅', label: 'Schedule' },
+          { to: '/quotes',   icon: '📋', label: 'Quotes' },
+          { to: '/customers',icon: '👥', label: 'Customers' },
+        ].map(item => (
+          <NavLink key={item.to} to={item.to} end={item.exact}
+            className={({ isActive }) =>
+              `${styles.bottomNavItem} ${isActive ? styles.bottomNavItemActive : ''}`
+            }>
+            <span className={styles.bottomNavIcon}>{item.icon}</span>
+            <span>{item.label}</span>
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }
