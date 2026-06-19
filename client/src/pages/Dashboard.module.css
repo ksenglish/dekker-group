@@ -1,0 +1,79 @@
+.page { padding: 32px; max-width: 1200px; }
+
+.header { margin-bottom: 32px; }
+
+.greeting { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+.date { font-size: 14px; color: var(--color-text-muted); }
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.statCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+  display: block;
+  transition: box-shadow 0.15s;
+  color: var(--color-text);
+}
+
+.statCard:hover { box-shadow: var(--shadow-md); }
+
+.statValue { font-size: 32px; font-weight: 700; margin-bottom: 4px; }
+.statLabel { font-size: 13px; color: var(--color-text-muted); font-weight: 500; }
+
+.recentCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.recentHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.recentHeader h2 { font-size: 15px; font-weight: 600; }
+
+.viewAll { font-size: 13px; color: var(--color-primary); }
+.viewAll:hover { text-decoration: underline; }
+
+.recentRow {
+  display: grid;
+  grid-template-columns: 70px 1.5fr 2fr 120px 100px;
+  gap: 12px;
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  color: var(--color-text);
+  align-items: center;
+  transition: background 0.1s;
+}
+
+.recentRow:last-child { border-bottom: none; }
+.recentRow:hover { background: #f8fafc; }
+
+.recentNum { font-weight: 700; color: var(--color-primary); }
+.recentCustomer { font-weight: 500; }
+.recentDesc { color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recentDate { color: var(--color-text-muted); text-align: right; }
+
+.statusBadge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 99px;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
