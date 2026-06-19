@@ -287,6 +287,8 @@ export default function ProductList() {
   const [importing, setImporting] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [lightbox, setLightbox] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -310,6 +312,34 @@ export default function ProductList() {
     if (!confirm(`Delete "${p.name}"?`)) return;
     await api.delete(`/products/${p.id}`);
     setProducts(ps => ps.filter(x => x.id !== p.id));
+    setSelected(s => { const n = new Set(s); n.delete(p.id); return n; });
+  }
+
+  async function deleteSelected() {
+    const count = selected.size;
+    const all = count === products.length;
+    const msg = all
+      ? `Delete ALL ${count} products? This cannot be undone.`
+      : `Delete ${count} selected product${count !== 1 ? 's' : ''}? This cannot be undone.`;
+    if (!confirm(msg)) return;
+    setDeleting(true);
+    try {
+      await Promise.all([...selected].map(id => api.delete(`/products/${id}`)));
+      setProducts(ps => ps.filter(p => !selected.has(p.id)));
+      setSelected(new Set());
+    } finally { setDeleting(false); }
+  }
+
+  function toggleSelect(id) {
+    setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === products.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(products.map(p => p.id)));
+    }
   }
 
   function onSaved(p) {
@@ -328,6 +358,9 @@ export default function ProductList() {
     return acc;
   }, {});
 
+  const allSelected = products.length > 0 && selected.size === products.length;
+  const someSelected = selected.size > 0 && !allSelected;
+
   return (
     <div className={styles.page}>
       <div className={styles.pageHeader}>
@@ -337,10 +370,22 @@ export default function ProductList() {
         </div>
         <div className={styles.headerActions}>
           <button className={styles.btnSecondary} onClick={() => exportCsv(products)}>⬇ Export CSV</button>
-          <button className={styles.btnSecondary} onClick={() => setImporting(true)}>⬆ Import CSV</button>
+          <button className={styles.btnSecondary} onClick={() => setImporting(true)}>⬆ Import</button>
           <button className={styles.btnPrimary} onClick={() => setAdding(true)}>+ Add Product</button>
         </div>
       </div>
+
+      {selected.size > 0 && (
+        <div className={styles.bulkBar}>
+          <span className={styles.bulkCount}>{selected.size} selected</span>
+          <button className={styles.btnSelectAll} onClick={toggleSelectAll}>
+            {allSelected ? 'Deselect all' : `Select all ${products.length}`}
+          </button>
+          <button className={styles.btnDeleteSelected} onClick={deleteSelected} disabled={deleting}>
+            {deleting ? 'Deleting…' : `🗑 Delete ${selected.size === products.length ? 'all' : selected.size}`}
+          </button>
+        </div>
+      )}
 
       <div className={styles.filters}>
         <input className={styles.searchInput} placeholder="Search products…" value={search}
@@ -367,6 +412,16 @@ export default function ProductList() {
             <div className={styles.categoryHeader}>{cat}</div>
             <div className={styles.table}>
               <div className={styles.tableHeader}>
+                <input type="checkbox" checked={items.every(p => selected.has(p.id))}
+                  ref={el => { if (el) el.indeterminate = items.some(p => selected.has(p.id)) && !items.every(p => selected.has(p.id)); }}
+                  onChange={() => {
+                    const allCatSelected = items.every(p => selected.has(p.id));
+                    setSelected(s => {
+                      const n = new Set(s);
+                      items.forEach(p => allCatSelected ? n.delete(p.id) : n.add(p.id));
+                      return n;
+                    });
+                  }} />
                 <span></span>
                 <span>Product</span>
                 <span>Supplier</span>
@@ -381,7 +436,8 @@ export default function ProductList() {
                   ? (((p.unit_price - p.cost_price) / p.unit_price) * 100).toFixed(1)
                   : null;
                 return (
-                  <div key={p.id} className={`${styles.tableRow} ${!p.is_active ? styles.inactive : ''}`}>
+                  <div key={p.id} className={`${styles.tableRow} ${!p.is_active ? styles.inactive : ''} ${selected.has(p.id) ? styles.rowSelected : ''}`}>
+                    <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelect(p.id)} onClick={e => e.stopPropagation()} />
                     <div className={styles.thumbCell}>
                       {p.media_base64
                         ? <img src={p.media_base64} alt="" className={styles.thumb} onClick={() => setLightbox(p.media_base64)} />
