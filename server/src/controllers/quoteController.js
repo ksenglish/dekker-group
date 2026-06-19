@@ -118,6 +118,14 @@ async function convertToInvoice(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+async function enrichItemsWithImages(items) {
+  const ids = items.map(i => i.product_id).filter(Boolean);
+  if (!ids.length) return items;
+  const { rows } = await pool.query(`SELECT id, media_base64 FROM products WHERE id = ANY($1)`, [ids]);
+  const map = Object.fromEntries(rows.map(r => [r.id, r.media_base64]));
+  return items.map(i => ({ ...i, media_base64: i.product_id ? (map[i.product_id] || null) : null }));
+}
+
 async function downloadPdf(req, res) {
   try {
     const { rows: [q] } = await pool.query(
@@ -128,11 +136,12 @@ async function downloadPdf(req, res) {
     );
     if (!q) return res.status(404).json({ error: 'Not found' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
+    const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     const pdf = await buildPDF({
       type: 'Quote', number: `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
-      items: items.rows, subtotal: q.subtotal, gst: q.gst, total: q.total,
+      items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, issuedAt: q.created_at, theme,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="quote-${q.id.slice(0,8)}.pdf"` });
@@ -151,11 +160,12 @@ async function sendEmail(req, res) {
     if (!q) return res.status(404).json({ error: 'Not found' });
     if (!q.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
+    const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     const pdf = await buildPDF({
       type: 'Quote', number: `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
-      items: items.rows, subtotal: q.subtotal, gst: q.gst, total: q.total,
+      items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, issuedAt: q.created_at, theme,
     });
     const totalNZD = `$${(q.total / 100).toFixed(2)}`;

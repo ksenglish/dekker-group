@@ -20,7 +20,7 @@ export default function ProductSearch({ value, onChange, placeholder }) {
   function handleChange(e) {
     const q = e.target.value;
     setQuery(q);
-    onChange({ description: q, unit_price: null, unit: null });
+    onChange({ description: q, unit_price: null, unit: null, product_id: null });
     if (timer) clearTimeout(timer);
     if (q.length < 1) { setResults([]); setOpen(false); return; }
     setTimer(setTimeout(async () => {
@@ -33,7 +33,7 @@ export default function ProductSearch({ value, onChange, placeholder }) {
   function select(p) {
     setQuery(p.name);
     setOpen(false);
-    onChange({ description: p.name, unit_price: p.unit_price / 100, unit: p.unit });
+    onChange({ description: p.name, unit_price: p.unit_price / 100, unit: p.unit, product_id: p.id });
   }
 
   return (
@@ -49,7 +49,13 @@ export default function ProductSearch({ value, onChange, placeholder }) {
         <div className={styles.productDropdown}>
           {results.map(p => (
             <div key={p.id} className={styles.productOption} onMouseDown={() => select(p)}>
-              <div>
+              <div className={styles.productOptionThumb}>
+                {p.media_base64
+                  ? <img src={p.media_base64} alt="" className={styles.productOptionImg} />
+                  : <div className={styles.productOptionImgPlaceholder}>📦</div>
+                }
+              </div>
+              <div style={{ flex: 1 }}>
                 <div className={styles.productOptionName}>{p.name}</div>
                 {p.category && <div className={styles.productOptionMeta}>{p.category} · {p.unit}</div>}
               </div>

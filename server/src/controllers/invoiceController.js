@@ -3,6 +3,14 @@ const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getTheme } = require('./settingsController');
 
+async function enrichItemsWithImages(items) {
+  const ids = items.map(i => i.product_id).filter(Boolean);
+  if (!ids.length) return items;
+  const { rows } = await pool.query(`SELECT id, media_base64 FROM products WHERE id = ANY($1)`, [ids]);
+  const map = Object.fromEntries(rows.map(r => [r.id, r.media_base64]));
+  return items.map(i => ({ ...i, media_base64: i.product_id ? (map[i.product_id] || null) : null }));
+}
+
 async function list(req, res) {
   const { status, customer, job } = req.query;
   const conditions = [];
@@ -79,11 +87,12 @@ async function downloadPdf(req, res) {
     );
     if (!inv) return res.status(404).json({ error: 'Not found' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [inv.job_id]);
+    const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     const pdf = await buildPDF({
       type: 'Invoice', number: `INV-${inv.id.slice(0,8).toUpperCase()}`,
       customer: { name: inv.customer_name, company: inv.customer_company, email: inv.customer_email, phone: inv.customer_phone },
-      items: items.rows, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
+      items: enrichedItems, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
       status: inv.status, dueDate: inv.due_date, notes: inv.notes, issuedAt: inv.created_at, theme,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="invoice-${inv.id.slice(0,8)}.pdf"` });
@@ -102,11 +111,12 @@ async function sendEmail(req, res) {
     if (!inv) return res.status(404).json({ error: 'Not found' });
     if (!inv.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [inv.job_id]);
+    const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     const pdf = await buildPDF({
       type: 'Invoice', number: `INV-${inv.id.slice(0,8).toUpperCase()}`,
       customer: { name: inv.customer_name, company: inv.customer_company, email: inv.customer_email, phone: inv.customer_phone },
-      items: items.rows, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
+      items: enrichedItems, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
       status: inv.status, dueDate: inv.due_date, notes: inv.notes, issuedAt: inv.created_at, theme,
     });
     const totalNZD = `$${(inv.total / 100).toFixed(2)}`;

@@ -30,6 +30,11 @@ function buildPDF({ type, number, customer, items, subtotal, gst, total, status,
   const t = { ...DEFAULT_THEME, ...theme };
   const BRAND = t.brandColour || '#1e40af';
 
+  // Determine if any item has a product image
+  const hasImages = (items || []).some(i => i.media_base64);
+  const IMG_COL = 36; // thumbnail width
+  const IMG_PAD = hasImages ? IMG_COL + 8 : 0;
+
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
     const chunks = [];
@@ -46,7 +51,6 @@ function buildPDF({ type, number, customer, items, subtotal, gst, total, status,
     if (!t.transparentHeader) {
       doc.rect(50, 50, W, 70).fill(BRAND);
     } else {
-      // Light separator line instead of coloured bar
       doc.rect(50, 50, W, 70).fill('#ffffff');
       doc.moveTo(50, 120).lineTo(50 + W, 120).strokeColor('#e2e8f0').lineWidth(1).stroke();
     }
@@ -112,10 +116,12 @@ function buildPDF({ type, number, customer, items, subtotal, gst, total, status,
 
     // ── Line items table ─────────────────────────────────────────
     const tableY = billY + 90;
-    const colDesc  = 50;
+    const colDesc  = 50 + IMG_PAD;
     const colQty   = 340;
     const colUnit  = 390;
     const colTotal = 460;
+    const descWidth = colQty - colDesc - 10;
+    const ROW_H = hasImages ? 42 : 20;
 
     doc.rect(50, tableY, W, 22).fill(BRAND);
     doc.fillColor('white').fontSize(9).font('Helvetica-Bold');
@@ -129,13 +135,25 @@ function buildPDF({ type, number, customer, items, subtotal, gst, total, status,
 
     (items || []).forEach((item, i) => {
       const lineTotal = item.unit_price * item.quantity;
-      if (i % 2 === 1) doc.rect(50, rowY, W, 20).fill(LIGHT_GREY);
+      if (i % 2 === 1) doc.rect(50, rowY, W, ROW_H).fill(LIGHT_GREY);
+
+      // Product thumbnail
+      if (hasImages) {
+        if (item.media_base64) {
+          try {
+            const buf = Buffer.from(item.media_base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+            doc.image(buf, 52, rowY + 3, { width: IMG_COL, height: IMG_COL, fit: [IMG_COL, IMG_COL] });
+          } catch { /* skip bad image */ }
+        }
+      }
+
+      const textY = hasImages ? rowY + 8 : rowY + 6;
       doc.fillColor(TEXT).fontSize(9)
-        .text(item.description || '', colDesc, rowY + 6, { width: 280 })
-        .text(String(item.quantity), colQty, rowY + 6, { width: 45, align: 'right' })
-        .text(formatNZD(item.unit_price), colUnit, rowY + 6, { width: 65, align: 'right' })
-        .text(formatNZD(lineTotal), colTotal, rowY + 6, { width: 65, align: 'right' });
-      rowY += 20;
+        .text(item.description || '', colDesc, textY, { width: descWidth })
+        .text(String(item.quantity), colQty,   textY, { width: 45, align: 'right' })
+        .text(formatNZD(item.unit_price), colUnit, textY, { width: 65, align: 'right' })
+        .text(formatNZD(lineTotal), colTotal,  textY, { width: 65, align: 'right' });
+      rowY += ROW_H;
     });
 
     doc.moveTo(50, rowY + 8).lineTo(50 + W, rowY + 8).strokeColor(LIGHT_GREY).lineWidth(1).stroke();

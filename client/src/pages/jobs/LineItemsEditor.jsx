@@ -16,7 +16,7 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
   }, [initialItems]);
 
   function addRow() {
-    setItems(i => [...i, { description: '', quantity: 1, unit_price: '0.00' }]);
+    setItems(i => [...i, { description: '', quantity: 1, unit_price: '0.00', product_id: null }]);
     setDirty(true);
   }
 
@@ -36,6 +36,7 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
       description: i.description,
       quantity: parseFloat(i.quantity) || 1,
       unit_price: parseFloat(i.unit_price) || 0,
+      product_id: i.product_id || null,
     })));
     setDirty(false);
     setSaving(false);
@@ -70,9 +71,14 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
             <>
               <ProductSearch
                 value={item.description}
-                onChange={({ description, unit_price, unit }) => {
-                  update(idx, 'description', description);
-                  if (unit_price !== null) update(idx, 'unit_price', unit_price.toFixed(2));
+                onChange={({ description, unit_price, unit, product_id }) => {
+                  setItems(its => its.map((row, j) => j !== idx ? row : {
+                    ...row,
+                    description,
+                    ...(unit_price !== null ? { unit_price: unit_price.toFixed(2) } : {}),
+                    product_id: product_id ?? row.product_id,
+                  }));
+                  setDirty(true);
                 }}
               />
               <input
