@@ -2,7 +2,7 @@ services:
   - type: web
     name: dekker-group
     runtime: node
-    buildCommand: npm install && npm install --prefix client && npm install --prefix server && npm run build --prefix client
+    buildCommand: npm install && cd client && npm install && npm run build && cd .. && cd server && npm install && cd ..
     startCommand: node server/src/index.js
     healthCheckPath: /api/health
     envVars:
