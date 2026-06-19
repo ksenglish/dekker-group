@@ -77,3 +77,10 @@
   text-transform: capitalize;
   white-space: nowrap;
 }
+
+@media (max-width: 768px) {
+  .page { padding: 12px; }
+  .statsGrid { grid-template-columns: repeat(2, 1fr); }
+  .recentRow { flex-wrap: wrap; gap: 4px; }
+  .recentDesc { display: none; }
+}

@@ -154,3 +154,39 @@
 }
 .btnSecondary:hover:not(:disabled) { background: #f1f5f9; }
 .btnSecondary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+@media (max-width: 768px) {
+  .page { padding: 12px; }
+  .pageHeader { flex-direction: column; gap: 10px; }
+  .headerActions { flex-wrap: wrap; }
+  .summaryGrid { grid-template-columns: repeat(2, 1fr); }
+
+  .tableHeader { display: none; }
+  .tableRow {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto auto auto;
+    gap: 4px 12px;
+    padding: 12px;
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    border: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border) !important;
+    box-shadow: var(--shadow-sm);
+  }
+  .docNum { grid-column: 1; grid-row: 1; }
+  .tableRow > :nth-child(2) { display: none; }
+  .tableRow > :nth-child(3) { grid-column: 1 / -1; grid-row: 2; font-weight: 500; }
+  .tableRow > :nth-child(4) { grid-column: 2; grid-row: 1; text-align: right; }
+  .tableRow > :nth-child(5),
+  .tableRow > :nth-child(6) { display: none; }
+  .tableRow > :nth-child(7) { grid-column: 1; grid-row: 3; font-weight: 600; }
+  .tableRow > :nth-child(8) { grid-column: 2; grid-row: 3; text-align: right; font-size: 12px; color: var(--color-text-muted); }
+
+  .detailLayout { grid-template-columns: 1fr; }
+  .lineHeader { display: none; }
+  .lineRow { grid-template-columns: 2fr 40px 90px; }
+  .lineRow > :last-child { display: none; }
+  .pipeline { flex-wrap: wrap; gap: 4px; }
+  .pipelineBtn { font-size: 12px; padding: 6px 12px; }
+  .breadcrumb { font-size: 12px; }
+}
