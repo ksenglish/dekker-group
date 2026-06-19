@@ -150,8 +150,8 @@ async function updateLineItems(req, res) {
     for (const item of items) {
       if (!item.description) continue;
       await client.query(
-        'INSERT INTO line_items (job_id, description, quantity, unit_price) VALUES ($1,$2,$3,$4)',
-        [req.params.id, item.description, item.quantity || 1, Math.round((item.unit_price || 0) * 100)]
+        'INSERT INTO line_items (job_id, description, quantity, unit_price, product_id) VALUES ($1,$2,$3,$4,$5)',
+        [req.params.id, item.description, item.quantity || 1, Math.round((item.unit_price || 0) * 100), item.product_id || null]
       );
     }
     await client.query('COMMIT');
