@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 mkdirSync('public/icons', { recursive: true });
 
 const svg = (size, rx) => `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${rx}" fill="#1e40af"/>
+  <rect width="${size}" height="${size}" rx="${rx}" fill="#000000"/>
   <text x="${size/2}" y="${size*0.57}" dominant-baseline="middle" text-anchor="middle"
     font-family="Helvetica Neue,Helvetica,Arial,sans-serif"
     font-weight="700" font-size="${Math.round(size*0.43)}" fill="white" letter-spacing="-2">DG</text>

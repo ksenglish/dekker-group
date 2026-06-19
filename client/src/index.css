@@ -5,9 +5,9 @@
 }
 
 :root {
-  --color-primary: #1e40af;
-  --color-primary-dark: #1e3a8a;
-  --color-primary-light: #dbeafe;
+  --color-primary: #000000;
+  --color-primary-dark: #1a1a1a;
+  --color-primary-light: #f1f1f1;
   --color-accent: #0ea5e9;
   --color-bg: #f8fafc;
   --color-surface: #ffffff;
