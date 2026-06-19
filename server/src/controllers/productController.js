@@ -31,26 +31,31 @@ async function get(req, res) {
 }
 
 async function create(req, res) {
-  const { name, description, category, unit, unit_price } = req.body;
+  const { name, description, category, unit, unit_price, supplier, cost_price, media_base64 } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO products (name, description, category, unit, unit_price)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [name, description || null, category || null, unit || 'each', Math.round((unit_price || 0) * 100)]
+      `INSERT INTO products (name, description, category, unit, unit_price, supplier, cost_price, media_base64)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [name, description || null, category || null, unit || 'each',
+       Math.round((unit_price || 0) * 100), supplier || null,
+       Math.round((cost_price || 0) * 100), media_base64 || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
 async function update(req, res) {
-  const { name, description, category, unit, unit_price, is_active } = req.body;
+  const { name, description, category, unit, unit_price, is_active, supplier, cost_price, media_base64 } = req.body;
   try {
     const { rows } = await pool.query(
       `UPDATE products SET name=$1, description=$2, category=$3, unit=$4,
-       unit_price=$5, is_active=$6, updated_at=NOW() WHERE id=$7 RETURNING *`,
+       unit_price=$5, is_active=$6, supplier=$7, cost_price=$8, media_base64=$9, updated_at=NOW()
+       WHERE id=$10 RETURNING *`,
       [name, description || null, category || null, unit || 'each',
-       Math.round((unit_price || 0) * 100), is_active !== false, req.params.id]
+       Math.round((unit_price || 0) * 100), is_active !== false,
+       supplier || null, Math.round((cost_price || 0) * 100),
+       media_base64 !== undefined ? media_base64 : null, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
@@ -71,7 +76,9 @@ async function importCsv(req, res) {
 
   const headers = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
   const idx = { name: headers.indexOf('name'), description: headers.indexOf('description'),
-    category: headers.indexOf('category'), unit: headers.indexOf('unit'), unit_price: headers.indexOf('unit_price') };
+    category: headers.indexOf('category'), unit: headers.indexOf('unit'),
+    unit_price: headers.indexOf('unit_price'), cost_price: headers.indexOf('cost_price'),
+    supplier: headers.indexOf('supplier') };
 
   if (idx.name === -1) return res.status(400).json({ error: 'CSV must have a "name" column' });
 
@@ -82,13 +89,16 @@ async function importCsv(req, res) {
     if (!name) continue;
     try {
       await pool.query(
-        `INSERT INTO products (name, description, category, unit, unit_price)
-         VALUES ($1,$2,$3,$4,$5)
+        `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT DO NOTHING`,
-        [name, idx.description > -1 ? cols[idx.description] || null : null,
+        [name,
+         idx.description > -1 ? cols[idx.description] || null : null,
          idx.category > -1 ? cols[idx.category] || null : null,
          idx.unit > -1 ? cols[idx.unit] || 'each' : 'each',
-         Math.round(parseFloat(idx.unit_price > -1 ? cols[idx.unit_price] || 0 : 0) * 100)]
+         Math.round(parseFloat(idx.unit_price > -1 ? cols[idx.unit_price] || 0 : 0) * 100),
+         Math.round(parseFloat(idx.cost_price > -1 ? cols[idx.cost_price] || 0 : 0) * 100),
+         idx.supplier > -1 ? cols[idx.supplier] || null : null]
       );
       results.imported++;
     } catch (e) { results.errors.push(`Row ${i}: ${e.message}`); }

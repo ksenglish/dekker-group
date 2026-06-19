@@ -3,8 +3,39 @@ import api from '../../lib/api';
 import styles from './Products.module.css';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
 const UNITS = ['each', 'hr', 'm', 'm²', 'kg', 'L', 'day', 'kit', 'set'];
+
+function ImageUpload({ value, onChange }) {
+  const ref = useRef();
+
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type))
+      return alert('Please upload a JPG or PNG image.');
+    if (file.size > 2 * 1024 * 1024)
+      return alert('Image must be under 2MB.');
+    const reader = new FileReader();
+    reader.onload = ev => onChange(ev.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <div className={styles.imageUpload}>
+      {value ? (
+        <div className={styles.imagePreviewWrap}>
+          <img src={value} alt="Product" className={styles.imagePreview} />
+          <button type="button" className={styles.imageRemove} onClick={() => onChange('')}>✕ Remove</button>
+        </div>
+      ) : (
+        <button type="button" className={styles.imagePickBtn} onClick={() => ref.current.click()}>
+          📷 Upload Image (JPG / PNG)
+        </button>
+      )}
+      <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={handleFile} />
+    </div>
+  );
+}
 
 function ProductModal({ product, onSave, onClose }) {
   const [form, setForm] = useState({
@@ -13,6 +44,9 @@ function ProductModal({ product, onSave, onClose }) {
     category: product?.category || '',
     unit: product?.unit || 'each',
     unit_price: product ? (product.unit_price / 100).toFixed(2) : '',
+    cost_price: product ? (product.cost_price / 100).toFixed(2) : '',
+    supplier: product?.supplier || '',
+    media_base64: product?.media_base64 || '',
     is_active: product?.is_active !== false,
   });
   const [saving, setSaving] = useState(false);
@@ -20,16 +54,24 @@ function ProductModal({ product, onSave, onClose }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const margin = (() => {
+    const sell = parseFloat(form.unit_price) || 0;
+    const cost = parseFloat(form.cost_price) || 0;
+    if (!sell || !cost) return null;
+    return (((sell - cost) / sell) * 100).toFixed(1);
+  })();
+
   async function save(e) {
     e.preventDefault();
     if (!form.name.trim()) return setErr('Name is required');
     setSaving(true); setErr('');
     try {
+      const payload = { ...form };
       if (product) {
-        const { data } = await api.put(`/products/${product.id}`, form);
+        const { data } = await api.put(`/products/${product.id}`, payload);
         onSave(data);
       } else {
-        const { data } = await api.post('/products', form);
+        const { data } = await api.post('/products', payload);
         onSave(data);
       }
     } catch (e) { setErr(e.response?.data?.error || 'Save failed'); setSaving(false); }
@@ -44,6 +86,7 @@ function ProductModal({ product, onSave, onClose }) {
         </div>
         <form onSubmit={save} className={styles.modalBody}>
           {err && <div className={styles.formError}>{err}</div>}
+
           <div className={styles.formGrid}>
             <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
               <label>Product Name *</label>
@@ -51,11 +94,15 @@ function ProductModal({ product, onSave, onClose }) {
             </div>
             <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
               <label>Description</label>
-              <textarea rows={2} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Optional additional detail shown on quotes/invoices" />
+              <textarea rows={2} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Optional detail shown on quotes/invoices" />
             </div>
             <div className={styles.formGroup}>
               <label>Category</label>
               <input value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. Installation, Parts, Labour" />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Supplier</label>
+              <input value={form.supplier} onChange={e => set('supplier', e.target.value)} placeholder="e.g. Daikin NZ, Mitsubishi Electric" />
             </div>
             <div className={styles.formGroup}>
               <label>Unit</label>
@@ -64,15 +111,34 @@ function ProductModal({ product, onSave, onClose }) {
               </select>
             </div>
             <div className={styles.formGroup}>
-              <label>Unit Price (excl. GST)</label>
+              <label>Sell Price excl. GST</label>
               <input type="number" min="0" step="0.01" value={form.unit_price}
                 onChange={e => set('unit_price', e.target.value)} placeholder="0.00" />
             </div>
-            <div className={styles.formGroup} style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 24 }}>
-              <input type="checkbox" id="is_active" checked={form.is_active} onChange={e => set('is_active', e.target.checked)} />
-              <label htmlFor="is_active" style={{ marginBottom: 0 }}>Active (shows in search)</label>
+            <div className={styles.formGroup}>
+              <label>Cost Price excl. GST</label>
+              <input type="number" min="0" step="0.01" value={form.cost_price}
+                onChange={e => set('cost_price', e.target.value)} placeholder="0.00" />
+            </div>
+            <div className={styles.formGroup} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', paddingBottom: 2 }}>
+              {margin !== null && (
+                <div className={styles.marginBadge}>
+                  Margin: <strong>{margin}%</strong>
+                </div>
+              )}
             </div>
           </div>
+
+          <div className={styles.formGroup}>
+            <label>Product Image</label>
+            <ImageUpload value={form.media_base64} onChange={v => set('media_base64', v)} />
+          </div>
+
+          <div className={styles.formGroup} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" id="is_active" checked={form.is_active} onChange={e => set('is_active', e.target.checked)} />
+            <label htmlFor="is_active" style={{ marginBottom: 0 }}>Active (shows in search)</label>
+          </div>
+
           <div className={styles.modalFooter}>
             <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
             <button type="submit" className={styles.btnPrimary} disabled={saving}>{saving ? 'Saving…' : 'Save Product'}</button>
@@ -116,7 +182,7 @@ function ImportModal({ onDone, onClose }) {
         </div>
         <div className={styles.modalBody}>
           <p className={styles.importNote}>
-            CSV must have a header row with columns: <code>name</code>, <code>description</code>, <code>category</code>, <code>unit</code>, <code>unit_price</code> (dollars, excl. GST)
+            CSV columns: <code>name</code>, <code>description</code>, <code>category</code>, <code>supplier</code>, <code>unit</code>, <code>unit_price</code>, <code>cost_price</code> (dollar values excl. GST)
           </p>
           <div className={styles.formGroup}>
             <label>Upload CSV file</label>
@@ -124,7 +190,7 @@ function ImportModal({ onDone, onClose }) {
           </div>
           {csv && (
             <div className={styles.formGroup}>
-              <label>Preview ({csv.split('\n').length - 1} data rows)</label>
+              <label>Preview ({csv.split('\n').filter(Boolean).length - 1} rows)</label>
               <textarea readOnly rows={6} value={csv} className={styles.csvPreview} />
             </div>
           )}
@@ -146,6 +212,22 @@ function ImportModal({ onDone, onClose }) {
   );
 }
 
+function exportCsv(products) {
+  const headers = ['name', 'description', 'category', 'supplier', 'unit', 'unit_price', 'cost_price', 'is_active'];
+  const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = products.map(p => [
+    escape(p.name), escape(p.description), escape(p.category), escape(p.supplier),
+    escape(p.unit), escape((p.unit_price / 100).toFixed(2)), escape((p.cost_price / 100).toFixed(2)),
+    escape(p.is_active ? 'yes' : 'no'),
+  ].join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'dekker-price-list.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function ProductList() {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -156,6 +238,7 @@ export default function ProductList() {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -176,7 +259,7 @@ export default function ProductList() {
   useEffect(() => { load(); }, [search, category, showInactive]);
 
   async function deleteProduct(p) {
-    if (!confirm(`Delete "${p.name}"? This cannot be undone.`)) return;
+    if (!confirm(`Delete "${p.name}"?`)) return;
     await api.delete(`/products/${p.id}`);
     setProducts(ps => ps.filter(x => x.id !== p.id));
   }
@@ -205,6 +288,7 @@ export default function ProductList() {
           <p className={styles.pageSubtitle}>{products.length} product{products.length !== 1 ? 's' : ''}</p>
         </div>
         <div className={styles.headerActions}>
+          <button className={styles.btnSecondary} onClick={() => exportCsv(products)}>⬇ Export CSV</button>
           <button className={styles.btnSecondary} onClick={() => setImporting(true)}>⬆ Import CSV</button>
           <button className={styles.btnPrimary} onClick={() => setAdding(true)}>+ Add Product</button>
         </div>
@@ -235,27 +319,50 @@ export default function ProductList() {
             <div className={styles.categoryHeader}>{cat}</div>
             <div className={styles.table}>
               <div className={styles.tableHeader}>
+                <span></span>
                 <span>Product</span>
+                <span>Supplier</span>
                 <span>Unit</span>
-                <span style={{ textAlign: 'right' }}>Unit Price</span>
-                <span style={{ textAlign: 'right' }}>Inc. GST</span>
+                <span style={{ textAlign: 'right' }}>Cost</span>
+                <span style={{ textAlign: 'right' }}>Sell (ex GST)</span>
+                <span style={{ textAlign: 'right' }}>Margin</span>
                 <span></span>
               </div>
-              {items.map(p => (
-                <div key={p.id} className={`${styles.tableRow} ${!p.is_active ? styles.inactive : ''}`}>
-                  <div>
-                    <div className={styles.productName}>{p.name} {!p.is_active && <span className={styles.inactiveBadge}>Inactive</span>}</div>
-                    {p.description && <div className={styles.productDesc}>{p.description}</div>}
+              {items.map(p => {
+                const margin = p.unit_price && p.cost_price
+                  ? (((p.unit_price - p.cost_price) / p.unit_price) * 100).toFixed(1)
+                  : null;
+                return (
+                  <div key={p.id} className={`${styles.tableRow} ${!p.is_active ? styles.inactive : ''}`}>
+                    <div className={styles.thumbCell}>
+                      {p.media_base64
+                        ? <img src={p.media_base64} alt="" className={styles.thumb} onClick={() => setLightbox(p.media_base64)} />
+                        : <div className={styles.thumbPlaceholder}>📦</div>
+                      }
+                    </div>
+                    <div>
+                      <div className={styles.productName}>{p.name} {!p.is_active && <span className={styles.inactiveBadge}>Inactive</span>}</div>
+                      {p.description && <div className={styles.productDesc}>{p.description}</div>}
+                    </div>
+                    <div className={styles.supplierCol}>{p.supplier || <span className={styles.muted}>—</span>}</div>
+                    <div>{p.unit}</div>
+                    <div style={{ textAlign: 'right', color: 'var(--color-text-muted)' }}>
+                      {p.cost_price ? fmt(p.cost_price) : <span className={styles.muted}>—</span>}
+                    </div>
+                    <div style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(p.unit_price)}</div>
+                    <div style={{ textAlign: 'right' }}>
+                      {margin !== null
+                        ? <span className={parseFloat(margin) >= 30 ? styles.marginGood : styles.marginLow}>{margin}%</span>
+                        : <span className={styles.muted}>—</span>
+                      }
+                    </div>
+                    <div className={styles.rowActions}>
+                      <button className={styles.btnIcon} onClick={() => setEditing(p)} title="Edit">✏</button>
+                      <button className={styles.btnIcon} onClick={() => deleteProduct(p)} title="Delete">🗑</button>
+                    </div>
                   </div>
-                  <div>{p.unit}</div>
-                  <div style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(p.unit_price)}</div>
-                  <div style={{ textAlign: 'right', color: 'var(--color-text-muted)' }}>{fmt(Math.round(p.unit_price * 1.15))}</div>
-                  <div className={styles.rowActions}>
-                    <button className={styles.btnIcon} onClick={() => setEditing(p)} title="Edit">✏</button>
-                    <button className={styles.btnIcon} onClick={() => deleteProduct(p)} title="Delete">🗑</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))
@@ -265,6 +372,13 @@ export default function ProductList() {
         <ProductModal product={editing} onSave={onSaved} onClose={() => { setAdding(false); setEditing(null); }} />
       )}
       {importing && <ImportModal onDone={load} onClose={() => setImporting(false)} />}
+
+      {lightbox && (
+        <div className={styles.lightbox} onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="Product" className={styles.lightboxImg} />
+          <button className={styles.lightboxClose}>✕</button>
+        </div>
+      )}
     </div>
   );
 }
