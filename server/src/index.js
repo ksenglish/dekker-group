@@ -14,6 +14,7 @@ const scheduleRoutes = require('./routes/schedules');
 const quoteRoutes = require('./routes/quotes');
 const invoiceRoutes = require('./routes/invoices');
 const settingsRoutes = require('./routes/settings');
+const productRoutes = require('./routes/products');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -33,6 +34,7 @@ app.use('/api/schedules', scheduleRoutes);
 app.use('/api/quotes', quoteRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/products', productRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {

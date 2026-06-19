@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import styles from './Jobs.module.css';
+import ProductSearch from '../../components/products/ProductSearch';
 
 export default function LineItemsEditor({ items: initialItems, onSave, readonly }) {
   const [items, setItems] = useState([]);
@@ -67,10 +68,12 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
             </>
           ) : (
             <>
-              <input
+              <ProductSearch
                 value={item.description}
-                onChange={e => update(idx, 'description', e.target.value)}
-                placeholder="e.g. Daikin 3.5kW heat pump unit"
+                onChange={({ description, unit_price, unit }) => {
+                  update(idx, 'description', description);
+                  if (unit_price !== null) update(idx, 'unit_price', unit_price.toFixed(2));
+                }}
               />
               <input
                 type="number" min="0.01" step="0.01"
