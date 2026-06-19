@@ -150,12 +150,15 @@ function ProductModal({ product, onSave, onClose }) {
 }
 
 function ImportModal({ onDone, onClose }) {
+  const [tab, setTab] = useState('zip'); // 'zip' | 'csv'
   const [csv, setCsv] = useState('');
+  const [zipFile, setZipFile] = useState(null);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
-  const fileRef = useRef();
+  const csvRef = useRef();
+  const zipRef = useRef();
 
-  function loadFile(e) {
+  function loadCsv(e) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -164,45 +167,90 @@ function ImportModal({ onDone, onClose }) {
   }
 
   async function doImport() {
-    setLoading(true);
+    setLoading(true); setResult(null);
     try {
-      const { data } = await api.post('/products/import', { csv });
-      setResult(data);
-      if (data.imported > 0) onDone();
+      if (tab === 'zip') {
+        const fd = new FormData();
+        fd.append('file', zipFile);
+        const { data } = await api.post('/products/import-zip', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+        setResult(data);
+        if (data.imported > 0) onDone();
+      } else {
+        const { data } = await api.post('/products/import', { csv });
+        setResult(data);
+        if (data.imported > 0) onDone();
+      }
     } catch (e) { setResult({ imported: 0, errors: [e.response?.data?.error || 'Import failed'] }); }
     setLoading(false);
   }
+
+  const canImport = tab === 'zip' ? !!zipFile : !!csv;
 
   return (
     <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
-          <h2>Import Products from CSV</h2>
+          <h2>Import Products</h2>
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
         <div className={styles.modalBody}>
-          <p className={styles.importNote}>
-            CSV columns: <code>name</code>, <code>description</code>, <code>category</code>, <code>supplier</code>, <code>unit</code>, <code>unit_price</code>, <code>cost_price</code> (dollar values excl. GST)
-          </p>
-          <div className={styles.formGroup}>
-            <label>Upload CSV file</label>
-            <input type="file" accept=".csv,text/csv" ref={fileRef} onChange={loadFile} />
+          {/* Tab switcher */}
+          <div className={styles.importTabs}>
+            <button className={`${styles.importTab} ${tab === 'zip' ? styles.importTabActive : ''}`} onClick={() => { setTab('zip'); setResult(null); }}>
+              📦 ZIP with Images
+            </button>
+            <button className={`${styles.importTab} ${tab === 'csv' ? styles.importTabActive : ''}`} onClick={() => { setTab('csv'); setResult(null); }}>
+              📄 CSV only
+            </button>
           </div>
-          {csv && (
-            <div className={styles.formGroup}>
-              <label>Preview ({csv.split('\n').filter(Boolean).length - 1} rows)</label>
-              <textarea readOnly rows={6} value={csv} className={styles.csvPreview} />
-            </div>
+
+          {tab === 'zip' ? (
+            <>
+              <div className={styles.importNote}>
+                <p>Create a <strong>.zip</strong> file containing:</p>
+                <ul style={{ marginTop: 6, paddingLeft: 20, lineHeight: 1.8 }}>
+                  <li>A file called <code>products.csv</code> with columns:<br />
+                    <code>name, description, category, supplier, unit, unit_price, cost_price, image</code></li>
+                  <li>Your product images (JPG/PNG) in the same ZIP</li>
+                  <li>The <code>image</code> column should match the exact filename, e.g. <code>daikin-25kw.jpg</code></li>
+                </ul>
+              </div>
+              <div className={styles.formGroup}>
+                <label>Upload ZIP file (max 50MB)</label>
+                <input type="file" accept=".zip,application/zip" ref={zipRef}
+                  onChange={e => { setZipFile(e.target.files[0] || null); setResult(null); }} />
+              </div>
+              {zipFile && <p className={styles.importNote}>Ready: <strong>{zipFile.name}</strong> ({(zipFile.size / 1024 / 1024).toFixed(1)} MB)</p>}
+            </>
+          ) : (
+            <>
+              <p className={styles.importNote}>
+                CSV columns: <code>name</code>, <code>description</code>, <code>category</code>, <code>supplier</code>, <code>unit</code>, <code>unit_price</code>, <code>cost_price</code> (dollar values excl. GST). No images.
+              </p>
+              <div className={styles.formGroup}>
+                <label>Upload CSV file</label>
+                <input type="file" accept=".csv,text/csv" ref={csvRef} onChange={loadCsv} />
+              </div>
+              {csv && (
+                <div className={styles.formGroup}>
+                  <label>Preview ({csv.split('\n').filter(Boolean).length - 1} rows)</label>
+                  <textarea readOnly rows={5} value={csv} className={styles.csvPreview} />
+                </div>
+              )}
+            </>
           )}
+
           {result && (
-            <div className={result.errors.length ? styles.formError : styles.formSuccess}>
-              {result.imported} products imported.
-              {result.errors.length > 0 && <div>{result.errors.join(', ')}</div>}
+            <div className={result.errors?.length ? styles.formError : styles.formSuccess}>
+              ✓ {result.imported} product{result.imported !== 1 ? 's' : ''} imported
+              {result.imagesFound !== undefined && ` · ${result.imagesFound} image${result.imagesFound !== 1 ? 's' : ''} found`}
+              {result.errors?.length > 0 && <div style={{ marginTop: 4 }}>{result.errors.slice(0,5).join(', ')}</div>}
             </div>
           )}
+
           <div className={styles.modalFooter}>
             <button className={styles.btnSecondary} onClick={onClose}>Close</button>
-            <button className={styles.btnPrimary} disabled={!csv || loading} onClick={doImport}>
+            <button className={styles.btnPrimary} disabled={!canImport || loading} onClick={doImport}>
               {loading ? 'Importing…' : 'Import'}
             </button>
           </div>

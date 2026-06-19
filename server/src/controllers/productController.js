@@ -1,4 +1,5 @@
 const pool = require('../db/pool');
+const AdmZip = require('adm-zip');
 
 async function list(req, res) {
   const { search, category, active } = req.query;
@@ -106,6 +107,91 @@ async function importCsv(req, res) {
   res.json(results);
 }
 
+async function importZip(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No ZIP file uploaded' });
+
+  const results = { imported: 0, updated: 0, errors: [] };
+
+  try {
+    const zip = new AdmZip(req.file.buffer);
+    const entries = zip.getEntries();
+
+    // Find CSV file
+    const csvEntry = entries.find(e => e.entryName.match(/\.csv$/i) && !e.entryName.startsWith('__MACOSX'));
+    if (!csvEntry) return res.status(400).json({ error: 'No CSV file found in ZIP' });
+
+    // Build image map: filename (lowercase) → base64 data URL
+    const images = {};
+    const IMAGE_EXTS = /\.(jpg|jpeg|png|webp)$/i;
+    for (const entry of entries) {
+      if (entry.isDirectory) continue;
+      const fname = entry.entryName.split('/').pop(); // strip folder prefix
+      if (!IMAGE_EXTS.test(fname)) continue;
+      const ext = fname.split('.').pop().toLowerCase();
+      const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+      const b64 = entry.getData().toString('base64');
+      images[fname.toLowerCase()] = `data:${mime};base64,${b64}`;
+    }
+
+    // Parse CSV
+    const csvText = csvEntry.getData().toString('utf8');
+    const lines = csvText.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length < 2) return res.status(400).json({ error: 'CSV must have a header row and at least one product' });
+
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
+    const col = name => headers.indexOf(name);
+
+    if (col('name') === -1) return res.status(400).json({ error: 'CSV must have a "name" column' });
+
+    for (let i = 1; i < lines.length; i++) {
+      // Handle quoted fields with commas
+      const cols = [];
+      let current = '';
+      let inQuote = false;
+      for (const ch of lines[i]) {
+        if (ch === '"') { inQuote = !inQuote; }
+        else if (ch === ',' && !inQuote) { cols.push(current.trim()); current = ''; }
+        else { current += ch; }
+      }
+      cols.push(current.trim());
+
+      const get = name => col(name) > -1 ? (cols[col(name)] || '').replace(/"/g, '').trim() : '';
+      const name = get('name');
+      if (!name) continue;
+
+      const imageFilename = get('image').toLowerCase();
+      const media_base64 = imageFilename && images[imageFilename] ? images[imageFilename] : null;
+
+      try {
+        const { rowCount } = await pool.query(
+          `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier, media_base64)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT DO NOTHING`,
+          [
+            name,
+            get('description') || null,
+            get('category') || null,
+            get('unit') || 'each',
+            Math.round(parseFloat(get('unit_price') || 0) * 100),
+            Math.round(parseFloat(get('cost_price') || 0) * 100),
+            get('supplier') || null,
+            media_base64,
+          ]
+        );
+        if (rowCount > 0) results.imported++;
+        else results.updated++;
+      } catch (e) {
+        results.errors.push(`Row ${i}: ${e.message}`);
+      }
+    }
+
+    res.json({ ...results, imagesFound: Object.keys(images).length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'ZIP import failed' });
+  }
+}
+
 async function categories(req, res) {
   try {
     const { rows } = await pool.query(
@@ -115,4 +201,4 @@ async function categories(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, remove, importCsv, categories };
+module.exports = { list, get, create, update, remove, importCsv, importZip, categories };

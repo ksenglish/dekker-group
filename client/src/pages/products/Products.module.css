@@ -133,7 +133,15 @@
 .formError { background: #fef2f2; border: 1px solid #fecaca; color: var(--color-error); padding: 10px 14px; border-radius: var(--radius); font-size: 13px; }
 .formSuccess { background: #f0fdf4; border: 1px solid #bbf7d0; color: var(--color-success); padding: 10px 14px; border-radius: var(--radius); font-size: 13px; }
 
-.importNote { font-size: 13px; color: var(--color-text-muted); line-height: 1.5; }
+.importNote { font-size: 13px; color: var(--color-text-muted); line-height: 1.6; }
+.importTabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.importTab {
+  flex: 1; padding: 9px 12px; border: 1.5px solid var(--color-border);
+  border-radius: var(--radius); background: none; font-size: 13px; font-weight: 500;
+  cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;
+}
+.importTab:hover { border-color: var(--color-primary); color: var(--color-text); }
+.importTabActive { border-color: var(--color-primary); background: var(--color-primary-light); color: var(--color-primary); font-weight: 600; }
 .importNote code { background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
 .csvPreview { font-family: monospace; font-size: 12px; resize: vertical; width: 100%; }
 
