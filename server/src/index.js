@@ -4,6 +4,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const pool = require('./db/pool');
+const { runMigrations } = require('./db/migrate');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -51,6 +52,14 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Dekker Group server running on http://localhost:${PORT}`);
-});
+async function start() {
+  if (process.env.NODE_ENV === 'production') {
+    console.log('Running migrations…');
+    await runMigrations();
+  }
+  app.listen(PORT, () => {
+    console.log(`Dekker Group server running on http://localhost:${PORT}`);
+  });
+}
+
+start().catch(err => { console.error('Startup failed:', err); process.exit(1); });
