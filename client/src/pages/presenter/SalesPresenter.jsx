@@ -207,20 +207,18 @@ function SmartVentLiteCalculator() {
   const houseSize = parseInt(m2) || 0;
   const numOutlets = parseInt(outlets) || 0;
 
-  const match = houseSize > 0 && numOutlets > 0
+  const exactMatch = houseSize > 0 && numOutlets > 0
     ? SMARTVENT_LITE_TABLE.find(r =>
         houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets
       )
     : null;
 
-  // Find valid outlet range for the entered house size
-  const validRows = houseSize > 0
-    ? SMARTVENT_LITE_TABLE.filter(r => houseSize >= r.houseMin && houseSize <= r.houseMax)
-    : [];
-  const outletOptions = validRows.map(r => r.outlets);
-  const outletHint = outletOptions.length > 0
-    ? `${Math.min(...outletOptions)}–${Math.max(...outletOptions)} outlets for this house size`
+  // Fallback: match on outlets only if no exact match
+  const outletOnlyMatch = !exactMatch && numOutlets > 0
+    ? SMARTVENT_LITE_TABLE.find(r => numOutlets === r.outlets)
     : null;
+
+  const match = exactMatch || outletOnlyMatch;
 
   return (
     <div className={styles.calc}>
@@ -239,12 +237,6 @@ function SmartVentLiteCalculator() {
       </div>
       {houseSize > 560 && (
         <div className={styles.calcNote}>House size exceeds SmartVent Lite+ range (max 560 m²). Please contact us for a custom solution.</div>
-      )}
-      {houseSize > 0 && houseSize <= 560 && numOutlets > 0 && !match && (
-        <div className={styles.calcNote}>
-          No match for {houseSize} m² with {numOutlets} outlets.
-          {outletHint ? ` Valid range: ${outletHint}.` : ''}
-        </div>
       )}
       {match && (
         <div className={styles.calcResult}>
