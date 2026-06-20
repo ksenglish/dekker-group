@@ -13,10 +13,37 @@ export default function InvoiceDetail() {
   const [saving, setSaving] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [payments, setPayments] = useState([]);
+  const [payForm, setPayForm] = useState({ amount: '', method: 'bank_transfer', reference: '', paid_at: new Date().toISOString().slice(0, 10) });
+  const [addingPayment, setAddingPayment] = useState(false);
+  const [showPayForm, setShowPayForm] = useState(false);
 
   useEffect(() => {
     api.get(`/invoices/${id}`).then(r => setInvoice(r.data)).finally(() => setLoading(false));
+    api.get(`/invoices/${id}/payments`).then(r => setPayments(r.data)).catch(() => {});
   }, [id]);
+
+  async function addPayment(e) {
+    e.preventDefault();
+    setAddingPayment(true);
+    try {
+      const { data } = await api.post(`/invoices/${id}/payments`, payForm);
+      setPayments(p => [data, ...p]);
+      setPayForm({ amount: '', method: 'bank_transfer', reference: '', paid_at: new Date().toISOString().slice(0, 10) });
+      setShowPayForm(false);
+      // Refresh invoice to get updated status
+      api.get(`/invoices/${id}`).then(r => setInvoice(r.data));
+      flash('success', 'Payment recorded');
+    } catch (e) { flash('error', e.response?.data?.error || 'Failed'); }
+    finally { setAddingPayment(false); }
+  }
+
+  async function deletePayment(payId) {
+    await api.delete(`/invoices/${id}/payments/${payId}`);
+    setPayments(p => p.filter(x => x.id !== payId));
+  }
+
+  const totalPaid = payments.reduce((s, p) => s + parseInt(p.amount || 0), 0);
 
   function flash(type, text) { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); }
 
@@ -108,6 +135,67 @@ export default function InvoiceDetail() {
                 flash('success', 'Notes saved');
               }}>Save Notes</button>
             </div>
+          </div>
+
+          {/* Payments */}
+          <div className={styles.card}>
+            <div className={styles.cardHeader} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h2>Payments {totalPaid > 0 && `— ${((invoice.total - totalPaid) / 100).toFixed(2)} remaining`}</h2>
+              {invoice.status !== 'paid' && (
+                <button className={styles.btnSmall} onClick={() => setShowPayForm(f => !f)}>+ Record Payment</button>
+              )}
+            </div>
+            {showPayForm && (
+              <form onSubmit={addPayment} style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 3 }}>Amount ($)</div>
+                  <input type="number" step="0.01" min="0" value={payForm.amount} onChange={e => setPayForm(f => ({...f, amount: e.target.value}))}
+                    placeholder={`${(invoice.total - totalPaid) / 100}`} required style={{ width: 100, padding: '7px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13, fontFamily: 'inherit' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 3 }}>Method</div>
+                  <select value={payForm.method} onChange={e => setPayForm(f => ({...f, method: e.target.value}))}
+                    style={{ padding: '7px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13 }}>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="cash">Cash</option>
+                    <option value="credit_card">Credit Card</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 3 }}>Reference</div>
+                  <input value={payForm.reference} onChange={e => setPayForm(f => ({...f, reference: e.target.value}))}
+                    placeholder="e.g. bank ref" style={{ padding: '7px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13, fontFamily: 'inherit' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 3 }}>Date</div>
+                  <input type="date" value={payForm.paid_at} onChange={e => setPayForm(f => ({...f, paid_at: e.target.value}))}
+                    style={{ padding: '7px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13, fontFamily: 'inherit' }} />
+                </div>
+                <button type="submit" disabled={addingPayment} className={styles.btnPrimary} style={{ height: 34 }}>
+                  {addingPayment ? '…' : 'Save'}
+                </button>
+                <button type="button" className={styles.btnSecondary} style={{ height: 34 }} onClick={() => setShowPayForm(false)}>Cancel</button>
+              </form>
+            )}
+            {payments.length === 0 && !showPayForm ? (
+              <div className={styles.emptySmall}>No payments recorded yet.</div>
+            ) : payments.map(p => (
+              <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '90px 110px 1fr 100px 28px', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--color-border)', fontSize: 13, alignItems: 'center' }}>
+                <strong style={{ color: '#16a34a' }}>${(parseInt(p.amount) / 100).toFixed(2)}</strong>
+                <span style={{ textTransform: 'capitalize' }}>{p.method?.replace('_', ' ')}</span>
+                <span style={{ color: 'var(--color-text-muted)' }}>{p.reference || '—'}</span>
+                <span style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>{new Date(p.paid_at).toLocaleDateString('en-NZ')}</span>
+                <button onClick={() => deletePayment(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: 14 }}>✕</button>
+              </div>
+            ))}
+            {totalPaid > 0 && (
+              <div style={{ padding: '10px 16px', fontSize: 13, display: 'flex', justifyContent: 'space-between', background: '#f8fafc', borderTop: '2px solid var(--color-border)' }}>
+                <span>Total Paid</span>
+                <strong style={{ color: '#16a34a' }}>${(totalPaid / 100).toFixed(2)} of ${(invoice.total / 100).toFixed(2)}</strong>
+              </div>
+            )}
           </div>
 
           <div className={styles.card}>
