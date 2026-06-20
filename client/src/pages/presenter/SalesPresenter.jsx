@@ -81,46 +81,51 @@ function LinearCalculator({ product }) {
 }
 
 function HeatpumpCalculator({ product }) {
-  const [roomSize, setRoomSize] = useState('');
+  const [m2, setM2] = useState('');
+  const [ceilingHeight, setCeilingHeight] = useState('2.4');
   const [insulation, setInsulation] = useState('average');
-  const [stories, setStories] = useState('1');
   const basePrice = product.price_from / 100 || 0;
 
-  const multiplier = { poor: 1.3, average: 1.0, good: 0.8 }[insulation] || 1;
-  const storyMult = stories === '2' ? 1.1 : 1;
-  const m2 = parseFloat(roomSize) || 0;
-  const kw = m2 > 0 ? ((m2 * 0.07 * multiplier * storyMult)).toFixed(1) : null;
-  const total = basePrice > 0 ? basePrice * storyMult * (insulation === 'poor' ? 1.1 : insulation === 'good' ? 0.95 : 1) : 0;
+  const kwMultiplier = { good: 0.05, average: 0.055, poor: 0.06 }[insulation];
+  const m3 = (parseFloat(m2) || 0) * (parseFloat(ceilingHeight) || 0);
+  const kw = m3 > 0 ? (m3 * kwMultiplier).toFixed(2) : null;
+  const total = basePrice > 0 ? basePrice * (insulation === 'poor' ? 1.1 : insulation === 'good' ? 0.95 : 1) : 0;
 
   return (
     <div className={styles.calc}>
-      <h3 className={styles.calcTitle}>Heat Pump Sizing</h3>
+      <h3 className={styles.calcTitle}>Heat Pump Sizing Calculator</h3>
       <div className={styles.calcGrid}>
         <div className={styles.calcField}>
-          <label>Room Area (m²)</label>
-          <input type="number" value={roomSize} onChange={e => setRoomSize(e.target.value)} placeholder="e.g. 30" />
+          <label>Floor Area (m²)</label>
+          <input type="number" value={m2} onChange={e => setM2(e.target.value)} placeholder="e.g. 30" min="0" />
         </div>
         <div className={styles.calcField}>
-          <label>Insulation</label>
-          <select value={insulation} onChange={e => setInsulation(e.target.value)}>
-            <option value="good">Good (modern home)</option>
-            <option value="average">Average</option>
-            <option value="poor">Poor (older home)</option>
+          <label>Ceiling Height (m)</label>
+          <select value={ceilingHeight} onChange={e => setCeilingHeight(e.target.value)}>
+            <option value="2.1">2.1 m (low)</option>
+            <option value="2.4">2.4 m (standard)</option>
+            <option value="2.7">2.7 m (high stud)</option>
+            <option value="3.0">3.0 m (high stud)</option>
+            <option value="3.6">3.6 m (very high)</option>
           </select>
         </div>
-        <div className={styles.calcField}>
-          <label>Storeys</label>
-          <select value={stories} onChange={e => setStories(e.target.value)}>
-            <option value="1">Single storey</option>
-            <option value="2">Double storey</option>
+        <div className={styles.calcField} style={{ gridColumn: '1 / -1' }}>
+          <label>Insulation Level</label>
+          <select value={insulation} onChange={e => setInsulation(e.target.value)}>
+            <option value="good">Good — modern well-insulated home (× 0.05)</option>
+            <option value="average">Average — partially insulated (× 0.055)</option>
+            <option value="poor">Poor — older uninsulated home (× 0.06)</option>
           </select>
         </div>
       </div>
       {kw && (
         <div className={styles.calcResult}>
-          <div className={styles.calcResultRow}><span>Recommended capacity</span><strong>{kw} kW</strong></div>
-          {basePrice > 0 && <div className={styles.calcResultRow}><span>Estimated install (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
-          {basePrice > 0 && <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
+          <div className={styles.calcResultRow}><span>Volume</span><strong>{m3.toFixed(1)} m³</strong></div>
+          <div className={styles.calcResultRow}><span>Recommended capacity</span><strong className={styles.calcTotal}>{kw} kW</strong></div>
+          {basePrice > 0 && <>
+            <div className={styles.calcResultRow}><span>Estimated install (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          </>}
         </div>
       )}
     </div>
