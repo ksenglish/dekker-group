@@ -8,6 +8,7 @@ const STATUS_COLOURS = { draft:'#6b7280', sent:'#0891b2', paid:'#16a34a', overdu
 export default function InvoiceList() {
   const [invoices, setInvoices] = useState([]);
   const [filterStatus, setFilterStatus] = useState('');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,7 +22,7 @@ export default function InvoiceList() {
     draft: invoices.filter(i => i.status === 'draft').length,
     sent: invoices.filter(i => i.status === 'sent').length,
     paid: invoices.filter(i => i.status === 'paid').length,
-    overdue: invoices.filter(i => i.status === 'overdue').length,
+    overdue: invoices.filter(i => i.is_overdue).length,
   };
 
   return (
@@ -31,6 +32,12 @@ export default function InvoiceList() {
           <h1 className={styles.pageTitle}>Invoices</h1>
           <p className={styles.pageSubtitle}>{invoices.length} invoice{invoices.length !== 1 ? 's' : ''}</p>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <input type="search" placeholder="Search by customer or invoice number…" value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 14, width: '100%', maxWidth: 400, outline: 'none', fontFamily: 'inherit' }} />
       </div>
 
       <div className={styles.summaryGrid}>
@@ -50,7 +57,7 @@ export default function InvoiceList() {
             <span>Invoice #</span><span>Job</span><span>Customer</span>
             <span>Status</span><span>Subtotal</span><span>GST</span><span>Total</span><span>Due Date</span>
           </div>
-          {invoices.map(inv => (
+          {invoices.filter(inv => !search || inv.customer_name?.toLowerCase().includes(search.toLowerCase()) || inv.id.includes(search.toLowerCase())).map(inv => (
             <Link key={inv.id} to={`/invoices/${inv.id}`} className={styles.tableRow}>
               <span className={styles.docNum}>INV-{inv.id.slice(0,8).toUpperCase()}</span>
               <span>{inv.job_number ? `#${inv.job_number}` : '—'}</span>

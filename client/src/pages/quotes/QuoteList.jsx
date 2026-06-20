@@ -9,6 +9,7 @@ export default function QuoteList() {
   const navigate = useNavigate();
   const [quotes, setQuotes] = useState([]);
   const [filterStatus, setFilterStatus] = useState('');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -34,6 +35,12 @@ export default function QuoteList() {
         </div>
       </div>
 
+      <div className={styles.toolbar || ''} style={{ marginBottom: 16 }}>
+        <input type="search" placeholder="Search by customer or quote number…" value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 14, width: '100%', maxWidth: 400, outline: 'none', fontFamily: 'inherit' }} />
+      </div>
+
       {/* Summary cards */}
       <div className={styles.summaryGrid}>
         {Object.entries(totals).map(([s, count]) => (
@@ -52,7 +59,7 @@ export default function QuoteList() {
             <span>Quote #</span><span>Job</span><span>Customer</span>
             <span>Status</span><span>Subtotal</span><span>GST</span><span>Total</span><span>Created</span>
           </div>
-          {quotes.map(q => (
+          {quotes.filter(q => !search || q.customer_name?.toLowerCase().includes(search.toLowerCase()) || q.id.includes(search.toLowerCase())).map(q => (
             <Link key={q.id} to={`/quotes/${q.id}`} className={styles.tableRow}>
               <span className={styles.docNum}>Q-{q.id.slice(0,8).toUpperCase()}</span>
               <span>{q.job_number ? `#${q.job_number}` : '—'}</span>
