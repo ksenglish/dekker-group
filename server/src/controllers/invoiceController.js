@@ -2,6 +2,7 @@ const pool = require('../db/pool');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getTheme } = require('./settingsController');
+const { logActivity } = require('../utils/activity');
 
 async function enrichItemsWithImages(items) {
   const ids = items.map(i => i.product_id).filter(Boolean);
@@ -68,6 +69,8 @@ async function update(req, res) {
     );
     if (status === 'paid') {
       await pool.query(`UPDATE jobs SET status='complete', updated_at=NOW() WHERE id=$1`, [rows[0].job_id]);
+      await logActivity({ type: 'invoice_paid', entity_type: 'invoice', entity_id: rows[0].id, user_id: req.user?.id,
+        message: `Invoice INV-${rows[0].id.slice(0,8).toUpperCase()} marked as paid ($${(rows[0].total/100).toFixed(2)})` });
     }
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
@@ -139,6 +142,8 @@ async function sendEmail(req, res) {
       attachments: [{ filename: `invoice-${inv.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }],
     });
     await pool.query(`UPDATE invoices SET status='sent', updated_at=NOW() WHERE id=$1`, [req.params.id]);
+    await logActivity({ type: 'invoice_sent', entity_type: 'invoice', entity_id: req.params.id, user_id: req.user?.id,
+      message: `Invoice emailed to ${inv.customer_email} ($${(inv.total/100).toFixed(2)})` });
     await pool.query(
       `INSERT INTO email_log (job_id, customer_id, type, recipient, status) VALUES ($1,$2,'invoice',$3,'sent')`,
       [inv.job_id, inv.customer_id, inv.customer_email]

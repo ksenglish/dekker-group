@@ -82,6 +82,12 @@
   white-space: nowrap;
 }
 
+.activityRow { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--color-border); align-items: center; font-size: 13px; }
+.activityRow:last-child { border-bottom: none; }
+.activityIcon { font-size: 15px; text-align: center; }
+.activityMsg { color: var(--color-text); }
+.activityTime { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; }
+
 @media (max-width: 768px) {
   .page { padding: 12px; }
   .statsGrid { grid-template-columns: repeat(2, 1fr); }

@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [upcomingJobs, setUpcomingJobs] = useState([]);
   const [overdueInvoices, setOverdueInvoices] = useState([]);
   const [pendingQuotes, setPendingQuotes] = useState([]);
+  const [activity, setActivity] = useState([]);
 
   const greeting = () => {
     const h = new Date().getHours();
@@ -35,7 +36,9 @@ export default function Dashboard() {
       api.get('/invoices', { params: { status: 'overdue' } }),
       api.get('/quotes', { params: { status: 'sent' } }),
       api.get('/invoices', { params: { status: 'unpaid' } }),
-    ]).then(([recent, scheduled, overdue, quotes, unpaid]) => {
+      api.get('/reports/activity').catch(() => ({ data: [] })),
+    ]).then(([recent, scheduled, overdue, quotes, unpaid, act]) => {
+      setActivity(act.data || []);
       setRecentJobs(recent.data.jobs || []);
       setUpcomingJobs(scheduled.data.jobs || []);
       setOverdueInvoices(overdue.data || []);
@@ -148,6 +151,24 @@ export default function Dashboard() {
                 <span className={styles.recentDesc}>Due {inv.due_date ? new Date(inv.due_date).toLocaleDateString('en-NZ') : 'N/A'}</span>
                 <span style={{ color: '#dc2626', fontWeight: 600, fontSize: 13 }}>{fmt(inv.total)}</span>
               </Link>
+            ))}
+          </div>
+        )}
+
+        {/* Activity feed */}
+        {activity.length > 0 && (
+          <div className={styles.recentCard}>
+            <div className={styles.recentHeader}>
+              <h2>Recent Activity</h2>
+            </div>
+            {activity.map(a => (
+              <div key={a.id} className={styles.activityRow}>
+                <span className={styles.activityIcon}>
+                  {a.type === 'invoice_paid' ? '✓' : a.type === 'quote_accepted' ? '🤝' : a.type === 'quote_sent' || a.type === 'invoice_sent' ? '✉' : '·'}
+                </span>
+                <span className={styles.activityMsg}>{a.message}</span>
+                <span className={styles.activityTime}>{new Date(a.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              </div>
             ))}
           </div>
         )}

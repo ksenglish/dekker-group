@@ -2,6 +2,7 @@ const pool = require('../db/pool');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getTheme } = require('./settingsController');
+const { logActivity } = require('../utils/activity');
 
 function calcTotals(items) {
   const subtotal = items.reduce((s, i) => s + Math.round(i.unit_price * i.quantity), 0);
@@ -185,6 +186,8 @@ async function sendEmail(req, res) {
       attachments: [{ filename: `quote-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }],
     });
     await pool.query('UPDATE quotes SET status=\'sent\', sent_at=NOW(), updated_at=NOW() WHERE id=$1', [req.params.id]);
+    await logActivity({ type: 'quote_sent', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id,
+      message: `Quote emailed to ${q.customer_email} ($${(q.total/100).toFixed(2)})` });
     await pool.query(
       `INSERT INTO email_log (job_id, customer_id, type, recipient, status) VALUES ($1,$2,'quote',$3,'sent')`,
       [q.job_id, q.customer_id, q.customer_email]
@@ -237,6 +240,8 @@ async function publicAccept(req, res) {
       [name.trim(), req.params.token]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Quote not found or already accepted' });
+    await logActivity({ type: 'quote_accepted', entity_type: 'quote', entity_id: rows[0].id, user_id: null,
+      message: `Quote accepted online by ${name.trim()}` });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }

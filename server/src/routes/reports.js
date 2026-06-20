@@ -81,4 +81,16 @@ router.get('/timesheets', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
+// Recent activity log
+router.get('/activity', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.*, u.name AS user_name FROM activity_log a
+       LEFT JOIN users u ON u.id = a.user_id
+       ORDER BY a.created_at DESC LIMIT 20`
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+});
+
 module.exports = router;
