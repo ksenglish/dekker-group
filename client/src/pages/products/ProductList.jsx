@@ -43,28 +43,34 @@ function BrochureUpload({ value, onChange }) {
   function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type))
-      return alert('Please upload a JPG or PNG image. To use a PDF brochure, export it as a JPG first.');
-    if (file.size > 5 * 1024 * 1024)
-      return alert('Brochure image must be under 5MB.');
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowed.includes(file.type))
+      return alert('Please upload a JPG, PNG, or PDF.');
+    if (file.size > 10 * 1024 * 1024)
+      return alert('Brochure must be under 10MB.');
     const reader = new FileReader();
     reader.onload = ev => onChange(ev.target.result);
     reader.readAsDataURL(file);
   }
 
+  const isPdf = value?.startsWith('data:application/pdf');
+
   return (
     <div className={styles.imageUpload}>
       {value ? (
         <div className={styles.imagePreviewWrap}>
-          <img src={value} alt="Brochure preview" className={styles.imagePreview} style={{ maxHeight: 120 }} />
+          {isPdf
+            ? <div style={{ padding: '10px 16px', background: '#f1f5f9', borderRadius: 6, fontSize: 13, color: '#334155' }}>📄 PDF brochure uploaded</div>
+            : <img src={value} alt="Brochure preview" className={styles.imagePreview} style={{ maxHeight: 120 }} />
+          }
           <button type="button" className={styles.imageRemove} onClick={() => onChange('')}>✕ Remove</button>
         </div>
       ) : (
         <button type="button" className={styles.imagePickBtn} onClick={() => ref.current.click()}>
-          📄 Upload Brochure Image (JPG / PNG, max 5MB)
+          📄 Upload Brochure (PDF, JPG or PNG — max 10MB)
         </button>
       )}
-      <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={handleFile} />
+      <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" style={{ display: 'none' }} onChange={handleFile} />
     </div>
   );
 }

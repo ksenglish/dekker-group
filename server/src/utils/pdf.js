@@ -1,4 +1,5 @@
 const PDFDocument = require('pdfkit');
+const { PDFDocument: PdfLib } = require('pdf-lib');
 
 const LIGHT_GREY = '#f1f5f9';
 const MID_GREY = '#94a3b8';
@@ -26,7 +27,7 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-function buildPDF({ type, number, customer, items, subtotal, gst, total, status, dueDate, notes, terms, issuedAt, theme = {} }) {
+async function buildPDF({ type, number, customer, items, subtotal, gst, total, status, dueDate, notes, terms, issuedAt, theme = {} }) {
   const t = { ...DEFAULT_THEME, ...theme };
   const BRAND = t.brandColour || '#1e40af';
 
@@ -35,7 +36,7 @@ function buildPDF({ type, number, customer, items, subtotal, gst, total, status,
   const IMG_COL = 36; // thumbnail width
   const IMG_PAD = hasImages ? IMG_COL + 8 : 0;
 
-  return new Promise((resolve, reject) => {
+  const mainBuf = await new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
     const chunks = [];
     doc.on('data', c => chunks.push(c));
@@ -194,30 +195,47 @@ function buildPDF({ type, number, customer, items, subtotal, gst, total, status,
       .text(t.footerLine1, 50, footY + 8,  { width: W, align: 'center' })
       .text(t.footerLine2, 50, footY + 20, { width: W, align: 'center' });
 
-    // ── Product Brochure Appendix ────────────────────────────────
-    const brochureItems = (items || []).filter(i => i.brochure_base64);
-    // Deduplicate by brochure content so same product on multiple lines only appears once
-    const seen = new Set();
-    for (const item of brochureItems) {
-      const key = item.brochure_base64.slice(0, 100);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      try {
-        const raw = item.brochure_base64.replace(/^data:image\/\w+;base64,/, '');
-        const buf = Buffer.from(raw, 'base64');
-        doc.addPage();
-        // Full-bleed image with small label header
-        doc.rect(0, 0, doc.page.width, 32).fill(BRAND);
-        doc.fillColor('white').fontSize(9).font('Helvetica-Bold')
-          .text(item.description || 'Product Information', 50, 11, { width: doc.page.width - 100 });
-        const imgY = 40;
-        const imgH = doc.page.height - imgY - 20;
-        doc.image(buf, 0, imgY, { width: doc.page.width, height: imgH, fit: [doc.page.width, imgH], align: 'center', valign: 'center' });
-      } catch { /* skip bad image */ }
-    }
-
     doc.end();
   });
+
+  // ── Brochure Appendix (pdf-lib merge) ───────────────────────
+  const brochureItems = (items || []).filter(i => i.brochure_base64);
+  if (!brochureItems.length) return mainBuf;
+
+  const seen = new Set();
+  const merged = await PdfLib.load(mainBuf);
+
+  for (const item of brochureItems) {
+    const key = item.brochure_base64.slice(0, 100);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try {
+      const dataUrl = item.brochure_base64;
+      if (dataUrl.startsWith('data:application/pdf')) {
+        // PDF brochure — copy all pages into merged doc
+        const raw = dataUrl.replace(/^data:application\/pdf;base64,/, '');
+        const brochureDoc = await PdfLib.load(Buffer.from(raw, 'base64'));
+        const pageIndices = brochureDoc.getPageIndices();
+        const copied = await merged.copyPages(brochureDoc, pageIndices);
+        copied.forEach(p => merged.addPage(p));
+      } else {
+        // Image brochure — add a new A4 page with the image filling it
+        const raw = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+        const imgBuf = Buffer.from(raw, 'base64');
+        const page = merged.addPage([595, 842]); // A4
+        let img;
+        if (dataUrl.startsWith('data:image/png')) {
+          img = await merged.embedPng(imgBuf);
+        } else {
+          img = await merged.embedJpg(imgBuf);
+        }
+        const { width, height } = img.scaleToFit(595, 842);
+        page.drawImage(img, { x: (595 - width) / 2, y: (842 - height) / 2, width, height });
+      }
+    } catch { /* skip bad brochure */ }
+  }
+
+  return Buffer.from(await merged.save());
 }
 
 module.exports = { buildPDF };
