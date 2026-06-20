@@ -454,6 +454,28 @@
 
 .emptySmall { padding: 16px 20px; font-size: 13px; color: var(--color-text-muted); }
 
+/* Timesheets inline */
+.timesheetForm {
+  display: flex; align-items: center; gap: 8px; padding: 14px 16px;
+  border-bottom: 1px solid var(--color-border); flex-wrap: wrap;
+}
+.tsInput {
+  padding: 7px 10px; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 13px; outline: none; font-family: inherit;
+}
+.tsInput:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light); }
+.tsRow {
+  display: grid; grid-template-columns: 130px 110px 1fr 60px 32px;
+  gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--color-border);
+  font-size: 13px; align-items: center;
+}
+.tsRow:last-of-type { border-bottom: none; }
+.tsDate { font-size: 12px; color: var(--color-text-muted); }
+.tsName { font-size: 12px; font-weight: 500; }
+.tsDesc { font-size: 12px; color: var(--color-text-muted); }
+.tsHours { font-weight: 600; text-align: right; }
+.tsTotal { padding: 10px 16px; font-size: 13px; color: var(--color-text-muted); text-align: right; border-top: 2px solid var(--color-border); }
+
 /* Sidebar summary */
 .summaryList { padding: 4px 0; }
 

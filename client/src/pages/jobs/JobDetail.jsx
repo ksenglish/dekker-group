@@ -6,6 +6,71 @@ import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import styles from './Jobs.module.css';
 
+function JobTimesheets({ jobId, user }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hours, setHours] = useState('');
+  const [description, setDescription] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get('/timesheets', { params: { job_id: jobId } })
+      .then(r => setEntries(r.data))
+      .finally(() => setLoading(false));
+  }, [jobId]);
+
+  async function logTime(e) {
+    e.preventDefault();
+    if (!hours || parseFloat(hours) <= 0) return;
+    setSaving(true);
+    try {
+      const { data } = await api.post('/timesheets', { job_id: jobId, hours, description, date });
+      setEntries(es => [data, ...es]);
+      setHours(''); setDescription('');
+    } finally { setSaving(false); }
+  }
+
+  async function del(id) {
+    await api.delete(`/timesheets/${id}`);
+    setEntries(es => es.filter(e => e.id !== id));
+  }
+
+  const total = entries.reduce((s, e) => s + parseFloat(e.hours || 0), 0);
+
+  return (
+    <div className={styles.card}>
+      <form onSubmit={logTime} className={styles.timesheetForm}>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} className={styles.tsInput} />
+        <input type="number" min="0.25" max="24" step="0.25" placeholder="Hours" value={hours}
+          onChange={e => setHours(e.target.value)} className={styles.tsInput} style={{ width: 80 }} />
+        <input placeholder="Description (optional)" value={description}
+          onChange={e => setDescription(e.target.value)} className={styles.tsInput} style={{ flex: 1 }} />
+        <button className={styles.btnPrimary} disabled={saving || !hours}>
+          {saving ? '…' : 'Log'}
+        </button>
+      </form>
+      {loading ? <div className={styles.emptySmall}>Loading…</div> :
+       entries.length === 0 ? <div className={styles.emptySmall}>No time logged yet.</div> : (
+        <>
+          {entries.map(e => (
+            <div key={e.id} className={styles.tsRow}>
+              <span className={styles.tsDate}>{new Date(e.date).toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+              <span className={styles.tsName}>{e.user_name}</span>
+              <span className={styles.tsDesc}>{e.description || '—'}</span>
+              <span className={styles.tsHours}>{parseFloat(e.hours).toFixed(1)}h</span>
+              {(user.role !== 'field_tech' || e.user_id === user.id) && (
+                <button className={styles.deleteBtn} style={{ position: 'static' }} onClick={() => del(e.id)}>✕</button>
+              )}
+            </div>
+          ))}
+          <div className={styles.tsTotal}>Total: <strong>{total.toFixed(1)}h</strong></div>
+        </>
+      )}
+    </div>
+  );
+}
+
 const PIPELINE = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete'];
 const STATUS_COLOURS = {
   new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
@@ -153,7 +218,7 @@ export default function JobDetail() {
         <div className={styles.detailMain}>
           {/* Tabs */}
           <div className={styles.tabs}>
-            {['details', 'line_items', 'notes'].map(t => (
+            {['details', 'line_items', 'timesheets', 'notes'].map(t => (
               <button key={t} className={`${styles.tab} ${activeTab === t ? styles.tabActive : ''}`} onClick={() => setActiveTab(t)}>
                 {t === 'line_items' ? 'Line Items' : t.charAt(0).toUpperCase() + t.slice(1)}
                 {t === 'notes' && job.notes?.length > 0 && <span className={styles.tabCount}>{job.notes.length}</span>}
@@ -201,6 +266,8 @@ export default function JobDetail() {
               )}
             </div>
           )}
+
+          {activeTab === 'timesheets' && <JobTimesheets jobId={id} user={user} />}
 
           {activeTab === 'notes' && (
             <div className={styles.card}>

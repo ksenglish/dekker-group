@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import styles from './Settings.module.css';
 
-const TABS = ['Quote Theme', 'Terms & Conditions'];
+const TABS = ['Quote Theme', 'Terms & Conditions', 'Email'];
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('Quote Theme');
@@ -12,9 +12,37 @@ export default function SettingsPage() {
   const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef();
 
+  // SMTP state
+  const [smtp, setSmtp] = useState({ host: '', port: '587', secure: false, user: '', pass: '', from: '', fromName: 'Dekker Group' });
+  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [smtpSaved, setSmtpSaved] = useState(false);
+  const [smtpTesting, setSmtpTesting] = useState(false);
+  const [smtpStatus, setSmtpStatus] = useState(null);
+  const setSmtpField = (k, v) => setSmtp(s => ({ ...s, [k]: v }));
+
   useEffect(() => {
     api.get('/settings').then(r => setTheme(r.data));
+    api.get('/settings/smtp').then(r => setSmtp(s => ({ ...s, ...r.data }))).catch(() => {});
   }, []);
+
+  async function saveSmtp() {
+    setSmtpSaving(true); setSmtpStatus(null);
+    try {
+      await api.put('/settings/smtp', smtp);
+      setSmtpSaved(true); setTimeout(() => setSmtpSaved(false), 3000);
+    } catch (e) { setSmtpStatus({ ok: false, message: e.response?.data?.error || 'Save failed' }); }
+    finally { setSmtpSaving(false); }
+  }
+
+  async function testSmtp() {
+    setSmtpTesting(true); setSmtpStatus(null);
+    try {
+      await api.put('/settings/smtp', smtp); // save first
+      const { data } = await api.post('/settings/smtp/test');
+      setSmtpStatus(data);
+    } catch (e) { setSmtpStatus({ ok: false, message: e.response?.data?.message || 'Test failed' }); }
+    finally { setSmtpTesting(false); }
+  }
 
   function set(key, val) {
     setTheme(t => ({ ...t, [key]: val }));
@@ -250,6 +278,67 @@ export default function SettingsPage() {
                   </div>
                   <p className={styles.hint} style={{ marginTop: 8 }}>
                     Click <strong>Preview PDF</strong> above to download a full sample document.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'Email' && (
+            <div className={styles.section}>
+              <div className={styles.card}>
+                <div className={styles.cardHeader}><h2>SMTP Email Settings</h2></div>
+                <div className={styles.cardBody}>
+                  <p className={styles.hint} style={{ marginBottom: 16 }}>
+                    Configure your outgoing email server so quotes and invoices can be emailed directly to customers.
+                    Common providers: Gmail (smtp.gmail.com:587), Outlook (smtp.office365.com:587).
+                  </p>
+                  <div className={styles.formGrid}>
+                    <div className={styles.field}>
+                      <label>From Name</label>
+                      <input value={smtp.fromName} onChange={e => setSmtpField('fromName', e.target.value)} placeholder="Dekker Group" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>From Email</label>
+                      <input type="email" value={smtp.from} onChange={e => setSmtpField('from', e.target.value)} placeholder="kyle@dekkergroup.co.nz" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>SMTP Host</label>
+                      <input value={smtp.host} onChange={e => setSmtpField('host', e.target.value)} placeholder="smtp.gmail.com" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>SMTP Port</label>
+                      <input type="number" value={smtp.port} onChange={e => setSmtpField('port', e.target.value)} placeholder="587" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Username</label>
+                      <input value={smtp.user} onChange={e => setSmtpField('user', e.target.value)} placeholder="kyle@dekkergroup.co.nz" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Password / App Password</label>
+                      <input type="password" value={smtp.pass} onChange={e => setSmtpField('pass', e.target.value)} placeholder="••••••••" />
+                    </div>
+                    <div className={styles.field} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 20 }}>
+                      <input type="checkbox" id="smtpSecure" checked={!!smtp.secure} onChange={e => setSmtpField('secure', e.target.checked)} />
+                      <label htmlFor="smtpSecure" style={{ marginBottom: 0 }}>Use SSL (port 465)</label>
+                    </div>
+                  </div>
+                  {smtpStatus && (
+                    <div className={smtpStatus.ok ? styles.successMsg : styles.errorMsg} style={{ marginTop: 16 }}>
+                      {smtpStatus.ok ? '✓ ' : '✕ '}{smtpStatus.message}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+                    <button className={styles.btnSecondary} onClick={testSmtp} disabled={smtpTesting || !smtp.host}>
+                      {smtpTesting ? 'Testing…' : 'Test Connection'}
+                    </button>
+                    <button className={styles.btnPrimary} onClick={saveSmtp} disabled={smtpSaving}>
+                      {smtpSaving ? 'Saving…' : smtpSaved ? '✓ Saved' : 'Save Email Settings'}
+                    </button>
+                  </div>
+                  <p className={styles.hint} style={{ marginTop: 12 }}>
+                    For Gmail: enable 2FA and use an <strong>App Password</strong> (not your regular password).
+                    Go to Google Account → Security → App Passwords.
                   </p>
                 </div>
               </div>

@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/auth/LoginPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import AppShell from './components/layout/AppShell';
+import PublicQuote from './pages/quotes/PublicQuote';
 import Dashboard from './pages/Dashboard';
 
 function PrivateRoute({ children }) {
@@ -24,6 +25,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
           <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
+          <Route path="/q/:token" element={<PublicQuote />} />
           <Route path="/*" element={
             <PrivateRoute>
               <AppShell />

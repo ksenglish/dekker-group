@@ -34,7 +34,8 @@ async function list(req, res) {
 async function get(req, res) {
   try {
     const { rows } = await pool.query(
-      `SELECT q.*, c.name AS customer_name, c.email AS customer_email,
+      `SELECT q.*, q.public_token, q.accepted_at, q.accepted_name,
+              c.name AS customer_name, c.email AS customer_email,
               c.phone AS customer_phone, c.company AS customer_company,
               j.job_number, j.description AS job_description
        FROM quotes q
@@ -169,12 +170,16 @@ async function sendEmail(req, res) {
       status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, theme,
     });
     const totalNZD = `$${(q.total / 100).toFixed(2)}`;
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const acceptUrl = `${clientUrl}/q/${q.public_token}`;
     await sendMail({
       to: q.customer_email,
       subject: `Quote from ${theme.companyName} — ${totalNZD} (incl. GST)`,
       html: `<p>Hi ${q.customer_name},</p>
 <p>Please find your quote from ${theme.companyName} attached.</p>
 <p><strong>Total: ${totalNZD} (incl. 15% GST)</strong></p>
+<p>To accept this quote online, click the link below:</p>
+<p><a href="${acceptUrl}" style="display:inline-block;padding:10px 20px;background:#000;color:#fff;text-decoration:none;border-radius:4px;">View &amp; Accept Quote</a></p>
 <p>If you have any questions, please don't hesitate to get in touch.</p>
 <p>Kind regards,<br>${theme.companyName}<br>${theme.email}</p>`,
       attachments: [{ filename: `quote-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }],
@@ -188,4 +193,52 @@ async function sendEmail(req, res) {
   } catch (err) { console.error(err); res.status(500).json({ error: err.message || 'Email failed' }); }
 }
 
-module.exports = { list, get, create, update, remove, convertToInvoice, downloadPdf, sendEmail };
+// Public: view quote by token (no auth)
+async function publicGet(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT q.*, c.name AS customer_name, c.company AS customer_company,
+              c.phone AS customer_phone
+       FROM quotes q LEFT JOIN customers c ON c.id=q.customer_id
+       WHERE q.public_token=$1`,
+      [req.params.token]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Quote not found' });
+    const q = rows[0];
+    const items = await pool.query('SELECT description, quantity, unit_price FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
+    const theme = await getTheme();
+    res.json({
+      id: q.id,
+      number: `Q-${q.id.slice(0,8).toUpperCase()}`,
+      status: q.status,
+      customer_name: q.customer_name,
+      customer_company: q.customer_company,
+      customer_phone: q.customer_phone,
+      notes: q.notes,
+      subtotal: q.subtotal, gst: q.gst, total: q.total,
+      created_at: q.created_at,
+      accepted_at: q.accepted_at,
+      accepted_name: q.accepted_name,
+      line_items: items.rows,
+      company: { name: theme.companyName, email: theme.email, phone: theme.phone },
+    });
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+// Public: accept quote by token (no auth)
+async function publicAccept(req, res) {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Name is required to accept this quote' });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE quotes SET status='accepted', accepted_at=NOW(), accepted_name=$1, updated_at=NOW()
+       WHERE public_token=$2 AND status IN ('draft','sent')
+       RETURNING id, status, accepted_at, accepted_name`,
+      [name.trim(), req.params.token]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Quote not found or already accepted' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+module.exports = { list, get, create, update, remove, convertToInvoice, downloadPdf, sendEmail, publicGet, publicAccept };

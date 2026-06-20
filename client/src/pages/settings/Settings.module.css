@@ -107,3 +107,6 @@
 }
 .btnSecondary:hover:not(:disabled) { background: #f1f5f9; }
 .btnSecondary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.successMsg { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; padding: 10px 14px; border-radius: var(--radius); font-size: 13px; }
+.errorMsg { background: #fef2f2; border: 1px solid #fecaca; color: var(--color-error); padding: 10px 14px; border-radius: var(--radius); font-size: 13px; }

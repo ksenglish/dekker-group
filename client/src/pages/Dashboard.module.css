@@ -25,8 +25,12 @@
 
 .statCard:hover { box-shadow: var(--shadow-md); }
 
-.statValue { font-size: 32px; font-weight: 700; margin-bottom: 4px; }
-.statLabel { font-size: 13px; color: var(--color-text-muted); font-weight: 500; }
+.statValue { font-size: 28px; font-weight: 700; margin-bottom: 2px; }
+.statSub { font-size: 13px; font-weight: 600; color: var(--color-text-muted); margin-bottom: 2px; }
+.statLabel { font-size: 12px; color: var(--color-text-muted); font-weight: 500; }
+.statCardAlert { border-color: #fecaca; background: #fff5f5; }
+
+.dashGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 20px; }
 
 .recentCard {
   background: var(--color-surface);
@@ -50,7 +54,7 @@
 
 .recentRow {
   display: grid;
-  grid-template-columns: 70px 1.5fr 2fr 120px 100px;
+  grid-template-columns: 90px 1.2fr 1.5fr auto;
   gap: 12px;
   padding: 13px 20px;
   border-bottom: 1px solid var(--color-border);

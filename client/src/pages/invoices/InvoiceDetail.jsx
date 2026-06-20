@@ -129,7 +129,13 @@ export default function InvoiceDetail() {
               </div>
               {invoice.job_number && <div className={styles.summaryRow}><span>Job</span><Link to={`/jobs/${invoice.job_id}`}>#{invoice.job_number}</Link></div>}
               <div className={styles.summaryRow}><span>Issued</span><strong>{new Date(invoice.created_at).toLocaleDateString('en-NZ')}</strong></div>
-              {invoice.due_date && <div className={styles.summaryRow}><span>Due</span><strong>{new Date(invoice.due_date).toLocaleDateString('en-NZ')}</strong></div>}
+              <div className={styles.summaryRow}>
+                <span>Due Date</span>
+                <input type="date" value={invoice.due_date ? invoice.due_date.slice(0,10) : ''}
+                  onChange={e => setInvoice(i => ({ ...i, due_date: e.target.value || null }))}
+                  onBlur={async () => { await api.put(`/invoices/${id}`, { status: invoice.status, due_date: invoice.due_date }); }}
+                  style={{ fontSize: 12, padding: '3px 6px', border: '1px solid var(--color-border)', borderRadius: 4, fontFamily: 'inherit', outline: 'none' }} />
+              </div>
               {invoice.paid_at && <div className={styles.summaryRow}><span>Paid</span><strong>{new Date(invoice.paid_at).toLocaleDateString('en-NZ')}</strong></div>}
               <div className={styles.summaryRow}><span>Total</span><strong className={styles.totalHighlight}>${(invoice.total/100).toFixed(2)}</strong></div>
             </div>

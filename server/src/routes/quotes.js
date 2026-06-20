@@ -3,6 +3,10 @@ const router = express.Router();
 const c = require('../controllers/quoteController');
 const { authenticate, requireRole } = require('../middleware/auth');
 
+// Public routes — no auth required
+router.get('/public/:token', c.publicGet);
+router.post('/public/:token/accept', c.publicAccept);
+
 router.use(authenticate);
 router.use(requireRole('admin', 'office'));
 
