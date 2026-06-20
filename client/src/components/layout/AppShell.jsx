@@ -14,6 +14,7 @@ import SettingsPage from '../../pages/settings/SettingsPage';
 import ProductList from '../../pages/products/ProductList';
 import UsersPage from '../../pages/users/UsersPage';
 import TimesheetsPage from '../../pages/timesheets/TimesheetsPage';
+import ReportsPage from '../../pages/reports/ReportsPage';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { to: '/invoices', label: 'Invoices', icon: '💰' },
   { to: '/products', label: 'Price List', icon: '🏷' },
   { to: '/timesheets', label: 'Timesheets', icon: '⏱' },
+  { to: '/reports', label: 'Reports', icon: '📊' },
 ];
 
 const ADMIN_ITEMS = [
@@ -115,6 +117,7 @@ export default function AppShell() {
           <Route path="/products" element={<ProductList />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/timesheets" element={<TimesheetsPage />} />
+          <Route path="/reports" element={<ReportsPage />} />
           <Route path="/users/*" element={<ComingSoon title="Users" />} />
         </Routes>
       </main>
