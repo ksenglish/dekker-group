@@ -84,6 +84,11 @@ export default function QuoteDetail() {
         <div className={styles.headerActions}>
           <button className={styles.btnSecondary} onClick={handleDownload}>⬇ Download PDF</button>
           {quote.public_token && (
+            <button className={styles.btnSecondary} onClick={() => window.open(`${window.location.origin}/q/${quote.public_token}`, '_blank')}>
+              👁 Preview
+            </button>
+          )}
+          {quote.public_token && (
             <button className={styles.btnSecondary} onClick={() => {
               const url = `${window.location.origin}/q/${quote.public_token}`;
               navigator.clipboard.writeText(url).then(() => flash('success', 'Acceptance link copied to clipboard'));
