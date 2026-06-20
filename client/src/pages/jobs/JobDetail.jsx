@@ -70,6 +70,9 @@ function JobTimer({ jobId, onTimeSaved }) {
   const [saving, setSaving] = useState(false);
   const [desc, setDesc] = useState('');
   const [showSave, setShowSave] = useState(false);
+
+  // Clear any stale save state on mount
+  useEffect(() => { setShowSave(false); setEndTs(null); }, []);
   const tickRef = useRef(null);
 
   useEffect(() => {
@@ -151,7 +154,7 @@ function JobTimer({ jobId, onTimeSaved }) {
       {showSave && (
         <form onSubmit={save} className={styles.timerSaveForm}>
           <div className={styles.timerSummary}>
-            {fmtTime(endTs - elapsed * 1000)} → {fmtTime(endTs)}
+            {endTs ? `${fmtTime(endTs - elapsed * 1000)} → ${fmtTime(endTs)}` : ''}
             <span className={styles.timerRounded}> · {Math.max(0.25, Math.round(elapsed / 900) * 0.25).toFixed(2)}h</span>
           </div>
           <input placeholder="What were you working on?" value={desc} onChange={e => setDesc(e.target.value)}
@@ -299,7 +302,7 @@ function JobTimesheets({ jobId, user }) {
           </div>
           {entries.map(e => (
             <div key={e.id} className={styles.tsRow}>
-              <span className={styles.tsDate}>{new Date(e.date.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}</span>
+              <span className={styles.tsDate}>{e.date ? new Date(String(e.date).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' }) : '—'}</span>
               <span className={styles.tsName}>{e.user_name}</span>
               <span className={styles.tsTime}>{e.start_time ? new Date(e.start_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
               <span className={styles.tsTime}>{e.end_time ? new Date(e.end_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
