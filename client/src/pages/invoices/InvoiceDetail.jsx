@@ -98,6 +98,19 @@ export default function InvoiceDetail() {
           </div>
 
           <div className={styles.card}>
+            <div className={styles.cardHeader}><h2>Notes</h2></div>
+            <div className={styles.notesArea}>
+              <textarea rows={3} value={invoice.notes || ''}
+                onChange={e => setInvoice(i => ({ ...i, notes: e.target.value }))}
+                placeholder="Add notes to appear on the invoice PDF…" />
+              <button className={styles.btnSecondary} onClick={async () => {
+                await api.put(`/invoices/${id}`, { status: invoice.status, due_date: invoice.due_date, notes: invoice.notes });
+                flash('success', 'Notes saved');
+              }}>Save Notes</button>
+            </div>
+          </div>
+
+          <div className={styles.card}>
             <div className={styles.cardHeader}><h2>Line Items</h2></div>
             <div className={styles.lineHeader}>
               <span>Description</span><span>Qty</span><span>Unit Price</span><span>Line Total</span>

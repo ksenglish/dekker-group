@@ -59,12 +59,12 @@ async function get(req, res) {
 }
 
 async function update(req, res) {
-  const { status, due_date } = req.body;
+  const { status, due_date, notes } = req.body;
   try {
     const paidAt = status === 'paid' ? 'NOW()' : 'NULL';
     const { rows } = await pool.query(
-      `UPDATE invoices SET status=$1, due_date=$2, paid_at=${paidAt}, updated_at=NOW() WHERE id=$3 RETURNING *`,
-      [status, due_date || null, req.params.id]
+      `UPDATE invoices SET status=$1, due_date=$2, notes=$3, paid_at=${paidAt}, updated_at=NOW() WHERE id=$4 RETURNING *`,
+      [status, due_date || null, notes ?? null, req.params.id]
     );
     if (status === 'paid') {
       await pool.query(`UPDATE jobs SET status='complete', updated_at=NOW() WHERE id=$1`, [rows[0].job_id]);
