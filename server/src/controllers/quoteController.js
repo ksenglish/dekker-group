@@ -61,10 +61,11 @@ async function create(req, res) {
     // Pull line items from the job to calculate totals
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1', [job_id]);
     const { subtotal, gst, total } = calcTotals(items.rows);
+    const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + 30);
     const { rows } = await pool.query(
-      `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes)
-       VALUES ($1,$2,'draft',$3,$4,$5,$6) RETURNING *`,
-      [job_id, customer_id || null, subtotal, gst, total, notes || null]
+      `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at)
+       VALUES ($1,$2,'draft',$3,$4,$5,$6,$7) RETURNING *`,
+      [job_id, customer_id || null, subtotal, gst, total, notes || null, expiresAt.toISOString().split('T')[0]]
     );
     // Move job to quoted status
     await pool.query(
@@ -222,6 +223,8 @@ async function publicGet(req, res) {
       created_at: q.created_at,
       accepted_at: q.accepted_at,
       accepted_name: q.accepted_name,
+      expires_at: q.expires_at,
+      is_expired: q.expires_at ? new Date(q.expires_at) < new Date() : false,
       line_items: items.rows,
       company: { name: theme.companyName, email: theme.email, phone: theme.phone },
     });
@@ -236,6 +239,7 @@ async function publicAccept(req, res) {
     const { rows } = await pool.query(
       `UPDATE quotes SET status='accepted', accepted_at=NOW(), accepted_name=$1, updated_at=NOW()
        WHERE public_token=$2 AND status IN ('draft','sent')
+       AND (expires_at IS NULL OR expires_at >= CURRENT_DATE)
        RETURNING id, status, accepted_at, accepted_name`,
       [name.trim(), req.params.token]
     );

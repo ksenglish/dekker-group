@@ -41,6 +41,7 @@ export default function PublicQuote() {
   if (error && !quote) return <div style={styles.center}><p style={{ color: '#dc2626' }}>{error}</p></div>;
 
   const alreadyAccepted = quote.status === 'accepted';
+  const isExpired = quote.is_expired;
 
   return (
     <div style={styles.page}>
@@ -105,7 +106,11 @@ export default function PublicQuote() {
 
         {/* Accept section */}
         <div style={styles.acceptSection}>
-          {alreadyAccepted ? (
+          {isExpired && !alreadyAccepted ? (
+          <div style={{ ...styles.acceptedBanner, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626' }}>
+            ✕ This quote expired on {new Date(quote.expires_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}. Please contact us for an updated quote.
+          </div>
+        ) : alreadyAccepted ? (
             <div style={styles.acceptedBanner}>
               ✓ This quote was accepted{quote.accepted_name ? ` by ${quote.accepted_name}` : ''}
               {quote.accepted_at ? ` on ${new Date(quote.accepted_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}` : ''}.

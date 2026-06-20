@@ -160,6 +160,15 @@ export default function QuoteDetail() {
               {quote.job_number && <div className={styles.summaryRow}><span>Job</span><Link to={`/jobs/${quote.job_id}`}>#{quote.job_number}</Link></div>}
               <div className={styles.summaryRow}><span>Created</span><strong>{new Date(quote.created_at).toLocaleDateString('en-NZ')}</strong></div>
               {quote.sent_at && <div className={styles.summaryRow}><span>Sent</span><strong>{new Date(quote.sent_at).toLocaleDateString('en-NZ')}</strong></div>}
+              {quote.expires_at && (
+                <div className={styles.summaryRow}>
+                  <span>Expires</span>
+                  <strong style={{ color: new Date(quote.expires_at) < new Date() ? '#dc2626' : 'inherit' }}>
+                    {new Date(quote.expires_at).toLocaleDateString('en-NZ')}
+                    {new Date(quote.expires_at) < new Date() && ' (expired)'}
+                  </strong>
+                </div>
+              )}
               {quote.accepted_at && <div className={styles.summaryRow}><span>Accepted by</span><strong>{quote.accepted_name} · {new Date(quote.accepted_at).toLocaleDateString('en-NZ')}</strong></div>}
               <div className={styles.summaryRow}><span>Total</span><strong className={styles.totalHighlight}>${(quote.total/100).toFixed(2)}</strong></div>
             </div>
