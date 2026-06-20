@@ -254,9 +254,10 @@ function ImportModal({ onDone, onClose }) {
                 <p>Create a <strong>.zip</strong> file containing:</p>
                 <ul style={{ marginTop: 6, paddingLeft: 20, lineHeight: 1.8 }}>
                   <li>A file called <code>products.csv</code> with columns:<br />
-                    <code>name, description, category, supplier, unit, unit_price, cost_price, image</code></li>
-                  <li>Your product images (JPG/PNG) in the same ZIP</li>
-                  <li>The <code>image</code> column should match the exact filename, e.g. <code>daikin-25kw.jpg</code></li>
+                    <code>name, description, category, supplier, unit, unit_price, cost_price, image, brochure</code></li>
+                  <li>Your product images (JPG/PNG) and brochures (PDF/JPG/PNG) in the same ZIP</li>
+                  <li>The <code>image</code> column should match the thumbnail filename, e.g. <code>daikin-25kw.jpg</code></li>
+                  <li>The <code>brochure</code> column should match the brochure filename, e.g. <code>daikin-25kw-brochure.pdf</code></li>
                 </ul>
               </div>
               <div className={styles.formGroup}>

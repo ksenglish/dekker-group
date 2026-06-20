@@ -121,15 +121,15 @@ async function importZip(req, res) {
     const csvEntry = entries.find(e => e.entryName.match(/\.csv$/i) && !e.entryName.startsWith('__MACOSX'));
     if (!csvEntry) return res.status(400).json({ error: 'No CSV file found in ZIP' });
 
-    // Build image map: filename (lowercase) → base64 data URL
+    // Build file map: filename (lowercase) → base64 data URL (images + PDFs)
     const images = {};
-    const IMAGE_EXTS = /\.(jpg|jpeg|png|webp)$/i;
+    const FILE_EXTS = /\.(jpg|jpeg|png|webp|pdf)$/i;
     for (const entry of entries) {
       if (entry.isDirectory) continue;
       const fname = entry.entryName.split('/').pop(); // strip folder prefix
-      if (!IMAGE_EXTS.test(fname)) continue;
+      if (!FILE_EXTS.test(fname)) continue;
       const ext = fname.split('.').pop().toLowerCase();
-      const mime = ext === 'png' ? 'image/png' : 'image/jpeg';
+      const mime = ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : 'image/jpeg';
       const b64 = entry.getData().toString('base64');
       images[fname.toLowerCase()] = `data:${mime};base64,${b64}`;
     }
@@ -160,13 +160,15 @@ async function importZip(req, res) {
       const name = get('name');
       if (!name) continue;
 
-      const imageFilename = get('image').toLowerCase();
-      const media_base64 = imageFilename && images[imageFilename] ? images[imageFilename] : null;
+      const imageFilename    = get('image').toLowerCase();
+      const brochureFilename = (get('brochure') || get('product brochure') || get('media')).toLowerCase();
+      const media_base64    = imageFilename    && images[imageFilename]    ? images[imageFilename]    : null;
+      const brochure_base64 = brochureFilename && images[brochureFilename] ? images[brochureFilename] : null;
 
       try {
         const { rowCount } = await pool.query(
-          `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier, media_base64)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier, media_base64, brochure_base64)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
            ON CONFLICT DO NOTHING`,
           [
             name,
@@ -177,6 +179,7 @@ async function importZip(req, res) {
             Math.round(parseFloat(get('cost_price') || 0) * 100),
             get('supplier') || null,
             media_base64,
+            brochure_base64,
           ]
         );
         if (rowCount > 0) results.imported++;
