@@ -1,0 +1,142 @@
+/* ── Shell ─────────────────────────────────────────────────────────────────── */
+.presenter {
+  position: fixed; inset: 0; background: #f8fafc; z-index: 100;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.loadingScreen { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; color: #64748b; }
+
+/* ── Header ────────────────────────────────────────────────────────────────── */
+.header {
+  display: flex; align-items: center; gap: 0;
+  background: white; border-bottom: 1px solid #e2e8f0;
+  height: 60px; padding: 0 24px; flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+.headerBrand { display: flex; align-items: center; gap: 10px; margin-right: 32px; flex-shrink: 0; }
+.headerLogo {
+  width: 36px; height: 36px; background: #0f172a; color: white;
+  border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 800; letter-spacing: -0.5px;
+}
+.headerName { font-size: 15px; font-weight: 700; color: #0f172a; }
+
+.sectionTabs { display: flex; gap: 0; flex: 1; height: 100%; overflow-x: auto; }
+.sectionTab {
+  display: flex; align-items: center; gap: 8px; padding: 0 20px; height: 100%;
+  background: none; border: none; border-bottom: 3px solid transparent;
+  font-size: 14px; font-weight: 500; color: #64748b; cursor: pointer;
+  white-space: nowrap; transition: color 0.15s, border-color 0.15s;
+}
+.sectionTab:hover { color: #0f172a; background: #f8fafc; }
+.sectionTabActive { font-weight: 600; }
+
+.exitBtn {
+  margin-left: 16px; flex-shrink: 0; padding: 8px 16px;
+  background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5;
+  border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.exitBtn:hover { background: #fee2e2; }
+
+/* ── Section Hero ──────────────────────────────────────────────────────────── */
+.sectionHero {
+  display: flex; align-items: center; gap: 16px;
+  padding: 20px 32px; background: white;
+  border-top: 4px solid #1e40af; border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.heroIcon { font-size: 36px; line-height: 1; }
+.heroTitle { font-size: 26px; font-weight: 800; margin: 0 0 2px; }
+.heroSub { font-size: 13px; color: #64748b; margin: 0; }
+
+/* ── Product Grid ──────────────────────────────────────────────────────────── */
+.productGrid {
+  flex: 1; overflow-y: auto; padding: 28px 32px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px;
+  align-content: start;
+}
+
+.productCard {
+  background: white; border: 1px solid #e2e8f0; border-radius: 14px;
+  overflow: hidden; cursor: pointer; text-align: left;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  transition: transform 0.15s, box-shadow 0.15s;
+  display: flex; flex-direction: column;
+}
+.productCard:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+
+.productImage { width: 100%; height: 180px; object-fit: cover; display: block; }
+.productImagePlaceholder {
+  width: 100%; height: 180px; display: flex; align-items: center; justify-content: center;
+}
+
+.productInfo { padding: 16px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.productName { font-size: 16px; font-weight: 700; color: #0f172a; margin: 0; }
+.productDesc { font-size: 13px; color: #64748b; margin: 0; line-height: 1.5; flex: 1; }
+.productPrice { font-size: 14px; font-weight: 600; margin-top: 4px; }
+.productCta {
+  margin-top: 10px; padding: 9px 14px; color: white; border-radius: 8px;
+  font-size: 13px; font-weight: 600; text-align: center;
+}
+
+/* ── Empty ─────────────────────────────────────────────────────────────────── */
+.emptySection {
+  grid-column: 1 / -1; text-align: center; padding: 80px 20px; color: #64748b;
+}
+.emptyIcon { font-size: 56px; margin-bottom: 16px; }
+.emptySection p { font-size: 16px; margin: 0 0 8px; }
+.emptyHint { font-size: 13px; }
+
+/* ── Product Panel ─────────────────────────────────────────────────────────── */
+.panelOverlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200;
+  display: flex; justify-content: flex-end;
+}
+.panel {
+  width: 520px; max-width: 95vw; height: 100%; background: white;
+  overflow-y: auto; position: relative; display: flex; flex-direction: column;
+  box-shadow: -8px 0 32px rgba(0,0,0,0.15);
+  animation: slideIn 0.2s ease-out;
+}
+@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+.panelClose {
+  position: absolute; top: 16px; right: 16px; z-index: 10;
+  background: rgba(0,0,0,0.5); color: white; border: none;
+  width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 14px;
+}
+.panelClose:hover { background: rgba(0,0,0,0.7); }
+
+.panelImage { width: 100%; height: 260px; object-fit: cover; flex-shrink: 0; }
+.panelImage img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.panelBody { padding: 24px; flex: 1; }
+.panelTag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  margin-bottom: 12px;
+}
+.panelTitle { font-size: 24px; font-weight: 800; color: #0f172a; margin: 0 0 10px; }
+.panelDesc { font-size: 14px; color: #475569; line-height: 1.7; margin: 0 0 16px; }
+.panelFeatures { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 6px; }
+.panelFeatures li { font-size: 14px; color: #16a34a; font-weight: 500; }
+.panelPriceFrom { font-size: 15px; color: #64748b; margin-bottom: 20px; }
+.panelPriceFrom strong { font-size: 22px; color: #0f172a; }
+.panelPriceFrom span { font-size: 12px; }
+
+/* ── Calculator ────────────────────────────────────────────────────────────── */
+.calc { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 8px; }
+.calcTitle { font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 16px; text-transform: uppercase; letter-spacing: 0.05em; }
+.calcGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.calcField { display: flex; flex-direction: column; gap: 5px; }
+.calcField label { font-size: 12px; font-weight: 500; color: #64748b; }
+.calcField input, .calcField select {
+  padding: 9px 12px; border: 1px solid #e2e8f0; border-radius: 8px;
+  font-size: 14px; outline: none; font-family: inherit; background: white;
+}
+.calcField input:focus, .calcField select:focus { border-color: #6366f1; box-shadow: 0 0 0 3px #eef2ff; }
+
+.calcResult { border-top: 1px solid #e2e8f0; padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.calcResultRow { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+.calcResultRow span { color: #64748b; }
+.calcResultRow strong { font-weight: 600; }
+.calcTotal { font-size: 20px; color: #16a34a; }

@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink, useNavigate } from 'react-router-dom';
+import { Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import Dashboard from '../../pages/Dashboard';
 import CustomerList from '../../pages/customers/CustomerList';
@@ -15,6 +15,8 @@ import ProductList from '../../pages/products/ProductList';
 import UsersPage from '../../pages/users/UsersPage';
 import TimesheetsPage from '../../pages/timesheets/TimesheetsPage';
 import ReportsPage from '../../pages/reports/ReportsPage';
+import SalesPresenter from '../../pages/presenter/SalesPresenter';
+import PresenterAdmin from '../../pages/presenter/PresenterAdmin';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
@@ -27,21 +29,31 @@ const NAV_ITEMS = [
   { to: '/products', label: 'Price List', icon: '🏷' },
   { to: '/timesheets', label: 'Timesheets', icon: '⏱' },
   { to: '/reports', label: 'Reports', icon: '📊' },
+  { to: '/presenter', label: 'Sales Presenter', icon: '🎯' },
 ];
 
 const ADMIN_ITEMS = [
   { to: '/users', label: 'Users', icon: '👤' },
+  { to: '/presenter/admin', label: 'Presenter Setup', icon: '🎛' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ];
 
 export default function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isPresenter = location.pathname === '/presenter';
 
   async function handleLogout() {
     await logout();
     navigate('/login');
   }
+
+  if (isPresenter) return (
+    <Routes>
+      <Route path="/presenter" element={<SalesPresenter />} />
+    </Routes>
+  );
 
   return (
     <div className={styles.shell}>
@@ -118,6 +130,8 @@ export default function AppShell() {
           <Route path="/users" element={<UsersPage />} />
           <Route path="/timesheets" element={<TimesheetsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/presenter" element={<SalesPresenter />} />
+          <Route path="/presenter/admin" element={<PresenterAdmin />} />
           <Route path="/users/*" element={<ComingSoon title="Users" />} />
         </Routes>
       </main>

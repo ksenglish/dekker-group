@@ -18,6 +18,7 @@ const productRoutes = require('./routes/products');
 const timesheetRoutes = require('./routes/timesheets');
 const reportRoutes = require('./routes/reports');
 const scanRoutes = require('./routes/scan');
+const presenterRoutes = require('./routes/presenter');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -41,6 +42,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/timesheets', timesheetRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/scan', scanRoutes);
+app.use('/api/presenter', presenterRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {
