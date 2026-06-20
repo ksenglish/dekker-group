@@ -223,11 +223,14 @@ function SmartVentLiteCalculator({ onPick }) {
 
   // Find matching price list product by name (e.g. "SV04L+")
   const priceProduct = tableMatch
-    ? priceListProducts.find(p => p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase())
+    ? priceListProducts.find(p =>
+        (p.description || '').trim().toLowerCase() === tableMatch.model.trim().toLowerCase() ||
+        p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase()
+      )
     : null;
 
-  const exGst  = priceProduct ? priceProduct.price / 100 : tableMatch?.exGst;
-  const incGst = priceProduct ? (priceProduct.price / 100) * 1.15 : tableMatch?.incGst;
+  const exGst  = priceProduct ? priceProduct.price / 100 : (tableMatch?.exGst ?? null);
+  const incGst = priceProduct ? (priceProduct.price / 100) * 1.15 : (tableMatch?.incGst ?? null);
 
   return (
     <div className={styles.calc}>
