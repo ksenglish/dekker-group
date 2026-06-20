@@ -139,11 +139,13 @@ export default function AppShell() {
       {/* Mobile bottom navigation */}
       <nav className={styles.bottomNav}>
         {[
-          { to: '/',         icon: '⊞', label: 'Home',     exact: true },
-          { to: '/jobs',     icon: '🔧', label: 'Jobs' },
-          { to: '/schedule', icon: '📅', label: 'Schedule' },
-          { to: '/quotes',   icon: '📋', label: 'Quotes' },
-          { to: '/customers',icon: '👥', label: 'Customers' },
+          { to: '/',          icon: '⊞', label: 'Home',      exact: true },
+          { to: '/jobs',      icon: '🔧', label: 'Jobs' },
+          { to: '/schedule',  icon: '📅', label: 'Schedule' },
+          { to: '/quotes',    icon: '📋', label: 'Quotes' },
+          { to: '/customers', icon: '👥', label: 'Customers' },
+          { to: '/products',  icon: '🏷', label: 'Price List' },
+          { to: '/presenter', icon: '🎯', label: 'Presenter' },
         ].map(item => (
           <NavLink key={item.to} to={item.to} end={item.exact}
             className={({ isActive }) =>

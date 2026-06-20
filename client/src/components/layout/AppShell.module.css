@@ -183,10 +183,15 @@
     border-top: 1px solid rgba(255 255 255 / 0.1);
     z-index: 100;
     padding-bottom: env(safe-area-inset-bottom);
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
   }
+  .bottomNav::-webkit-scrollbar { display: none; }
 
   .bottomNavItem {
-    flex: 1;
+    flex: 0 0 72px;
     display: flex;
     flex-direction: column;
     align-items: center;
