@@ -55,7 +55,10 @@ export default function InvoiceList() {
               <span className={styles.docNum}>INV-{inv.id.slice(0,8).toUpperCase()}</span>
               <span>{inv.job_number ? `#${inv.job_number}` : '—'}</span>
               <span>{inv.customer_name || '—'}</span>
-              <span><span className={styles.badge} style={{ background: STATUS_COLOURS[inv.status]+'18', color: STATUS_COLOURS[inv.status] }}>{inv.status}</span></span>
+              <span>
+                <span className={styles.badge} style={{ background: STATUS_COLOURS[inv.status]+'18', color: STATUS_COLOURS[inv.status] }}>{inv.status}</span>
+                {inv.is_overdue && <span className={styles.badge} style={{ background: '#fee2e2', color: '#dc2626', marginLeft: 4 }}>overdue</span>}
+              </span>
               <span>${(inv.subtotal/100).toFixed(2)}</span>
               <span>${(inv.gst/100).toFixed(2)}</span>
               <span className={styles.totalCol}>${(inv.total/100).toFixed(2)}</span>

@@ -99,6 +99,15 @@ export default function JobDetail() {
   async function handleStatusChange(status) {
     const { data } = await api.patch(`/jobs/${id}/status`, { status });
     setJob(j => ({ ...j, status: data.status }));
+    // Prompt to create a quote if job has line items and no existing quote
+    if (status === 'complete' && job?.line_items?.length > 0 && job?.status !== 'invoiced') {
+      if (confirm('Job marked complete. Would you like to create a quote from this job\'s line items?')) {
+        try {
+          const { data: q } = await api.post('/quotes', { job_id: id, customer_id: job.customer_id });
+          navigate(`/quotes/${q.id}`);
+        } catch { /* user can create manually */ }
+      }
+    }
   }
 
   async function handleAddNote() {

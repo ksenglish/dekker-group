@@ -16,13 +16,20 @@ async function list(req, res) {
   const conditions = [];
   const params = [];
   let p = 1;
-  if (status)   { conditions.push(`i.status = $${p}`);      params.push(status);   p++; }
+  if (status === 'overdue') {
+    conditions.push(`i.status NOT IN ('paid','cancelled') AND i.due_date < CURRENT_DATE`);
+  } else if (status === 'unpaid') {
+    conditions.push(`i.status NOT IN ('paid','cancelled')`);
+  } else if (status) {
+    conditions.push(`i.status = $${p}`); params.push(status); p++;
+  }
   if (customer) { conditions.push(`i.customer_id = $${p}`); params.push(customer); p++; }
   if (job)      { conditions.push(`i.job_id = $${p}`);      params.push(job);      p++; }
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   try {
     const { rows } = await pool.query(
-      `SELECT i.*, c.name AS customer_name, j.job_number
+      `SELECT i.*, c.name AS customer_name, j.job_number,
+              (i.status NOT IN ('paid','cancelled') AND i.due_date < CURRENT_DATE) AS is_overdue
        FROM invoices i
        LEFT JOIN customers c ON c.id = i.customer_id
        LEFT JOIN jobs j ON j.id = i.job_id

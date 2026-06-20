@@ -17,6 +17,8 @@ export default function CustomerDetail() {
 
   const [customer, setCustomer] = useState(null);
   const [notes, setNotes] = useState([]);
+  const [quotes, setQuotes] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -33,8 +35,14 @@ export default function CustomerDetail() {
         const { data } = await api.get(`/customers/${id}`);
         setCustomer(data);
         setForm({ name: data.name, company: data.company || '', phone: data.phone || '', email: data.email || '' });
-        const notesRes = await api.get(`/customers/${id}/notes`);
+        const [notesRes, quotesRes, invoicesRes] = await Promise.all([
+          api.get(`/customers/${id}/notes`),
+          api.get('/quotes', { params: { customer: id } }),
+          api.get('/invoices', { params: { customer: id } }),
+        ]);
         setNotes(notesRes.data);
+        setQuotes(quotesRes.data || []);
+        setInvoices(invoicesRes.data || []);
       } finally {
         setLoading(false);
       }
@@ -227,25 +235,67 @@ export default function CustomerDetail() {
           )}
         </div>
 
-        {/* Recent Jobs Sidebar */}
-        {!isNew && customer?.recent_jobs?.length > 0 && (
+        {/* Sidebar */}
+        {!isNew && (
           <div className={styles.detailSidebar}>
-            <div className={styles.card}>
-              <div className={styles.cardHeader}><h2>Recent Jobs</h2></div>
-              {customer.recent_jobs.map(job => (
-                <Link key={job.id} to={`/jobs/${job.id}`} className={styles.jobRow}>
-                  <div className={styles.jobTop}>
-                    <span className={styles.jobNumber}>#{job.job_number}</span>
-                    <span className={styles.statusBadge} style={{ background: STATUS_COLOURS[job.status] + '20', color: STATUS_COLOURS[job.status] }}>
-                      {job.status.replace('_', ' ')}
-                    </span>
+            {/* Stats */}
+            {(quotes.length > 0 || invoices.length > 0) && (
+              <div className={styles.card}>
+                <div className={styles.cardHeader}><h2>Account Summary</h2></div>
+                <div className={styles.detailGrid} style={{ padding: '12px 16px' }}>
+                  <div className={styles.detailItem}><span>Total Jobs</span><strong>{customer?.recent_jobs?.length ?? 0}</strong></div>
+                  <div className={styles.detailItem}><span>Quotes</span><strong>{quotes.length}</strong></div>
+                  <div className={styles.detailItem}><span>Invoiced</span>
+                    <strong>${(invoices.reduce((s, i) => s + (i.total || 0), 0) / 100).toFixed(2)}</strong>
                   </div>
-                  <div className={styles.jobDesc}>{job.description || job.type}</div>
-                  {job.lead_tech_name && <div className={styles.jobTech}>{job.lead_tech_name}</div>}
-                </Link>
-              ))}
-              <Link to={`/jobs?customer=${id}`} className={styles.viewAllLink}>View all jobs →</Link>
-            </div>
+                  <div className={styles.detailItem}><span>Outstanding</span>
+                    <strong style={{ color: '#dc2626' }}>
+                      ${(invoices.filter(i => i.status !== 'paid').reduce((s, i) => s + (i.total || 0), 0) / 100).toFixed(2)}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Recent Jobs */}
+            {customer?.recent_jobs?.length > 0 && (
+              <div className={styles.card}>
+                <div className={styles.cardHeader}><h2>Recent Jobs</h2></div>
+                {customer.recent_jobs.map(job => (
+                  <Link key={job.id} to={`/jobs/${job.id}`} className={styles.jobRow}>
+                    <div className={styles.jobTop}>
+                      <span className={styles.jobNumber}>#{job.job_number}</span>
+                      <span className={styles.statusBadge} style={{ background: STATUS_COLOURS[job.status] + '20', color: STATUS_COLOURS[job.status] }}>
+                        {job.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <div className={styles.jobDesc}>{job.description || job.type}</div>
+                    {job.lead_tech_name && <div className={styles.jobTech}>{job.lead_tech_name}</div>}
+                  </Link>
+                ))}
+                <Link to={`/jobs?customer=${id}`} className={styles.viewAllLink}>View all jobs →</Link>
+              </div>
+            )}
+
+            {/* Invoices */}
+            {invoices.length > 0 && (
+              <div className={styles.card}>
+                <div className={styles.cardHeader}><h2>Invoices</h2></div>
+                {invoices.slice(0, 5).map(inv => (
+                  <Link key={inv.id} to={`/invoices/${inv.id}`} className={styles.jobRow}>
+                    <div className={styles.jobTop}>
+                      <span className={styles.jobNumber}>INV-{inv.id.slice(0,6).toUpperCase()}</span>
+                      <span className={styles.statusBadge} style={{
+                        background: inv.status === 'paid' ? '#dcfce7' : inv.status === 'overdue' ? '#fee2e2' : '#fef9c3',
+                        color: inv.status === 'paid' ? '#16a34a' : inv.status === 'overdue' ? '#dc2626' : '#ca8a04'
+                      }}>{inv.status}</span>
+                    </div>
+                    <div className={styles.jobDesc}>${(inv.total / 100).toFixed(2)} · {new Date(inv.created_at).toLocaleDateString('en-NZ')}</div>
+                  </Link>
+                ))}
+                <Link to={`/invoices?customer=${id}`} className={styles.viewAllLink}>View all invoices →</Link>
+              </div>
+            )}
           </div>
         )}
       </div>
