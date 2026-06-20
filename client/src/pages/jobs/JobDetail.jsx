@@ -6,6 +6,81 @@ import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import styles from './Jobs.module.css';
 
+function JobAttachments({ jobId, user }) {
+  const [attachments, setAttachments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+
+  useEffect(() => {
+    api.get(`/jobs/${jobId}/attachments`)
+      .then(r => setAttachments(r.data))
+      .finally(() => setLoading(false));
+  }, [jobId]);
+
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) return alert('Image must be under 5MB');
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      setUploading(true);
+      try {
+        const { data } = await api.post(`/jobs/${jobId}/attachments`, {
+          filename: file.name, mime_type: file.type, data_base64: ev.target.result,
+        });
+        setAttachments(a => [data, ...a]);
+      } finally { setUploading(false); }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  async function del(id) {
+    await api.delete(`/jobs/${jobId}/attachments/${id}`);
+    setAttachments(a => a.filter(x => x.id !== id));
+  }
+
+  const VITE_API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+
+  return (
+    <div className={styles.card}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <label style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '7px 14px', background: 'var(--color-primary)', color: 'white', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500 }}>
+          {uploading ? 'Uploading…' : '📷 Upload Photo'}
+          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} disabled={uploading} />
+        </label>
+        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>JPG, PNG or WebP · max 5MB</span>
+      </div>
+      {loading ? <div className={styles.emptySmall}>Loading…</div> :
+       attachments.length === 0 ? <div className={styles.emptySmall}>No photos uploaded yet.</div> : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, padding: 16 }}>
+          {attachments.map(a => (
+            <div key={a.id} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+              <img
+                src={`${VITE_API}/jobs/${jobId}/attachments/${a.id}/data`}
+                alt={a.filename}
+                style={{ width: '100%', height: 120, objectFit: 'cover', cursor: 'pointer', display: 'block' }}
+                onClick={() => setLightbox(`${VITE_API}/jobs/${jobId}/attachments/${a.id}/data`)}
+              />
+              <div style={{ padding: '4px 6px', fontSize: 10, color: 'var(--color-text-muted)', background: 'white' }}>
+                {a.uploader_name} · {new Date(a.created_at).toLocaleDateString('en-NZ')}
+              </div>
+              <button onClick={() => del(a.id)} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '2px 5px', fontSize: 11 }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, cursor: 'zoom-out' }}>
+          <img src={lightbox} alt="" style={{ maxWidth: '100%', maxHeight: '90vh', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function JobTimesheets({ jobId, user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -227,7 +302,7 @@ export default function JobDetail() {
         <div className={styles.detailMain}>
           {/* Tabs */}
           <div className={styles.tabs}>
-            {['details', 'line_items', 'timesheets', 'notes'].map(t => (
+            {['details', 'line_items', 'timesheets', 'photos', 'notes'].map(t => (
               <button key={t} className={`${styles.tab} ${activeTab === t ? styles.tabActive : ''}`} onClick={() => setActiveTab(t)}>
                 {t === 'line_items' ? 'Line Items' : t.charAt(0).toUpperCase() + t.slice(1)}
                 {t === 'notes' && job.notes?.length > 0 && <span className={styles.tabCount}>{job.notes.length}</span>}
@@ -282,6 +357,7 @@ export default function JobDetail() {
           )}
 
           {activeTab === 'timesheets' && <JobTimesheets jobId={id} user={user} />}
+          {activeTab === 'photos' && <JobAttachments jobId={id} user={user} />}
 
           {activeTab === 'notes' && (
             <div className={styles.card}>
