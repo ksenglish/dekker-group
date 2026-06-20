@@ -20,6 +20,32 @@ router.get('/:id/notes', c.listNotes);
 router.post('/:id/notes', c.createNote);
 router.delete('/:id/notes/:noteId', requireRole('admin', 'office'), c.deleteNote);
 
+// Email customer from job
+router.post('/:id/email', requireRole('admin', 'office'), async (req, res) => {
+  try {
+    const pool = require('../db/pool');
+    const { sendMail } = require('../utils/email');
+    const { logActivity } = require('../utils/activity');
+    const { subject, body } = req.body;
+    if (!subject || !body) return res.status(400).json({ error: 'subject and body are required' });
+    const { rows: [job] } = await pool.query(
+      `SELECT j.*, c.email AS customer_email, c.name AS customer_name
+       FROM jobs j LEFT JOIN customers c ON c.id = j.customer_id WHERE j.id=$1`,
+      [req.params.id]
+    );
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!job.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
+    await sendMail({ to: job.customer_email, subject, html: body.replace(/\n/g, '<br>'), text: body });
+    await pool.query(
+      `INSERT INTO email_log (customer_id, job_id, type, recipient) VALUES ($1,$2,'job_email',$3)`,
+      [job.customer_id, job.id, job.customer_email]
+    );
+    await logActivity({ type: 'email_sent', entity_type: 'job', entity_id: job.id, user_id: req.user.id,
+      message: `Email sent to ${job.customer_name} re Job #${job.job_number}` });
+    res.json({ message: 'Email sent' });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message || 'Failed to send email' }); }
+});
+
 // Attachments (photos from site)
 const pool = require('../db/pool');
 router.get('/:id/attachments', async (req, res) => {

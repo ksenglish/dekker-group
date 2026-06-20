@@ -585,3 +585,74 @@
   .lineItemsHeader { display: none; }
   .lineItemRow { grid-template-columns: 2fr 60px 100px 32px; }
 }
+
+/* ── Timer ──────────────────────────────────────────────────── */
+.timerBar {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 10px 16px; margin-bottom: 16px;
+}
+.timerDisplay {
+  font-size: 22px; font-variant-numeric: tabular-nums; font-weight: 700;
+  letter-spacing: 0.02em; display: flex; align-items: center; gap: 8px; min-width: 88px;
+}
+.timerDot {
+  width: 8px; height: 8px; border-radius: 50%; background: #16a34a;
+  animation: timerPulse 1s ease-in-out infinite;
+}
+@keyframes timerPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+.timerBtn {
+  padding: 7px 16px; background: var(--color-primary); color: white;
+  border: none; border-radius: var(--radius); font-size: 13px; font-weight: 500;
+  cursor: pointer; font-family: inherit;
+}
+.timerBtn:hover { opacity: 0.9; }
+.timerBtnStop {
+  padding: 7px 16px; background: #dc2626; color: white;
+  border: none; border-radius: var(--radius); font-size: 13px; font-weight: 500;
+  cursor: pointer; font-family: inherit;
+}
+.timerBtnDiscard {
+  padding: 7px 14px; background: none; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 13px; cursor: pointer; font-family: inherit;
+  color: var(--color-text-muted);
+}
+.timerSaveForm { display: flex; align-items: center; gap: 8px; flex: 1; }
+.timerDescInput {
+  flex: 1; padding: 7px 12px; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 13px; font-family: inherit;
+}
+.timerRounded { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
+
+/* ── Flash banner ────────────────────────────────────────────── */
+.flashBanner {
+  padding: 10px 16px; background: #f0fdf4; border: 1px solid #86efac;
+  border-radius: var(--radius); font-size: 13px; color: #15803d; margin-bottom: 16px;
+  animation: flashFade 3s forwards;
+}
+@keyframes flashFade { 0%,70% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ── Email Modal ─────────────────────────────────────────────── */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.modal {
+  background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto;
+}
+.modalHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 24px 0; border-bottom: 1px solid var(--color-border); padding-bottom: 16px;
+}
+.modalHeader h2 { font-size: 17px; font-weight: 600; margin: 0; }
+.modalClose {
+  background: none; border: none; font-size: 18px; cursor: pointer;
+  color: var(--color-text-muted); padding: 4px; line-height: 1;
+}
+.modalClose:hover { color: var(--color-text); }
+.modalBody { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.errorBanner {
+  padding: 10px 14px; background: #fef2f2; border: 1px solid #fca5a5;
+  border-radius: var(--radius); font-size: 13px; color: #dc2626;
+}

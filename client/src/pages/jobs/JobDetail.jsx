@@ -1,10 +1,149 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import styles from './Jobs.module.css';
+
+// ── Job Email Modal ───────────────────────────────────────────────────────────
+function JobEmailModal({ job, onClose, onSent }) {
+  const [subject, setSubject] = useState(`Re: Job #${job.job_number}`);
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function send(e) {
+    e.preventDefault();
+    if (!body.trim()) return;
+    setSending(true); setErr('');
+    try {
+      await api.post(`/jobs/${job.id}/email`, { subject, body });
+      onSent();
+      onClose();
+    } catch (e) { setErr(e.response?.data?.error || 'Send failed'); setSending(false); }
+  }
+
+  return (
+    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modal}>
+        <div className={styles.modalHeader}>
+          <h2>Email Customer</h2>
+          <button className={styles.modalClose} onClick={onClose}>✕</button>
+        </div>
+        <form onSubmit={send} className={styles.modalBody}>
+          <div className={styles.field}>
+            <label>To</label>
+            <input value={job.customer_email} disabled style={{ background: '#f8fafc', color: 'var(--color-text-muted)' }} />
+          </div>
+          <div className={styles.field}>
+            <label>Subject</label>
+            <input value={subject} onChange={e => setSubject(e.target.value)} required />
+          </div>
+          <div className={styles.field}>
+            <label>Message</label>
+            <textarea rows={8} value={body} onChange={e => setBody(e.target.value)}
+              placeholder={`Hi ${job.customer_name?.split(' ')[0] || 'there'},\n\n`} required
+              style={{ resize: 'vertical' }} />
+          </div>
+          {err && <div className={styles.errorBanner}>{err}</div>}
+          <div className={styles.formActions}>
+            <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
+            <button type="submit" className={styles.btnPrimary} disabled={sending || !body.trim()}>
+              {sending ? 'Sending…' : '✉ Send Email'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Live Timer ────────────────────────────────────────────────────────────────
+function JobTimer({ jobId, onTimeSaved }) {
+  const STORAGE_KEY = `timer_${jobId}`;
+  const [startTs, setStartTs] = useState(() => {
+    try { return parseInt(localStorage.getItem(STORAGE_KEY)) || null; } catch { return null; }
+  });
+  const [elapsed, setElapsed] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [desc, setDesc] = useState('');
+  const [showSave, setShowSave] = useState(false);
+  const tickRef = useRef(null);
+
+  useEffect(() => {
+    if (!startTs) { clearInterval(tickRef.current); setElapsed(0); return; }
+    setElapsed(Math.floor((Date.now() - startTs) / 1000));
+    tickRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startTs) / 1000)), 1000);
+    return () => clearInterval(tickRef.current);
+  }, [startTs]);
+
+  function start() {
+    const ts = Date.now();
+    localStorage.setItem(STORAGE_KEY, String(ts));
+    setStartTs(ts);
+    setShowSave(false);
+  }
+
+  function stop() {
+    clearInterval(tickRef.current);
+    setShowSave(true);
+  }
+
+  function discard() {
+    localStorage.removeItem(STORAGE_KEY);
+    setStartTs(null); setElapsed(0); setShowSave(false); setDesc('');
+  }
+
+  async function save(e) {
+    e.preventDefault();
+    const hours = Math.max(0.25, Math.round(elapsed / 900) * 0.25); // round to nearest 0.25h
+    setSaving(true);
+    try {
+      await api.post('/timesheets', {
+        job_id: jobId, hours, description: desc || 'Time tracked via timer',
+        date: new Date().toISOString().slice(0, 10),
+      });
+      localStorage.removeItem(STORAGE_KEY);
+      setStartTs(null); setElapsed(0); setShowSave(false); setDesc('');
+      onTimeSaved && onTimeSaved(hours);
+    } catch { alert('Failed to save time entry'); }
+    finally { setSaving(false); }
+  }
+
+  function fmt(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return [h, m, sec].map(n => String(n).padStart(2, '0')).join(':');
+  }
+
+  const isRunning = !!startTs && !showSave;
+
+  return (
+    <div className={styles.timerBar}>
+      <div className={styles.timerDisplay} style={{ color: isRunning ? '#16a34a' : '#0f172a' }}>
+        {isRunning && <span className={styles.timerDot} />}
+        {fmt(elapsed)}
+      </div>
+      {!startTs && !showSave && (
+        <button className={styles.timerBtn} onClick={start}>▶ Start Timer</button>
+      )}
+      {isRunning && (
+        <button className={styles.timerBtnStop} onClick={stop}>⏹ Stop</button>
+      )}
+      {showSave && (
+        <form onSubmit={save} className={styles.timerSaveForm}>
+          <input placeholder="What were you working on?" value={desc} onChange={e => setDesc(e.target.value)}
+            className={styles.timerDescInput} />
+          <span className={styles.timerRounded}>({Math.max(0.25, Math.round(elapsed / 900) * 0.25).toFixed(2)}h)</span>
+          <button type="submit" className={styles.timerBtn} disabled={saving}>
+            {saving ? '…' : '✓ Save'}
+          </button>
+          <button type="button" className={styles.timerBtnDiscard} onClick={discard}>Discard</button>
+        </form>
+      )}
+    </div>
+  );
+}
 
 function JobAttachments({ jobId, user }) {
   const [attachments, setAttachments] = useState([]);
@@ -165,6 +304,8 @@ export default function JobDetail() {
   const [noteText, setNoteText] = useState('');
   const [activeTab, setActiveTab] = useState('details');
   const [creatingQuote, setCreatingQuote] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailFlash, setEmailFlash] = useState('');
 
   useEffect(() => {
     if (isNew) return;
@@ -248,14 +389,17 @@ export default function JobDetail() {
           <Link to="/jobs">Jobs</Link><span>›</span>
           <span>Job #{job.job_number}</span>
         </div>
-        {user?.role !== 'field_tech' && (
-          <div className={styles.headerActions}>
+        <div className={styles.headerActions}>
+          {job.customer_email && user?.role !== 'field_tech' && (
+            <button className={styles.btnSecondary} onClick={() => setShowEmailModal(true)}>✉ Email Customer</button>
+          )}
+          {user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
-            {user?.role === 'admin' && (
-              <button className={styles.btnDanger} onClick={handleDelete}>Delete</button>
-            )}
-          </div>
-        )}
+          )}
+          {user?.role === 'admin' && (
+            <button className={styles.btnDanger} onClick={handleDelete}>Delete</button>
+          )}
+        </div>
       </div>
 
       {/* Status pipeline */}
@@ -295,6 +439,23 @@ export default function JobDetail() {
             <button onClick={() => handleStatusChange('new')} className={styles.reopenBtn}>Reopen as New</button>
           )}
         </div>
+      )}
+
+      {/* Timer bar */}
+      {job.status !== 'cancelled' && job.status !== 'complete' && (
+        <JobTimer jobId={id} onTimeSaved={() => setEmailFlash('Time entry saved!')} />
+      )}
+      {emailFlash && (
+        <div className={styles.flashBanner} onAnimationEnd={() => setEmailFlash('')}>{emailFlash}</div>
+      )}
+
+      {/* Email modal */}
+      {showEmailModal && (
+        <JobEmailModal
+          job={{ ...job, id, customer_email: job.customer_email, customer_name: job.customer_name }}
+          onClose={() => setShowEmailModal(false)}
+          onSent={() => setEmailFlash(`Email sent to ${job.customer_name}`)}
+        />
       )}
 
       {/* Main layout */}
