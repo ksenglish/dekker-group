@@ -115,7 +115,8 @@ function JobTimer({ jobId, onTimeSaved }) {
       setStartTs(null); setElapsed(0); setShowSave(false); setDesc('');
       onTimeSaved && onTimeSaved(hours);
     } catch (err) {
-      alert(err?.response?.data?.error || 'Failed to save time entry');
+      console.error('Timer save error:', err?.response?.data || err?.message || err);
+      alert('Failed to save time entry: ' + (err?.response?.data?.error || err?.message || 'Unknown error'));
     }
     finally { setSaving(false); }
   }
