@@ -230,7 +230,7 @@ function SmartVentLiteCalculator() {
             placeholder="e.g. 150" min="0" max="560" />
         </div>
         <div className={styles.calcField}>
-          <label>Number of Outlets{outletHint ? ` — ${outletHint}` : ''}</label>
+          <label>Number of Outlets</label>
           <input type="number" value={outlets} onChange={e => setOutlets(e.target.value)}
             placeholder="e.g. 4" min="1" max="8" />
         </div>
