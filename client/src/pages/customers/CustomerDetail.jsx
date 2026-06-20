@@ -19,6 +19,7 @@ export default function CustomerDetail() {
   const [notes, setNotes] = useState([]);
   const [quotes, setQuotes] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [emails, setEmails] = useState([]);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -35,14 +36,16 @@ export default function CustomerDetail() {
         const { data } = await api.get(`/customers/${id}`);
         setCustomer(data);
         setForm({ name: data.name, company: data.company || '', phone: data.phone || '', email: data.email || '' });
-        const [notesRes, quotesRes, invoicesRes] = await Promise.all([
+        const [notesRes, quotesRes, invoicesRes, emailsRes] = await Promise.all([
           api.get(`/customers/${id}/notes`),
           api.get('/quotes', { params: { customer: id } }),
           api.get('/invoices', { params: { customer: id } }),
+          api.get(`/customers/${id}/emails`).catch(() => ({ data: [] })),
         ]);
         setNotes(notesRes.data);
         setQuotes(quotesRes.data || []);
         setInvoices(invoicesRes.data || []);
+        setEmails(emailsRes.data || []);
       } finally {
         setLoading(false);
       }
@@ -294,6 +297,27 @@ export default function CustomerDetail() {
                   </Link>
                 ))}
                 <Link to={`/invoices?customer=${id}`} className={styles.viewAllLink}>View all invoices →</Link>
+              </div>
+            )}
+
+            {/* Email history */}
+            {emails.length > 0 && (
+              <div className={styles.card}>
+                <div className={styles.cardHeader}><h2>Email History</h2></div>
+                {emails.slice(0, 6).map(e => (
+                  <div key={e.id} className={styles.jobRow} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, cursor: 'default' }}>
+                    <div>
+                      <div className={styles.jobTop}>
+                        <span className={styles.statusBadge} style={{ background: '#f0fdf4', color: '#16a34a' }}>{e.type}</span>
+                        {e.job_number && <span style={{ fontSize: 12, color: 'var(--color-text-muted)', marginLeft: 4 }}>#{e.job_number}</span>}
+                      </div>
+                      <div className={styles.jobDesc}>{e.recipient}</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      {new Date(e.sent_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
