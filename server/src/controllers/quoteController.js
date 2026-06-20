@@ -222,7 +222,8 @@ async function publicGet(req, res) {
     );
     if (!rows[0]) return res.status(404).json({ error: 'Quote not found' });
     const q = rows[0];
-    const items = await pool.query('SELECT description, quantity, unit_price FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
+    const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     res.json({
       id: q.id,
@@ -238,8 +239,8 @@ async function publicGet(req, res) {
       accepted_name: q.accepted_name,
       expires_at: q.expires_at,
       is_expired: q.expires_at ? new Date(q.expires_at) < new Date() : false,
-      line_items: items.rows,
-      company: { name: theme.companyName, email: theme.email, phone: theme.phone },
+      line_items: enrichedItems,
+      company: { name: theme.companyName, email: theme.email, phone: theme.phone, logo: theme.logoBase64 },
     });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }

@@ -37,123 +37,164 @@ export default function PublicQuote() {
     } finally { setAccepting(false); }
   }
 
-  if (loading) return <div style={styles.center}><p>Loading quote…</p></div>;
-  if (error && !quote) return <div style={styles.center}><p style={{ color: '#dc2626' }}>{error}</p></div>;
+  if (loading) return <div style={s.center}><p>Loading quote…</p></div>;
+  if (error && !quote) return <div style={s.center}><p style={{ color: '#dc2626' }}>{error}</p></div>;
 
   const alreadyAccepted = quote.status === 'accepted';
   const isExpired = quote.is_expired;
+  const hasThumb = quote.line_items?.some(i => i.media_base64);
+  const brochures = (() => {
+    const seen = new Set();
+    return (quote.line_items || []).filter(i => {
+      if (!i.brochure_base64) return false;
+      const key = i.brochure_base64.slice(0, 80);
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+  })();
 
   return (
-    <div style={styles.page}>
-      <div style={styles.container}>
+    <div style={s.page}>
+      <div style={s.container}>
+
         {/* Header */}
-        <div style={styles.header}>
-          <div style={styles.companyBlock}>
-            <div style={styles.companyName}>{quote.company?.name}</div>
-            {quote.company?.email && <div style={styles.companyContact}>{quote.company.email}</div>}
-            {quote.company?.phone && <div style={styles.companyContact}>{quote.company.phone}</div>}
+        <div style={s.header}>
+          <div style={s.companyBlock}>
+            {quote.company?.logo
+              ? <img src={quote.company.logo} alt="Logo" style={s.logo} />
+              : <div style={s.companyName}>{quote.company?.name}</div>
+            }
+            {quote.company?.email && <div style={s.companyContact}>{quote.company.email}</div>}
+            {quote.company?.phone && <div style={s.companyContact}>{quote.company.phone}</div>}
           </div>
-          <div style={styles.quoteRef}>
-            <div style={styles.quoteNumber}>{quote.number}</div>
-            <div style={styles.quoteDate}>{new Date(quote.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+          <div style={s.quoteRef}>
+            <div style={s.quoteNumber}>{quote.number}</div>
+            <div style={s.quoteDate}>{new Date(quote.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
           </div>
         </div>
 
         {/* Customer */}
-        <div style={styles.customerBlock}>
-          <div style={styles.label}>Prepared for</div>
-          <div style={styles.customerName}>{quote.customer_name}</div>
-          {quote.customer_company && <div style={styles.customerDetail}>{quote.customer_company}</div>}
-          {quote.customer_phone && <div style={styles.customerDetail}>{quote.customer_phone}</div>}
+        <div style={s.customerBlock}>
+          <div style={s.label}>Prepared for</div>
+          <div style={s.customerName}>{quote.customer_name}</div>
+          {quote.customer_company && <div style={s.customerDetail}>{quote.customer_company}</div>}
+          {quote.customer_phone && <div style={s.customerDetail}>{quote.customer_phone}</div>}
         </div>
 
         {/* Line items */}
-        <table style={styles.table}>
+        <table style={s.table}>
           <thead>
-            <tr style={styles.tableHead}>
-              <th style={{ ...styles.th, textAlign: 'left', paddingLeft: 16 }}>Description</th>
-              <th style={{ ...styles.th, textAlign: 'right' }}>Qty</th>
-              <th style={{ ...styles.th, textAlign: 'right' }}>Unit Price</th>
-              <th style={{ ...styles.th, textAlign: 'right', paddingRight: 16 }}>Total</th>
+            <tr style={s.tableHead}>
+              {hasThumb && <th style={s.th} />}
+              <th style={{ ...s.th, textAlign: 'left', paddingLeft: 16 }}>Description</th>
+              <th style={{ ...s.th, textAlign: 'right' }}>Qty</th>
+              <th style={{ ...s.th, textAlign: 'right' }}>Unit Price</th>
+              <th style={{ ...s.th, textAlign: 'right', paddingRight: 16 }}>Total</th>
             </tr>
           </thead>
           <tbody>
             {quote.line_items?.map((item, i) => (
-              <tr key={i} style={i % 2 === 0 ? styles.rowEven : styles.rowOdd}>
-                <td style={{ ...styles.td, paddingLeft: 16 }}>{item.description}</td>
-                <td style={{ ...styles.td, textAlign: 'right' }}>{item.quantity}</td>
-                <td style={{ ...styles.td, textAlign: 'right' }}>{fmt(item.unit_price)}</td>
-                <td style={{ ...styles.td, textAlign: 'right', paddingRight: 16 }}>{fmt(item.unit_price * item.quantity)}</td>
+              <tr key={i} style={i % 2 === 0 ? s.rowEven : s.rowOdd}>
+                {hasThumb && (
+                  <td style={{ ...s.td, width: 52, paddingLeft: 12 }}>
+                    {item.media_base64
+                      ? <img src={item.media_base64} alt="" style={s.thumb} />
+                      : <div style={s.thumbEmpty} />}
+                  </td>
+                )}
+                <td style={{ ...s.td, paddingLeft: 16 }}>{item.description}</td>
+                <td style={{ ...s.td, textAlign: 'right' }}>{item.quantity}</td>
+                <td style={{ ...s.td, textAlign: 'right' }}>{fmt(item.unit_price)}</td>
+                <td style={{ ...s.td, textAlign: 'right', paddingRight: 16 }}>{fmt(item.unit_price * item.quantity)}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
         {/* Totals */}
-        <div style={styles.totals}>
-          <div style={styles.totalRow}><span>Subtotal (excl. GST)</span><span>{fmt(quote.subtotal)}</span></div>
-          <div style={styles.totalRow}><span>GST (15%)</span><span>{fmt(quote.gst)}</span></div>
-          <div style={{ ...styles.totalRow, ...styles.totalFinal }}><span>Total (incl. GST)</span><span>{fmt(quote.total)}</span></div>
+        <div style={s.totals}>
+          <div style={s.totalRow}><span>Subtotal (excl. GST)</span><span>{fmt(quote.subtotal)}</span></div>
+          <div style={s.totalRow}><span>GST (15%)</span><span>{fmt(quote.gst)}</span></div>
+          <div style={{ ...s.totalRow, ...s.totalFinal }}><span>Total (incl. GST)</span><span>{fmt(quote.total)}</span></div>
         </div>
 
         {/* Notes */}
         {quote.notes && (
-          <div style={styles.notes}>
-            <div style={styles.label}>Notes</div>
+          <div style={s.notes}>
+            <div style={s.label}>Notes</div>
             <p style={{ fontSize: 14, whiteSpace: 'pre-wrap', margin: 0 }}>{quote.notes}</p>
           </div>
         )}
 
         {/* Accept section */}
-        <div style={styles.acceptSection}>
+        <div style={s.acceptSection}>
           {isExpired && !alreadyAccepted ? (
-          <div style={{ ...styles.acceptedBanner, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626' }}>
-            ✕ This quote expired on {new Date(quote.expires_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}. Please contact us for an updated quote.
-          </div>
-        ) : alreadyAccepted ? (
-            <div style={styles.acceptedBanner}>
+            <div style={{ ...s.acceptedBanner, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626' }}>
+              ✕ This quote expired on {new Date(quote.expires_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}. Please contact us for an updated quote.
+            </div>
+          ) : alreadyAccepted ? (
+            <div style={s.acceptedBanner}>
               ✓ This quote was accepted{quote.accepted_name ? ` by ${quote.accepted_name}` : ''}
               {quote.accepted_at ? ` on ${new Date(quote.accepted_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}` : ''}.
             </div>
           ) : accepted ? (
-            <div style={styles.acceptedBanner}>
+            <div style={s.acceptedBanner}>
               ✓ Thank you, {name}! Your acceptance has been recorded. We'll be in touch shortly.
             </div>
           ) : (
-            <form onSubmit={handleAccept} style={styles.acceptForm}>
-              <div style={styles.acceptTitle}>Accept this quote</div>
-              <p style={styles.acceptHint}>By entering your name and clicking Accept, you agree to proceed with the work described above.</p>
+            <form onSubmit={handleAccept} style={s.acceptForm}>
+              <div style={s.acceptTitle}>Accept this quote</div>
+              <p style={s.acceptHint}>By entering your name and clicking Accept, you agree to proceed with the work described above.</p>
               {error && <p style={{ color: '#dc2626', fontSize: 13 }}>{error}</p>}
-              <div style={styles.acceptRow}>
-                <input
-                  value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Your full name"
-                  required
-                  style={styles.acceptInput}
-                />
-                <button type="submit" disabled={accepting || !name.trim()} style={styles.acceptBtn}>
+              <div style={s.acceptRow}>
+                <input value={name} onChange={e => setName(e.target.value)}
+                  placeholder="Your full name" required style={s.acceptInput} />
+                <button type="submit" disabled={accepting || !name.trim()} style={s.acceptBtn}>
                   {accepting ? 'Accepting…' : 'Accept Quote'}
                 </button>
               </div>
             </form>
           )}
         </div>
+
+        {/* Product Brochures */}
+        {brochures.length > 0 && (
+          <div style={s.brochureSection}>
+            <div style={s.label}>Product Information</div>
+            {brochures.map((item, i) => (
+              <div key={i} style={s.brochureBlock}>
+                <div style={s.brochureTitle}>{item.description}</div>
+                {item.brochure_base64.startsWith('data:application/pdf') ? (
+                  <iframe
+                    src={item.brochure_base64}
+                    style={s.brochurePdf}
+                    title={item.description}
+                  />
+                ) : (
+                  <img src={item.brochure_base64} alt={item.description} style={s.brochureImg} />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
       </div>
     </div>
   );
 }
 
-const styles = {
+const s = {
   page: { minHeight: '100vh', background: '#f8fafc', display: 'flex', justifyContent: 'center', padding: '32px 16px', fontFamily: 'system-ui, -apple-system, sans-serif' },
   center: { display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' },
-  container: { background: 'white', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', width: '100%', maxWidth: 700, overflow: 'hidden' },
-  header: { background: '#000', color: 'white', padding: '24px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
+  container: { background: 'white', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', width: '100%', maxWidth: 760, overflow: 'hidden' },
+  header: { background: '#0f172a', color: 'white', padding: '24px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
   companyBlock: {},
+  logo: { height: 52, maxWidth: 180, objectFit: 'contain', marginBottom: 8, display: 'block' },
   companyName: { fontSize: 20, fontWeight: 700, marginBottom: 4 },
-  companyContact: { fontSize: 12, opacity: 0.8 },
+  companyContact: { fontSize: 12, opacity: 0.75, marginTop: 2 },
   quoteRef: { textAlign: 'right' },
   quoteNumber: { fontSize: 18, fontWeight: 700 },
-  quoteDate: { fontSize: 12, opacity: 0.8, marginTop: 4 },
+  quoteDate: { fontSize: 12, opacity: 0.75, marginTop: 4 },
   customerBlock: { padding: '20px 32px', borderBottom: '1px solid #e2e8f0' },
   label: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', marginBottom: 6 },
   customerName: { fontSize: 16, fontWeight: 600 },
@@ -161,9 +202,11 @@ const styles = {
   table: { width: '100%', borderCollapse: 'collapse' },
   tableHead: { background: '#f8fafc' },
   th: { padding: '10px 8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#64748b', borderBottom: '1px solid #e2e8f0', borderTop: '1px solid #e2e8f0' },
-  td: { padding: '12px 8px', fontSize: 13, verticalAlign: 'top' },
+  td: { padding: '12px 8px', fontSize: 13, verticalAlign: 'middle' },
   rowEven: { background: 'white' },
   rowOdd: { background: '#fafafa' },
+  thumb: { width: 40, height: 40, objectFit: 'contain', borderRadius: 4, display: 'block' },
+  thumbEmpty: { width: 40, height: 40 },
   totals: { padding: '16px 32px', borderTop: '2px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 6 },
   totalRow: { display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#475569' },
   totalFinal: { fontSize: 16, fontWeight: 700, color: '#0f172a', borderTop: '1px solid #e2e8f0', paddingTop: 8, marginTop: 4 },
@@ -175,5 +218,10 @@ const styles = {
   acceptHint: { fontSize: 13, color: '#64748b', margin: '0 0 12px' },
   acceptRow: { display: 'flex', gap: 10, flexWrap: 'wrap' },
   acceptInput: { flex: 1, minWidth: 200, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14, fontFamily: 'inherit', outline: 'none' },
-  acceptBtn: { padding: '10px 20px', background: '#000', color: 'white', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  acceptBtn: { padding: '10px 20px', background: '#0f172a', color: 'white', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  brochureSection: { padding: '24px 32px', borderTop: '2px solid #e2e8f0' },
+  brochureBlock: { marginTop: 20 },
+  brochureTitle: { fontSize: 13, fontWeight: 600, color: '#0f172a', marginBottom: 10 },
+  brochurePdf: { width: '100%', height: 800, border: 'none', borderRadius: 6 },
+  brochureImg: { width: '100%', borderRadius: 6, display: 'block' },
 };
