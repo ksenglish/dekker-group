@@ -200,25 +200,34 @@ const SMARTVENT_LITE_TABLE = [
   { houseMin: 281, houseMax: 560, outlets: 8, model: 'SV06L+ with 2 Extension Kits',  exGst: 4661.45, incGst: 5360.67 },
 ];
 
-function SmartVentLiteCalculator() {
+function SmartVentLiteCalculator({ onPick }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
+  const [priceListProducts, setPriceListProducts] = useState([]);
+
+  useEffect(() => {
+    api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
+  }, []);
 
   const houseSize = parseInt(m2) || 0;
   const numOutlets = parseInt(outlets) || 0;
 
   const exactMatch = houseSize > 0 && numOutlets > 0
     ? SMARTVENT_LITE_TABLE.find(r =>
-        houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets
-      )
+        houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets)
     : null;
-
-  // Fallback: match on outlets only if no exact match
   const outletOnlyMatch = !exactMatch && numOutlets > 0
     ? SMARTVENT_LITE_TABLE.find(r => numOutlets === r.outlets)
     : null;
+  const tableMatch = exactMatch || outletOnlyMatch;
 
-  const match = exactMatch || outletOnlyMatch;
+  // Find matching price list product by name (e.g. "SV04L+")
+  const priceProduct = tableMatch
+    ? priceListProducts.find(p => p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase())
+    : null;
+
+  const exGst  = priceProduct ? priceProduct.price / 100 : tableMatch?.exGst;
+  const incGst = priceProduct ? (priceProduct.price / 100) * 1.15 : tableMatch?.incGst;
 
   return (
     <div className={styles.calc}>
@@ -238,23 +247,31 @@ function SmartVentLiteCalculator() {
       {houseSize > 560 && (
         <div className={styles.calcNote}>House size exceeds SmartVent Lite+ range (max 560 m²). Please contact us for a custom solution.</div>
       )}
-      {match && (
+      {tableMatch && (
         <div className={styles.calcResult}>
-          <div className={styles.calcResultRow}><span>Model</span><strong>{match.model}</strong></div>
-          <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${match.exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-          <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${match.incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
+          {exGst != null && <>
+            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          </>}
+          {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
+          {priceProduct && onPick && (
+            <button className={styles.addToJobBtn} onClick={() => onPick(priceProduct)}>
+              + Add {tableMatch.model} to Job
+            </button>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function Calculator({ product }) {
+function Calculator({ product, onPick }) {
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} />;
   if (type === 'linear') return <LinearCalculator product={product} />;
   if (type === 'heatpump') return <HeatpumpCalculator product={product} />;
-  if (type === 'smartvent_lite') return <SmartVentLiteCalculator />;
+  if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
   return <UnitCalculator product={product} />;
 }
 
@@ -285,8 +302,8 @@ function ProductPanel({ product, section, onClose, onPick }) {
               From <strong>${(product.price_from / 100).toLocaleString('en-NZ')}</strong> <span>+ GST</span>
             </div>
           )}
-          <Calculator product={product} />
-          {onPick && (
+          <Calculator product={product} onPick={onPick} />
+          {onPick && product.calculator_type !== 'smartvent_lite' && (
             <button className={styles.addToJobBtn} onClick={() => onPick(product)}>
               + Add to Job
             </button>
