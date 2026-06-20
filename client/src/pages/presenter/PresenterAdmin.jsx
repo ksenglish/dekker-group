@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../../lib/api';
 import styles from './PresenterAdmin.module.css';
 
@@ -107,18 +107,41 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
 export default function PresenterAdmin() {
   const [sections, setSections] = useState([]);
   const [activeSection, setActiveSection] = useState(null);
-  const [subcategories, setSubcategories] = useState([]);
-  const [activeSubcat, setActiveSubcat] = useState(null); // null = section-level view
+  const [editingSection, setEditingSection] = useState(false);
+
+  // subcatStack: array of subcategory objects representing the drill-down path
+  // empty = at section level, [A] = inside A, [A,B] = inside A→B, etc.
+  const [subcatStack, setSubcatStack] = useState([]);
+  const [subcats, setSubcats] = useState([]); // children at current level
   const [products, setProducts] = useState([]);
+
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [editingSection, setEditingSection] = useState(false);
-  const [sectionForm, setSectionForm] = useState({ name: '', color: '#1e40af', icon: '🏠', image_base64: '' });
-  const [showSectionForm, setShowSectionForm] = useState(false);
-  const [subcatForm, setSubcatForm] = useState({ name: '', image_base64: '' });
   const [showSubcatForm, setShowSubcatForm] = useState(false);
   const [editingSubcat, setEditingSubcat] = useState(null);
+  const [subcatForm, setSubcatForm] = useState({ name: '', image_base64: '' });
+  const [sectionForm, setSectionForm] = useState({ name: '', color: '#1e40af', icon: '🏠', image_base64: '' });
+  const [showSectionForm, setShowSectionForm] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Current node: last item in stack, or null (= section level)
+  const currentNode = subcatStack[subcatStack.length - 1] || null;
+
+  const loadSubcats = useCallback(async (sectionId, parentId) => {
+    const url = parentId
+      ? `/presenter/subcategories/${parentId}/subcategories`
+      : `/presenter/sections/${sectionId}/subcategories`;
+    const { data } = await api.get(url);
+    setSubcats(data);
+  }, []);
+
+  const loadProducts = useCallback(async (sectionId, subcatId) => {
+    const url = subcatId
+      ? `/presenter/subcategories/${subcatId}/products`
+      : `/presenter/sections/${sectionId}/products`;
+    const { data } = await api.get(url);
+    setProducts(subcatId ? data : data.filter(p => !p.subcategory_id));
+  }, []);
 
   useEffect(() => {
     api.get('/presenter/sections').then(r => {
@@ -129,22 +152,18 @@ export default function PresenterAdmin() {
 
   useEffect(() => {
     if (!activeSection) return;
-    setSubcategories([]); setActiveSubcat(null); setProducts([]);
-    api.get(`/presenter/sections/${activeSection.id}/subcategories`).then(r => setSubcategories(r.data));
-  }, [activeSection]);
+    setSubcatStack([]);
+    setShowProductForm(false); setEditingProduct(null);
+    loadSubcats(activeSection.id, null);
+    loadProducts(activeSection.id, null);
+  }, [activeSection, loadSubcats, loadProducts]);
 
   useEffect(() => {
     if (!activeSection) return;
-    setProducts([]);
-    if (activeSubcat) {
-      api.get(`/presenter/subcategories/${activeSubcat.id}/products`).then(r => setProducts(r.data));
-    } else {
-      // Section-level products (no subcategory)
-      api.get(`/presenter/sections/${activeSection.id}/products`).then(r =>
-        setProducts(r.data.filter(p => !p.subcategory_id))
-      );
-    }
-  }, [activeSection, activeSubcat]);
+    loadSubcats(activeSection.id, currentNode?.id || null);
+    loadProducts(activeSection.id, currentNode?.id || null);
+    setShowProductForm(false); setEditingProduct(null);
+  }, [subcatStack, activeSection, currentNode, loadSubcats, loadProducts]);
 
   async function saveSection(e) {
     e.preventDefault();
@@ -173,21 +192,31 @@ export default function PresenterAdmin() {
     e.preventDefault();
     if (editingSubcat) {
       const { data } = await api.put(`/presenter/subcategories/${editingSubcat.id}`, subcatForm);
-      setSubcategories(s => s.map(x => x.id === data.id ? data : x));
+      setSubcats(s => s.map(x => x.id === data.id ? { ...data, child_count: x.child_count, product_count: x.product_count } : x));
     } else {
-      const { data } = await api.post(`/presenter/sections/${activeSection.id}/subcategories`, {
-        ...subcatForm, sort_order: subcategories.length + 1,
-      });
-      setSubcategories(s => [...s, data]);
+      const url = currentNode
+        ? `/presenter/subcategories/${currentNode.id}/subcategories`
+        : `/presenter/sections/${activeSection.id}/subcategories`;
+      const { data } = await api.post(url, { ...subcatForm, sort_order: subcats.length + 1 });
+      setSubcats(s => [...s, { ...data, child_count: 0, product_count: 0 }]);
     }
     setShowSubcatForm(false); setEditingSubcat(null); setSubcatForm({ name: '', image_base64: '' });
   }
 
   async function deleteSubcat(id) {
-    if (!confirm('Delete this subcategory and all its products?')) return;
+    if (!confirm('Delete this category and all its content?')) return;
     await api.delete(`/presenter/subcategories/${id}`);
-    setSubcategories(s => s.filter(x => x.id !== id));
-    if (activeSubcat?.id === id) setActiveSubcat(null);
+    setSubcats(s => s.filter(x => x.id !== id));
+  }
+
+  function drillInto(sc) {
+    setSubcatStack(stack => [...stack, sc]);
+    setShowSubcatForm(false); setEditingSubcat(null);
+  }
+
+  function navigateTo(index) {
+    // index = -1 means section root
+    setSubcatStack(stack => index < 0 ? [] : stack.slice(0, index + 1));
   }
 
   async function deleteProduct(id) {
@@ -212,7 +241,7 @@ export default function PresenterAdmin() {
       <div className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>Sales Presenter Setup</h1>
-          <p className={styles.pageSubtitle}>Manage sections, subcategories and products</p>
+          <p className={styles.pageSubtitle}>Manage sections, categories and products</p>
         </div>
       </div>
 
@@ -249,44 +278,69 @@ export default function PresenterAdmin() {
           ))}
         </div>
 
-        {/* ── Column 2: Subcategories ── */}
+        {/* ── Column 2: Category drill-down ── */}
         <div className={styles.col2}>
           {activeSection && (
             <>
-              <div className={styles.colHeader}>
-                <span style={{ color: activeSection.color }}>{activeSection.icon} {activeSection.name}</span>
-                <button className={styles.btnSmall} onClick={() => { setShowSubcatForm(f => !f); setEditingSubcat(null); setSubcatForm({ name: '', image_base64: '' }); }}>+ Subcategory</button>
+              {/* Breadcrumb */}
+              <div className={styles.colHeader} style={{ flexWrap: 'wrap', gap: 4 }}>
+                <div className={styles.breadcrumbNav}>
+                  <span
+                    className={subcatStack.length === 0 ? styles.breadcrumbActive : styles.breadcrumbLink}
+                    onClick={() => navigateTo(-1)}
+                    style={{ color: activeSection.color }}
+                  >
+                    {activeSection.icon} {activeSection.name}
+                  </span>
+                  {subcatStack.map((sc, i) => (
+                    <span key={sc.id}>
+                      <span className={styles.breadcrumbSep}>›</span>
+                      <span
+                        className={i === subcatStack.length - 1 ? styles.breadcrumbActive : styles.breadcrumbLink}
+                        onClick={() => navigateTo(i)}
+                      >
+                        {sc.name}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+                <button className={styles.btnSmall} onClick={() => { setShowSubcatForm(f => !f); setEditingSubcat(null); setSubcatForm({ name: '', image_base64: '' }); }}>
+                  + Category
+                </button>
               </div>
 
-              {/* Section image + edit */}
-              {editingSection ? (
-                <div className={styles.sectionEdit}>
-                  <div className={styles.field}>
-                    <label>Section Image (optional)</label>
-                    <ImgUpload value={activeSection.image_base64 || ''} onChange={v => setActiveSection(s => ({ ...s, image_base64: v }))} label="📷 Upload Section Image" />
+              {/* Section image edit (only at root) */}
+              {subcatStack.length === 0 && (
+                editingSection ? (
+                  <div className={styles.sectionEdit}>
+                    <div className={styles.field}>
+                      <label>Section Image (optional)</label>
+                      <ImgUpload value={activeSection.image_base64 || ''} onChange={v => setActiveSection(s => ({ ...s, image_base64: v }))} label="📷 Upload Section Image" />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                      <button className={styles.btnPrimary} style={{ padding: '6px 12px', fontSize: 12 }} onClick={updateSection}>Save</button>
+                      <button className={styles.btnSecondary} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setEditingSection(false)}>Cancel</button>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                    <button className={styles.btnPrimary} style={{ padding: '6px 12px', fontSize: 12 }} onClick={updateSection}>Save</button>
-                    <button className={styles.btnSecondary} style={{ padding: '6px 12px', fontSize: 12 }} onClick={() => setEditingSection(false)}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <button className={styles.editSectionBtn} onClick={() => setEditingSection(true)}>
-                  {activeSection.image_base64
-                    ? <img src={activeSection.image_base64} alt="" className={styles.sectionThumb} />
-                    : <span style={{ fontSize: 28 }}>{activeSection.icon}</span>}
-                  <span>Edit section image</span>
-                </button>
+                ) : (
+                  <button className={styles.editSectionBtn} onClick={() => setEditingSection(true)}>
+                    {activeSection.image_base64
+                      ? <img src={activeSection.image_base64} alt="" className={styles.sectionThumb} />
+                      : <span style={{ fontSize: 28 }}>{activeSection.icon}</span>}
+                    <span>Edit section image</span>
+                  </button>
+                )
               )}
 
+              {/* Subcategory / category form */}
               {showSubcatForm && (
                 <form onSubmit={saveSubcat} className={styles.subcatForm}>
                   <div className={styles.field}>
-                    <label>{editingSubcat ? 'Edit Subcategory' : 'New Subcategory'}</label>
+                    <label>{editingSubcat ? 'Edit Category' : `New category under "${currentNode?.name || activeSection.name}"`}</label>
                     <input value={subcatForm.name} onChange={e => setSubcatForm(f => ({...f, name: e.target.value}))} placeholder="e.g. Heat Pumps" required />
                   </div>
                   <div className={styles.field}>
-                    <label>Subcategory Image (optional)</label>
+                    <label>Image (optional)</label>
                     <ImgUpload value={subcatForm.image_base64} onChange={v => setSubcatForm(f => ({...f, image_base64: v}))} label="📷 Upload Image" />
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
@@ -299,34 +353,29 @@ export default function PresenterAdmin() {
                 </form>
               )}
 
-              {/* Section-level (no subcategory) */}
-              <div
-                className={`${styles.listItem} ${!activeSubcat ? styles.listItemActive : ''}`}
-                style={!activeSubcat ? { borderLeftColor: activeSection.color } : {}}
-                onClick={() => setActiveSubcat(null)}>
-                <span style={{ fontSize: 16 }}>📦</span>
-                <div className={styles.listInfo}>
-                  <span className={styles.listName}>Section-level products</span>
-                  <span className={styles.listMeta}>No subcategory</span>
-                </div>
-              </div>
-
-              {subcategories.map(sc => (
-                <div key={sc.id}
-                  className={`${styles.listItem} ${activeSubcat?.id === sc.id ? styles.listItemActive : ''}`}
-                  style={activeSubcat?.id === sc.id ? { borderLeftColor: activeSection.color } : {}}
-                  onClick={() => setActiveSubcat(sc)}>
+              {/* Categories at this level */}
+              {subcats.map(sc => (
+                <div key={sc.id} className={styles.listItem}>
                   {sc.image_base64
                     ? <img src={sc.image_base64} alt="" className={styles.listThumb} />
                     : <span style={{ fontSize: 20 }}>📁</span>}
-                  <div className={styles.listInfo}>
+                  <div className={styles.listInfo} onClick={() => drillInto(sc)} style={{ cursor: 'pointer' }}>
                     <span className={styles.listName}>{sc.name}</span>
-                    <span className={styles.listMeta}>{sc.product_count} products</span>
+                    <span className={styles.listMeta}>
+                      {sc.child_count > 0 ? `${sc.child_count} sub-categories` : `${sc.product_count} products`}
+                    </span>
                   </div>
                   <button className={styles.editSmall} onClick={e => { e.stopPropagation(); setEditingSubcat(sc); setSubcatForm({ name: sc.name, image_base64: sc.image_base64 || '' }); setShowSubcatForm(true); }}>✎</button>
+                  <button className={styles.arrowBtn} onClick={() => drillInto(sc)}>›</button>
                   <button className={styles.deleteSmall} onClick={e => { e.stopPropagation(); deleteSubcat(sc.id); }}>✕</button>
                 </div>
               ))}
+
+              {subcats.length === 0 && !showSubcatForm && (
+                <div className={styles.emptyNote}>
+                  No categories here yet — add one above, or add products directly in the right panel.
+                </div>
+              )}
             </>
           )}
         </div>
@@ -336,7 +385,7 @@ export default function PresenterAdmin() {
           {activeSection && (
             <>
               <div className={styles.colHeader}>
-                <span>{activeSubcat ? activeSubcat.name : 'Section-level products'}</span>
+                <span>Products {currentNode ? `in "${currentNode.name}"` : `at section level`}</span>
                 <button className={styles.btnPrimary} style={{ padding: '5px 12px', fontSize: 12 }}
                   onClick={() => { setShowProductForm(true); setEditingProduct(null); }}>+ Add Product</button>
               </div>
@@ -346,7 +395,7 @@ export default function PresenterAdmin() {
                   <h3 className={styles.formCardTitle}>{editingProduct ? 'Edit Product' : 'New Product'}</h3>
                   <ProductForm
                     sectionId={activeSection.id}
-                    subcategoryId={activeSubcat?.id || null}
+                    subcategoryId={currentNode?.id || null}
                     product={editingProduct}
                     onSave={handleProductSaved}
                     onCancel={() => { setShowProductForm(false); setEditingProduct(null); }}

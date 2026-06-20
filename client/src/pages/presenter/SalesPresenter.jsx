@@ -349,7 +349,6 @@ export default function SalesPresenter({ onPick }) {
   const [sections, setSections] = useState([]);
   const [activeSection, setActiveSection] = useState(null);
   const [subcategories, setSubcategories] = useState([]);
-  const [activeSubcat, setActiveSubcat] = useState(null);
   const [products, setProducts] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -361,12 +360,15 @@ export default function SalesPresenter({ onPick }) {
     }).finally(() => setLoading(false));
   }, []);
 
+  // subcatStack: drill-down path of subcategory objects
+  const [subcatStack, setSubcatStack] = useState([]);
+  const currentNode = subcatStack[subcatStack.length - 1] || null;
+
   useEffect(() => {
     if (!activeSection) return;
-    setSubcategories([]); setActiveSubcat(null); setProducts([]); setSelectedProduct(null);
+    setSubcategories([]); setActiveSubcat(null); setSubcatStack([]); setProducts([]); setSelectedProduct(null);
     api.get(`/presenter/sections/${activeSection.id}/subcategories`).then(r => {
       setSubcategories(r.data);
-      // If no subcategories, load section-level products directly
       if (r.data.length === 0) {
         api.get(`/presenter/sections/${activeSection.id}/products`).then(rp =>
           setProducts(rp.data.filter(p => !p.subcategory_id))
@@ -376,13 +378,20 @@ export default function SalesPresenter({ onPick }) {
   }, [activeSection]);
 
   useEffect(() => {
-    if (!activeSubcat) return;
+    if (!currentNode) return;
     setProducts([]); setSelectedProduct(null);
-    api.get(`/presenter/subcategories/${activeSubcat.id}/products`).then(r => setProducts(r.data));
-  }, [activeSubcat]);
+    // Load children of this node
+    api.get(`/presenter/subcategories/${currentNode.id}/subcategories`).then(r => {
+      setSubcategories(r.data);
+      // If no children, show products
+      if (r.data.length === 0) {
+        api.get(`/presenter/subcategories/${currentNode.id}/products`).then(rp => setProducts(rp.data));
+      }
+    });
+  }, [currentNode]);
 
-  // View mode: 'subcats' | 'products'
-  const viewMode = activeSubcat || subcategories.length === 0 ? 'products' : 'subcats';
+  // View mode: show subcategory grid or product grid
+  const viewMode = subcategories.length > 0 ? 'subcats' : 'products';
 
   if (loading) return (
     <div className={styles.presenter}>
@@ -429,22 +438,33 @@ export default function SalesPresenter({ onPick }) {
           <div style={{ flex: 1 }}>
             <div className={styles.breadcrumb}>
               <span
-                className={activeSubcat ? styles.breadcrumbLink : styles.breadcrumbCurrent}
-                onClick={() => { if (activeSubcat) { setActiveSubcat(null); setProducts([]); setSelectedProduct(null); } }}
+                className={subcatStack.length > 0 ? styles.breadcrumbLink : styles.breadcrumbCurrent}
+                onClick={() => { if (subcatStack.length > 0) { setSubcatStack([]); setSubcategories([]); setProducts([]); setSelectedProduct(null); api.get(`/presenter/sections/${activeSection.id}/subcategories`).then(r => { setSubcategories(r.data); if (r.data.length === 0) api.get(`/presenter/sections/${activeSection.id}/products`).then(rp => setProducts(rp.data.filter(p => !p.subcategory_id))); }); } }}
               >
                 {activeSection.name}
               </span>
-              {activeSubcat && <>
-                <span className={styles.breadcrumbSep}>›</span>
-                <span className={styles.breadcrumbCurrent}>{activeSubcat.name}</span>
-              </>}
+              {subcatStack.map((sc, i) => (
+                <span key={sc.id}>
+                  <span className={styles.breadcrumbSep}>›</span>
+                  <span
+                    className={i === subcatStack.length - 1 ? styles.breadcrumbCurrent : styles.breadcrumbLink}
+                    onClick={() => {
+                      if (i < subcatStack.length - 1) {
+                        const newStack = subcatStack.slice(0, i + 1);
+                        setSubcatStack(newStack);
+                        setSubcategories([]); setProducts([]); setSelectedProduct(null);
+                      }
+                    }}
+                  >
+                    {sc.name}
+                  </span>
+                </span>
+              ))}
             </div>
             <p className={styles.heroSub}>
-              {activeSubcat
-                ? `${products.length} product${products.length !== 1 ? 's' : ''} — select to view details and pricing`
-                : subcategories.length > 0
-                  ? 'Select a category below'
-                  : 'Select a product to view details and pricing'}
+              {viewMode === 'subcats'
+                ? 'Select a category below'
+                : `${products.length} product${products.length !== 1 ? 's' : ''} — select to view details and pricing`}
             </p>
           </div>
         </div>
@@ -452,7 +472,7 @@ export default function SalesPresenter({ onPick }) {
 
       {/* Subcategory grid or product grid */}
       {viewMode === 'subcats' ? (
-        <SubcategoryGrid subcategories={subcategories} section={activeSection} onPick={sc => setActiveSubcat(sc)} />
+        <SubcategoryGrid subcategories={subcategories} section={activeSection} onPick={sc => setSubcatStack(s => [...s, sc])} />
       ) : (
       <div className={styles.productGrid}>
         {products.length === 0 ? (

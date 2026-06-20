@@ -52,10 +52,30 @@ router.delete('/sections/:id', requireRole('admin'), async (req, res) => {
 router.get('/sections/:id/subcategories', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT s.*, COUNT(p.id)::int AS product_count
+      `SELECT s.*,
+         COUNT(DISTINCT p.id)::int AS product_count,
+         COUNT(DISTINCT c.id)::int AS child_count
        FROM presenter_subcategories s
        LEFT JOIN presenter_products p ON p.subcategory_id = s.id
-       WHERE s.section_id=$1
+       LEFT JOIN presenter_subcategories c ON c.parent_id = s.id
+       WHERE s.section_id=$1 AND s.parent_id IS NULL
+       GROUP BY s.id ORDER BY s.sort_order, s.name`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/subcategories/:id/subcategories', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.*,
+         COUNT(DISTINCT p.id)::int AS product_count,
+         COUNT(DISTINCT c.id)::int AS child_count
+       FROM presenter_subcategories s
+       LEFT JOIN presenter_products p ON p.subcategory_id = s.id
+       LEFT JOIN presenter_subcategories c ON c.parent_id = s.id
+       WHERE s.parent_id=$1
        GROUP BY s.id ORDER BY s.sort_order, s.name`,
       [req.params.id]
     );
@@ -68,9 +88,26 @@ router.post('/sections/:id/subcategories', requireRole('admin', 'office'), async
   if (!name) return res.status(400).json({ error: 'Name is required' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO presenter_subcategories (section_id, name, image_base64, sort_order)
-       VALUES ($1,$2,$3,$4) RETURNING *`,
+      `INSERT INTO presenter_subcategories (section_id, name, image_base64, sort_order, parent_id)
+       VALUES ($1,$2,$3,$4,NULL) RETURNING *`,
       [req.params.id, name, image_base64 || null, sort_order || 0]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Create child subcategory under another subcategory
+router.post('/subcategories/:id/subcategories', requireRole('admin', 'office'), async (req, res) => {
+  const { name, image_base64, sort_order } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  try {
+    // Inherit section_id from parent
+    const { rows: [parent] } = await pool.query('SELECT section_id FROM presenter_subcategories WHERE id=$1', [req.params.id]);
+    if (!parent) return res.status(404).json({ error: 'Parent subcategory not found' });
+    const { rows } = await pool.query(
+      `INSERT INTO presenter_subcategories (section_id, parent_id, name, image_base64, sort_order)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [parent.section_id, req.params.id, name, image_base64 || null, sort_order || 0]
     );
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
