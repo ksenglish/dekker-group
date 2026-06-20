@@ -46,11 +46,20 @@ async function get(req, res) {
       [req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Quote not found' });
+    let q = rows[0];
+    // Ensure token exists for quotes created before migration 007
+    if (!q.public_token) {
+      const { rows: updated } = await pool.query(
+        `UPDATE quotes SET public_token = gen_random_uuid() WHERE id=$1 RETURNING public_token`,
+        [q.id]
+      );
+      q = { ...q, public_token: updated[0].public_token };
+    }
     const items = await pool.query(
       'SELECT * FROM line_items WHERE job_id = $1 ORDER BY created_at',
-      [rows[0].job_id]
+      [q.job_id]
     );
-    res.json({ ...rows[0], line_items: items.rows });
+    res.json({ ...q, line_items: items.rows });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
