@@ -194,6 +194,28 @@ function buildPDF({ type, number, customer, items, subtotal, gst, total, status,
       .text(t.footerLine1, 50, footY + 8,  { width: W, align: 'center' })
       .text(t.footerLine2, 50, footY + 20, { width: W, align: 'center' });
 
+    // ── Product Brochure Appendix ────────────────────────────────
+    const brochureItems = (items || []).filter(i => i.brochure_base64);
+    // Deduplicate by brochure content so same product on multiple lines only appears once
+    const seen = new Set();
+    for (const item of brochureItems) {
+      const key = item.brochure_base64.slice(0, 100);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      try {
+        const raw = item.brochure_base64.replace(/^data:image\/\w+;base64,/, '');
+        const buf = Buffer.from(raw, 'base64');
+        doc.addPage();
+        // Full-bleed image with small label header
+        doc.rect(0, 0, doc.page.width, 32).fill(BRAND);
+        doc.fillColor('white').fontSize(9).font('Helvetica-Bold')
+          .text(item.description || 'Product Information', 50, 11, { width: doc.page.width - 100 });
+        const imgY = 40;
+        const imgH = doc.page.height - imgY - 20;
+        doc.image(buf, 0, imgY, { width: doc.page.width, height: imgH, fit: [doc.page.width, imgH], align: 'center', valign: 'center' });
+      } catch { /* skip bad image */ }
+    }
+
     doc.end();
   });
 }

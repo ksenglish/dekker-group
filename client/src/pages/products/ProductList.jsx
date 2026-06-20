@@ -37,6 +37,38 @@ function ImageUpload({ value, onChange }) {
   );
 }
 
+function BrochureUpload({ value, onChange }) {
+  const ref = useRef();
+
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type))
+      return alert('Please upload a JPG or PNG image. To use a PDF brochure, export it as a JPG first.');
+    if (file.size > 5 * 1024 * 1024)
+      return alert('Brochure image must be under 5MB.');
+    const reader = new FileReader();
+    reader.onload = ev => onChange(ev.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <div className={styles.imageUpload}>
+      {value ? (
+        <div className={styles.imagePreviewWrap}>
+          <img src={value} alt="Brochure preview" className={styles.imagePreview} style={{ maxHeight: 120 }} />
+          <button type="button" className={styles.imageRemove} onClick={() => onChange('')}>✕ Remove</button>
+        </div>
+      ) : (
+        <button type="button" className={styles.imagePickBtn} onClick={() => ref.current.click()}>
+          📄 Upload Brochure Image (JPG / PNG, max 5MB)
+        </button>
+      )}
+      <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={handleFile} />
+    </div>
+  );
+}
+
 function ProductModal({ product, onSave, onClose }) {
   const [form, setForm] = useState({
     name: product?.name || '',
@@ -46,7 +78,8 @@ function ProductModal({ product, onSave, onClose }) {
     unit_price: product ? (product.unit_price / 100).toFixed(2) : '',
     cost_price: product ? (product.cost_price / 100).toFixed(2) : '',
     supplier: product?.supplier || '',
-    media_base64: product?.media_base64 || '',
+    media_base64:    product?.media_base64    || '',
+    brochure_base64: product?.brochure_base64 || '',
     is_active: product?.is_active !== false,
   });
   const [saving, setSaving] = useState(false);
@@ -130,8 +163,13 @@ function ProductModal({ product, onSave, onClose }) {
           </div>
 
           <div className={styles.formGroup}>
-            <label>Product Image</label>
+            <label>Product Image <span style={{ fontWeight: 400, color: '#64748b' }}>(thumbnail shown on quotes)</span></label>
             <ImageUpload value={form.media_base64} onChange={v => set('media_base64', v)} />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label>Product Brochure <span style={{ fontWeight: 400, color: '#64748b' }}>(full page appended to quote PDF — JPG / PNG)</span></label>
+            <BrochureUpload value={form.brochure_base64} onChange={v => set('brochure_base64', v)} />
           </div>
 
           <div className={styles.formGroup} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

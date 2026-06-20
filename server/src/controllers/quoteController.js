@@ -133,9 +133,13 @@ async function convertToInvoice(req, res) {
 async function enrichItemsWithImages(items) {
   const ids = items.map(i => i.product_id).filter(Boolean);
   if (!ids.length) return items;
-  const { rows } = await pool.query(`SELECT id, media_base64 FROM products WHERE id = ANY($1)`, [ids]);
-  const map = Object.fromEntries(rows.map(r => [r.id, r.media_base64]));
-  return items.map(i => ({ ...i, media_base64: i.product_id ? (map[i.product_id] || null) : null }));
+  const { rows } = await pool.query(`SELECT id, media_base64, brochure_base64 FROM products WHERE id = ANY($1)`, [ids]);
+  const map = Object.fromEntries(rows.map(r => [r.id, r]));
+  return items.map(i => ({
+    ...i,
+    media_base64:    i.product_id ? (map[i.product_id]?.media_base64    || null) : null,
+    brochure_base64: i.product_id ? (map[i.product_id]?.brochure_base64 || null) : null,
+  }));
 }
 
 async function downloadPdf(req, res) {
