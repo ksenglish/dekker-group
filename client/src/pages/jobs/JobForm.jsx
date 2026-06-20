@@ -15,6 +15,8 @@ export default function JobForm({ initial, onSave, onCancel }) {
     lead_tech_id: initial?.lead_tech_id || '',
     due_date: initial?.due_date ? initial.due_date.split('T')[0] : '',
     status: initial?.status || 'new',
+    is_recurring: initial?.is_recurring || false,
+    recurrence_interval: initial?.recurrence_interval || 'annual',
   });
   const [customers, setCustomers] = useState([]);
   const [sites, setSites] = useState([]);
@@ -107,6 +109,22 @@ export default function JobForm({ initial, onSave, onCancel }) {
         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
           <label>Description</label>
           <textarea rows={4} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Describe the work to be done…" style={{ resize: 'vertical' }} />
+        </div>
+        <div className={styles.field} style={{ gridColumn: '1 / -1', flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginBottom: 0 }}>
+            <input type="checkbox" checked={form.is_recurring} onChange={e => set('is_recurring', e.target.checked)}
+              style={{ width: 16, height: 16, accentColor: 'var(--color-primary)', cursor: 'pointer' }} />
+            Recurring maintenance job
+          </label>
+          {form.is_recurring && (
+            <select value={form.recurrence_interval} onChange={e => set('recurrence_interval', e.target.value)}
+              style={{ padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 14 }}>
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="biannual">Every 6 months</option>
+              <option value="annual">Annual</option>
+            </select>
+          )}
         </div>
       </div>
 

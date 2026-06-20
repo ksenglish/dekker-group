@@ -82,15 +82,26 @@ async function get(req, res) {
   }
 }
 
+function nextRecurrenceDate(from, interval) {
+  const d = new Date(from || Date.now());
+  if (interval === 'monthly') d.setMonth(d.getMonth() + 1);
+  else if (interval === 'quarterly') d.setMonth(d.getMonth() + 3);
+  else if (interval === 'biannual') d.setMonth(d.getMonth() + 6);
+  else d.setFullYear(d.getFullYear() + 1); // annual (default)
+  return d.toISOString().split('T')[0];
+}
+
 async function create(req, res) {
-  const { customer_id, site_id, type, description, priority, lead_tech_id, due_date } = req.body;
+  const { customer_id, site_id, type, description, priority, lead_tech_id, due_date, is_recurring, recurrence_interval, parent_job_id } = req.body;
   if (!type) return res.status(400).json({ error: 'Job type is required' });
   try {
+    const nextDate = is_recurring ? nextRecurrenceDate(due_date, recurrence_interval) : null;
     const { rows } = await pool.query(
-      `INSERT INTO jobs (customer_id, site_id, type, description, priority, lead_tech_id, due_date)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO jobs (customer_id, site_id, type, description, priority, lead_tech_id, due_date, is_recurring, recurrence_interval, recurrence_next_date, parent_job_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [customer_id || null, site_id || null, type, description || null,
-       priority || 'medium', lead_tech_id || null, due_date || null]
+       priority || 'medium', lead_tech_id || null, due_date || null,
+       !!is_recurring, recurrence_interval || null, nextDate, parent_job_id || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -100,14 +111,17 @@ async function create(req, res) {
 }
 
 async function update(req, res) {
-  const { customer_id, site_id, type, description, priority, lead_tech_id, due_date, status } = req.body;
+  const { customer_id, site_id, type, description, priority, lead_tech_id, due_date, status, is_recurring, recurrence_interval } = req.body;
   try {
+    const nextDate = is_recurring ? nextRecurrenceDate(due_date, recurrence_interval) : null;
     const { rows } = await pool.query(
       `UPDATE jobs SET customer_id=$1, site_id=$2, type=$3, description=$4, priority=$5,
-       lead_tech_id=$6, due_date=$7, status=COALESCE($8, status), updated_at=NOW()
-       WHERE id=$9 RETURNING *`,
+       lead_tech_id=$6, due_date=$7, status=COALESCE($8, status),
+       is_recurring=$9, recurrence_interval=$10, recurrence_next_date=$11, updated_at=NOW()
+       WHERE id=$12 RETURNING *`,
       [customer_id || null, site_id || null, type, description || null,
-       priority || 'medium', lead_tech_id || null, due_date || null, status || null, req.params.id]
+       priority || 'medium', lead_tech_id || null, due_date || null, status || null,
+       !!is_recurring, recurrence_interval || null, nextDate, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
     res.json(rows[0]);
@@ -125,6 +139,19 @@ async function updateStatus(req, res) {
       'UPDATE jobs SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
       [status, req.params.id]
     );
+    // Auto-create next job if this is a recurring job being completed
+    if (status === 'complete' && rows[0]?.is_recurring && rows[0]?.recurrence_interval) {
+      const j = rows[0];
+      const nextDue = nextRecurrenceDate(j.recurrence_next_date || j.due_date, j.recurrence_interval);
+      await pool.query(
+        `INSERT INTO jobs (customer_id, site_id, type, description, priority, lead_tech_id, due_date, is_recurring, recurrence_interval, recurrence_next_date, parent_job_id, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$10,'new')`,
+        [j.customer_id, j.site_id, j.type, j.description, j.priority, j.lead_tech_id,
+         j.recurrence_next_date, j.recurrence_interval,
+         nextRecurrenceDate(j.recurrence_next_date, j.recurrence_interval),
+         j.id]
+      );
+    }
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
