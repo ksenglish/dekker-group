@@ -229,8 +229,8 @@ function SmartVentLiteCalculator({ onPick }) {
       )
     : null;
 
-  const exGst  = priceProduct ? priceProduct.price / 100 : (tableMatch?.exGst ?? null);
-  const incGst = priceProduct ? (priceProduct.price / 100) * 1.15 : (tableMatch?.incGst ?? null);
+  const exGst  = priceProduct ? priceProduct.unit_price / 100 : (tableMatch?.exGst ?? null);
+  const incGst = priceProduct ? (priceProduct.unit_price / 100) * 1.15 : (tableMatch?.incGst ?? null);
 
   return (
     <div className={styles.calc}>

@@ -504,14 +504,14 @@ export default function JobDetail() {
             if (!product) return;
             try {
               const existing = job.line_items || [];
-              // price list products use `price` (cents); presenter products use `price_from`
-              const unitPrice = product.price != null ? product.price / 100
+              // price list products use `unit_price` (cents); presenter products use `price_from`
+              const unitPrice = product.unit_price != null ? product.unit_price / 100
                 : product.price_from > 0 ? product.price_from / 100 : 0;
               const newItem = {
                 description: product.name,
                 quantity: 1,
                 unit_price: unitPrice,
-                product_id: product.price != null ? product.id : null,
+                product_id: product.unit_price != null ? product.id : null,
               };
               const items = [
                 ...existing.map(i => ({ ...i, unit_price: i.unit_price / 100 })),
