@@ -135,6 +135,23 @@
 }
 .calcField input:focus, .calcField select:focus { border-color: #6366f1; box-shadow: 0 0 0 3px #eef2ff; }
 
+.sliderSection { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.sliderRow { display: grid; grid-template-columns: 52px 1fr 48px; align-items: center; gap: 10px; }
+.sliderLabel { font-size: 12px; font-weight: 500; color: #64748b; }
+.sliderVal { font-size: 13px; font-weight: 600; color: #0f172a; text-align: right; }
+.slider {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
+  border-radius: 3px; background: #e2e8f0; outline: none; cursor: pointer;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+  background: #0ea5e9; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+.slider::-moz-range-thumb {
+  width: 20px; height: 20px; border-radius: 50%; border: none;
+  background: #0ea5e9; cursor: pointer;
+}
+
 .calcResult { border-top: 1px solid #e2e8f0; padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .calcResultRow { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
 .calcResultRow span { color: #64748b; }

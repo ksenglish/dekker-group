@@ -81,10 +81,16 @@ function LinearCalculator({ product }) {
 }
 
 function HeatpumpCalculator({ product }) {
-  const [m2, setM2] = useState('');
+  const [length, setLength] = useState(5);
+  const [width, setWidth] = useState(4);
+  const [m2, setM2] = useState('20');
   const [ceilingHeight, setCeilingHeight] = useState('2.4');
   const [insulation, setInsulation] = useState('average');
   const basePrice = product.price_from / 100 || 0;
+
+  function handleLength(v) { setLength(v); setM2((v * width).toFixed(1)); }
+  function handleWidth(v)  { setWidth(v);  setM2((length * v).toFixed(1)); }
+  function handleM2(v)     { setM2(v); } // manual override — sliders stay where they are
 
   const kwMultiplier = { good: 0.05, average: 0.055, poor: 0.06 }[insulation];
   const m3 = (parseFloat(m2) || 0) * (parseFloat(ceilingHeight) || 0);
@@ -94,10 +100,29 @@ function HeatpumpCalculator({ product }) {
   return (
     <div className={styles.calc}>
       <h3 className={styles.calcTitle}>Heat Pump Sizing Calculator</h3>
+
+      {/* Sliders */}
+      <div className={styles.sliderSection}>
+        <div className={styles.sliderRow}>
+          <span className={styles.sliderLabel}>Length</span>
+          <input type="range" min="1" max="30" step="0.5" value={length}
+            onChange={e => handleLength(parseFloat(e.target.value))} className={styles.slider} />
+          <span className={styles.sliderVal}>{length} m</span>
+        </div>
+        <div className={styles.sliderRow}>
+          <span className={styles.sliderLabel}>Width</span>
+          <input type="range" min="1" max="20" step="0.5" value={width}
+            onChange={e => handleWidth(parseFloat(e.target.value))} className={styles.slider} />
+          <span className={styles.sliderVal}>{width} m</span>
+        </div>
+      </div>
+
       <div className={styles.calcGrid}>
         <div className={styles.calcField}>
           <label>Floor Area (m²)</label>
-          <input type="number" value={m2} onChange={e => setM2(e.target.value)} placeholder="e.g. 30" min="0" />
+          <input type="number" value={m2} min="0"
+            onChange={e => handleM2(e.target.value)}
+            placeholder="or type directly" />
         </div>
         <div className={styles.calcField}>
           <label>Ceiling Height (m)</label>
@@ -105,7 +130,7 @@ function HeatpumpCalculator({ product }) {
             <option value="2.1">2.1 m (low)</option>
             <option value="2.4">2.4 m (standard)</option>
             <option value="2.7">2.7 m (high stud)</option>
-            <option value="3.0">3.0 m (high stud)</option>
+            <option value="3.0">3.0 m</option>
             <option value="3.6">3.6 m (very high)</option>
           </select>
         </div>
@@ -118,6 +143,7 @@ function HeatpumpCalculator({ product }) {
           </select>
         </div>
       </div>
+
       {kw && (
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Volume</span><strong>{m3.toFixed(1)} m³</strong></div>
