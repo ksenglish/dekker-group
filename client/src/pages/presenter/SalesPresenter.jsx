@@ -477,7 +477,7 @@ export default function SalesPresenter({ onPick }) {
         {products.length === 0 ? (
           <div className={styles.emptySection}>
             <div className={styles.emptyIcon}>{activeSection?.icon}</div>
-            <p>No products added yet{activeSubcat ? ` for ${activeSubcat.name}` : ` for ${activeSection?.name}`}.</p>
+            <p>No products added yet{currentNode ? ` for ${currentNode.name}` : ` for ${activeSection?.name}`}.</p>
             <p className={styles.emptyHint}>Go to <strong>Settings → Sales Presenter</strong> to add products.</p>
           </div>
         ) : products.map(p => (
