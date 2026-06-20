@@ -158,6 +158,7 @@
   background: #0ea5e9; cursor: pointer;
 }
 
+.calcNote { font-size: 13px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
 .calcResult { border-top: 1px solid #e2e8f0; padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .calcResultRow { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
 .calcResultRow span { color: #64748b; }

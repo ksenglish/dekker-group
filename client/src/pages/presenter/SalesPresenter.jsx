@@ -188,11 +188,81 @@ function UnitCalculator({ product }) {
   );
 }
 
+const SMARTVENT_LITE_TABLE = [
+  { houseMin: 0,   houseMax: 100, outlets: 1, model: 'SV01L+',                        exGst: 2487.02, incGst: 2860.07 },
+  { houseMin: 0,   houseMax: 100, outlets: 2, model: 'SV02L+',                        exGst: 2621.76, incGst: 3015.02 },
+  { houseMin: 0,   houseMax: 100, outlets: 3, model: 'SV02L+ with 1 Extension Kit',   exGst: 2823.94, incGst: 3247.53 },
+  { houseMin: 101, houseMax: 280, outlets: 4, model: 'SV04L+',                        exGst: 3111.88, incGst: 3578.67 },
+  { houseMin: 101, houseMax: 280, outlets: 5, model: 'SV04L+ with 1 Extension Kit',   exGst: 3314.06, incGst: 3811.17 },
+  { houseMin: 101, houseMax: 280, outlets: 6, model: 'SV04L+ with 2 Extension Kits',  exGst: 3516.24, incGst: 4043.68 },
+  { houseMin: 281, houseMax: 560, outlets: 6, model: 'SV06L+',                        exGst: 4257.09, incGst: 4895.66 },
+  { houseMin: 281, houseMax: 560, outlets: 7, model: 'SV06L+ with 1 Extension Kit',   exGst: 4459.27, incGst: 5128.17 },
+  { houseMin: 281, houseMax: 560, outlets: 8, model: 'SV06L+ with 2 Extension Kits',  exGst: 4661.45, incGst: 5360.67 },
+];
+
+function SmartVentLiteCalculator() {
+  const [m2, setM2] = useState('');
+  const [outlets, setOutlets] = useState('');
+
+  const houseSize = parseInt(m2) || 0;
+  const numOutlets = parseInt(outlets) || 0;
+
+  const match = houseSize > 0 && numOutlets > 0
+    ? SMARTVENT_LITE_TABLE.find(r =>
+        houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets
+      )
+    : null;
+
+  // Find valid outlet range for the entered house size
+  const validRows = houseSize > 0
+    ? SMARTVENT_LITE_TABLE.filter(r => houseSize >= r.houseMin && houseSize <= r.houseMax)
+    : [];
+  const outletOptions = validRows.map(r => r.outlets);
+  const outletHint = outletOptions.length > 0
+    ? `${Math.min(...outletOptions)}–${Math.max(...outletOptions)} outlets for this house size`
+    : null;
+
+  return (
+    <div className={styles.calc}>
+      <h3 className={styles.calcTitle}>SmartVent Lite+ Calculator</h3>
+      <div className={styles.calcGrid}>
+        <div className={styles.calcField}>
+          <label>House Size (m²)</label>
+          <input type="number" value={m2} onChange={e => setM2(e.target.value)}
+            placeholder="e.g. 150" min="0" max="560" />
+        </div>
+        <div className={styles.calcField}>
+          <label>Number of Outlets{outletHint ? ` — ${outletHint}` : ''}</label>
+          <input type="number" value={outlets} onChange={e => setOutlets(e.target.value)}
+            placeholder="e.g. 4" min="1" max="8" />
+        </div>
+      </div>
+      {houseSize > 560 && (
+        <div className={styles.calcNote}>House size exceeds SmartVent Lite+ range (max 560 m²). Please contact us for a custom solution.</div>
+      )}
+      {houseSize > 0 && houseSize <= 560 && numOutlets > 0 && !match && (
+        <div className={styles.calcNote}>
+          No match for {houseSize} m² with {numOutlets} outlets.
+          {outletHint ? ` Valid range: ${outletHint}.` : ''}
+        </div>
+      )}
+      {match && (
+        <div className={styles.calcResult}>
+          <div className={styles.calcResultRow}><span>Model</span><strong>{match.model}</strong></div>
+          <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${match.exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${match.incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Calculator({ product }) {
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} />;
   if (type === 'linear') return <LinearCalculator product={product} />;
   if (type === 'heatpump') return <HeatpumpCalculator product={product} />;
+  if (type === 'smartvent_lite') return <SmartVentLiteCalculator />;
   return <UnitCalculator product={product} />;
 }
 

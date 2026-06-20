@@ -3,10 +3,11 @@ import api from '../../lib/api';
 import styles from './PresenterAdmin.module.css';
 
 const CALC_TYPES = [
-  { value: 'unit',     label: 'Unit / Fixed Price' },
-  { value: 'area',     label: 'Area (m² × price/m²)' },
-  { value: 'linear',   label: 'Linear (m × price/m)' },
-  { value: 'heatpump', label: 'Heat Pump Sizing' },
+  { value: 'unit',           label: 'Unit / Fixed Price' },
+  { value: 'area',           label: 'Area (m² × price/m²)' },
+  { value: 'linear',         label: 'Linear (m × price/m)' },
+  { value: 'heatpump',       label: 'Heat Pump Sizing' },
+  { value: 'smartvent_lite', label: 'SmartVent Lite+ (lookup table)' },
 ];
 
 function ProductForm({ sectionId, product, onSave, onCancel }) {
