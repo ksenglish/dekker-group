@@ -19,7 +19,7 @@ async function list(req, res) {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   try {
     const { rows } = await pool.query(
-      `SELECT t.*, u.name AS user_name, j.title AS job_title, j.job_number
+      `SELECT t.*, u.name AS user_name, j.description AS job_title, j.job_number
        FROM timesheets t
        LEFT JOIN users u ON u.id = t.user_id
        LEFT JOIN jobs j ON j.id = t.job_id
@@ -43,7 +43,7 @@ async function create(req, res) {
     );
     // Fetch with joins
     const { rows: full } = await pool.query(
-      `SELECT t.*, u.name AS user_name, j.title AS job_title, j.job_number
+      `SELECT t.*, u.name AS user_name, j.description AS job_title, j.job_number
        FROM timesheets t LEFT JOIN users u ON u.id=t.user_id LEFT JOIN jobs j ON j.id=t.job_id
        WHERE t.id=$1`, [rows[0].id]
     );
@@ -68,7 +68,7 @@ async function update(req, res) {
       [job_id || null, newUserId, date, hours, description || null, id]
     );
     const { rows: full } = await pool.query(
-      `SELECT t.*, u.name AS user_name, j.title AS job_title, j.job_number
+      `SELECT t.*, u.name AS user_name, j.description AS job_title, j.job_number
        FROM timesheets t LEFT JOIN users u ON u.id=t.user_id LEFT JOIN jobs j ON j.id=t.job_id
        WHERE t.id=$1`, [rows[0].id]
     );
