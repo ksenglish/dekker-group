@@ -99,6 +99,12 @@
 .editSmall:hover { background: #f0f9ff; }
 .arrowBtn { background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 18px; padding: 0 2px; flex-shrink: 0; line-height: 1; }
 .arrowBtn:hover { color: #0ea5e9; }
+.dragHandle { color: #cbd5e1; cursor: grab; font-size: 16px; padding: 0 2px; flex-shrink: 0; line-height: 1; touch-action: none; }
+.dragHandle:active { cursor: grabbing; }
+.listItemDragging { background: #f0f9ff !important; border: 1px dashed #0ea5e9; }
+.listItemDropOver { background: #ecfdf5 !important; border-left: 3px solid #16a34a !important; outline: 2px solid #16a34a; }
+.rootDropZone { margin: 6px 10px; padding: 10px 14px; border: 2px dashed #94a3b8; border-radius: var(--radius); font-size: 12px; color: #64748b; text-align: center; background: #f8fafc; transition: all 0.15s; }
+.rootDropZoneOver { border-color: #16a34a; background: #ecfdf5; color: #15803d; }
 .breadcrumbNav { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; flex: 1; font-size: 11px; }
 .breadcrumbLink { color: #0ea5e9; cursor: pointer; }
 .breadcrumbLink:hover { text-decoration: underline; }

@@ -113,6 +113,31 @@ router.post('/subcategories/:id/subcategories', requireRole('admin', 'office'), 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Move subcategory to a new parent (or to section root if parent_id is null)
+router.patch('/subcategories/:id/parent', requireRole('admin', 'office'), async (req, res) => {
+  const { parent_id } = req.body; // null = move to section root
+  try {
+    // Get this subcategory's section_id
+    const { rows: [sc] } = await pool.query('SELECT section_id FROM presenter_subcategories WHERE id=$1', [req.params.id]);
+    if (!sc) return res.status(404).json({ error: 'Not found' });
+    // Prevent circular reference: ensure new parent is not a descendant
+    if (parent_id) {
+      // Walk up from parent_id to make sure we don't hit req.params.id
+      let check = parent_id;
+      while (check) {
+        if (check === req.params.id) return res.status(400).json({ error: 'Cannot move a category into its own descendant' });
+        const { rows: [p] } = await pool.query('SELECT parent_id FROM presenter_subcategories WHERE id=$1', [check]);
+        check = p?.parent_id || null;
+      }
+    }
+    const { rows } = await pool.query(
+      `UPDATE presenter_subcategories SET parent_id=$1 WHERE id=$2 RETURNING *`,
+      [parent_id || null, req.params.id]
+    );
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.put('/subcategories/:id', requireRole('admin', 'office'), async (req, res) => {
   const { name, image_base64, sort_order } = req.body;
   try {
