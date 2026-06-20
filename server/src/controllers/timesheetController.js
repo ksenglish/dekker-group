@@ -48,7 +48,7 @@ async function create(req, res) {
        WHERE t.id=$1`, [rows[0].id]
     );
     res.status(201).json(full[0]);
-  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { console.error('Timesheet create error:', err); res.status(500).json({ error: err.message }); }
 }
 
 async function update(req, res) {
