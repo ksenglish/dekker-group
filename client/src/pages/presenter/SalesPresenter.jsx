@@ -349,9 +349,12 @@ export default function SalesPresenter({ onPick }) {
   const [sections, setSections] = useState([]);
   const [activeSection, setActiveSection] = useState(null);
   const [subcategories, setSubcategories] = useState([]);
+  const [subcatStack, setSubcatStack] = useState([]);
   const [products, setProducts] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const currentNode = subcatStack[subcatStack.length - 1] || null;
 
   useEffect(() => {
     api.get('/presenter/sections').then(r => {
@@ -360,13 +363,9 @@ export default function SalesPresenter({ onPick }) {
     }).finally(() => setLoading(false));
   }, []);
 
-  // subcatStack: drill-down path of subcategory objects
-  const [subcatStack, setSubcatStack] = useState([]);
-  const currentNode = subcatStack[subcatStack.length - 1] || null;
-
   useEffect(() => {
     if (!activeSection) return;
-    setSubcategories([]); setActiveSubcat(null); setSubcatStack([]); setProducts([]); setSelectedProduct(null);
+    setSubcategories([]); setSubcatStack([]); setProducts([]); setSelectedProduct(null);
     api.get(`/presenter/sections/${activeSection.id}/subcategories`).then(r => {
       setSubcategories(r.data);
       if (r.data.length === 0) {
