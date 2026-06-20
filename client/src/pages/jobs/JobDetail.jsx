@@ -299,7 +299,7 @@ function JobTimesheets({ jobId, user }) {
           </div>
           {entries.map(e => (
             <div key={e.id} className={styles.tsRow}>
-              <span className={styles.tsDate}>{new Date(e.date + 'T00:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}</span>
+              <span className={styles.tsDate}>{new Date(e.date.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}</span>
               <span className={styles.tsName}>{e.user_name}</span>
               <span className={styles.tsTime}>{e.start_time ? new Date(e.start_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
               <span className={styles.tsTime}>{e.end_time ? new Date(e.end_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
