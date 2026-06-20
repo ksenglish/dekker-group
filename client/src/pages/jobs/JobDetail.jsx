@@ -65,6 +65,7 @@ function JobTimer({ jobId, onTimeSaved }) {
   const [startTs, setStartTs] = useState(() => {
     try { return parseInt(localStorage.getItem(STORAGE_KEY)) || null; } catch { return null; }
   });
+  const [endTs, setEndTs] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [saving, setSaving] = useState(false);
   const [desc, setDesc] = useState('');
@@ -72,7 +73,7 @@ function JobTimer({ jobId, onTimeSaved }) {
   const tickRef = useRef(null);
 
   useEffect(() => {
-    if (!startTs) { clearInterval(tickRef.current); setElapsed(0); return; }
+    if (!startTs) { clearInterval(tickRef.current); return; }
     setElapsed(Math.floor((Date.now() - startTs) / 1000));
     tickRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startTs) / 1000)), 1000);
     return () => clearInterval(tickRef.current);
@@ -82,14 +83,16 @@ function JobTimer({ jobId, onTimeSaved }) {
     const ts = Date.now();
     localStorage.setItem(STORAGE_KEY, String(ts));
     setStartTs(ts);
+    setEndTs(null);
     setShowSave(false);
   }
 
   function stop() {
     clearInterval(tickRef.current);
-    // Snapshot elapsed before clearing startTs so the value is preserved for save
-    const snapped = startTs ? Math.floor((Date.now() - startTs) / 1000) : elapsed;
+    const now = Date.now();
+    const snapped = startTs ? Math.floor((now - startTs) / 1000) : elapsed;
     setElapsed(snapped);
+    setEndTs(now);
     setStartTs(null);
     localStorage.removeItem(STORAGE_KEY);
     setShowSave(true);
@@ -97,22 +100,22 @@ function JobTimer({ jobId, onTimeSaved }) {
 
   function discard() {
     localStorage.removeItem(STORAGE_KEY);
-    setStartTs(null); setElapsed(0); setShowSave(false); setDesc('');
+    setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
   }
 
   async function save(e) {
     e.preventDefault();
-    // Minimum 1 minute, rounded to nearest 0.25h
-    const hours = elapsed < 60
-      ? 0.25
-      : Math.max(0.25, Math.round(elapsed / 900) * 0.25);
+    const hours = elapsed < 60 ? 0.25 : Math.max(0.25, Math.round(elapsed / 900) * 0.25);
+    const startTime = new Date(endTs - elapsed * 1000).toISOString();
+    const endTime = new Date(endTs).toISOString();
     setSaving(true);
     try {
       await api.post('/timesheets', {
         job_id: jobId, hours, description: desc || 'Time tracked via timer',
-        date: new Date().toISOString().slice(0, 10),
+        date: new Date(endTs).toISOString().slice(0, 10),
+        start_time: startTime, end_time: endTime,
       });
-      setStartTs(null); setElapsed(0); setShowSave(false); setDesc('');
+      setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
       onTimeSaved && onTimeSaved(hours);
     } catch (err) {
       console.error('Timer save error:', err?.response?.data || err?.message || err);
@@ -121,31 +124,39 @@ function JobTimer({ jobId, onTimeSaved }) {
     finally { setSaving(false); }
   }
 
-  function fmt(s) {
-    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-    return [h, m, sec].map(n => String(n).padStart(2, '0')).join(':');
+  function fmtTime(ts) {
+    return new Date(ts).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' });
+  }
+  function fmtElapsed(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
   }
 
   const isRunning = !!startTs;
 
   return (
     <div className={styles.timerBar}>
-      <div className={styles.timerDisplay} style={{ color: isRunning ? '#16a34a' : '#0f172a' }}>
-        {isRunning && <span className={styles.timerDot} />}
-        {fmt(elapsed)}
-      </div>
       {!startTs && !showSave && (
-        <button className={styles.timerBtn} onClick={start}>▶ Start Timer</button>
+        <button className={styles.timerBtnBig} onClick={start}>▶ Start Timer</button>
       )}
       {isRunning && (
-        <button className={styles.timerBtnStop} onClick={stop}>⏹ Stop</button>
+        <>
+          <div className={styles.timerRunning}>
+            <span className={styles.timerDot} />
+            Started at {fmtTime(startTs)} · {fmtElapsed(elapsed)} elapsed
+          </div>
+          <button className={styles.timerBtnBigStop} onClick={stop}>⏹ Stop Timer</button>
+        </>
       )}
       {showSave && (
         <form onSubmit={save} className={styles.timerSaveForm}>
+          <div className={styles.timerSummary}>
+            {fmtTime(endTs - elapsed * 1000)} → {fmtTime(endTs)}
+            <span className={styles.timerRounded}> · {Math.max(0.25, Math.round(elapsed / 900) * 0.25).toFixed(2)}h</span>
+          </div>
           <input placeholder="What were you working on?" value={desc} onChange={e => setDesc(e.target.value)}
             className={styles.timerDescInput} />
-          <span className={styles.timerRounded}>({Math.max(0.25, Math.round(elapsed / 900) * 0.25).toFixed(2)}h)</span>
-          <button type="submit" className={styles.timerBtn} disabled={saving}>
+          <button type="submit" className={styles.timerBtnBig} disabled={saving}>
             {saving ? '…' : '✓ Save'}
           </button>
           <button type="button" className={styles.timerBtnDiscard} onClick={discard}>Discard</button>
@@ -277,18 +288,29 @@ function JobTimesheets({ jobId, user }) {
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        entries.length === 0 ? <div className={styles.emptySmall}>No time logged yet.</div> : (
         <>
+          <div className={styles.tsHeader}>
+            <span>Date</span>
+            <span>Staff</span>
+            <span>Start</span>
+            <span>End</span>
+            <span>Hours</span>
+            <span>Description</span>
+            <span />
+          </div>
           {entries.map(e => (
             <div key={e.id} className={styles.tsRow}>
-              <span className={styles.tsDate}>{new Date(e.date).toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+              <span className={styles.tsDate}>{new Date(e.date + 'T00:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}</span>
               <span className={styles.tsName}>{e.user_name}</span>
+              <span className={styles.tsTime}>{e.start_time ? new Date(e.start_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+              <span className={styles.tsTime}>{e.end_time ? new Date(e.end_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+              <span className={styles.tsHours}>{parseFloat(e.hours).toFixed(2)}h</span>
               <span className={styles.tsDesc}>{e.description || '—'}</span>
-              <span className={styles.tsHours}>{parseFloat(e.hours).toFixed(1)}h</span>
               {(user.role !== 'field_tech' || e.user_id === user.id) && (
                 <button className={styles.deleteBtn} style={{ position: 'static' }} onClick={() => del(e.id)}>✕</button>
               )}
             </div>
           ))}
-          <div className={styles.tsTotal}>Total: <strong>{total.toFixed(1)}h</strong></div>
+          <div className={styles.tsTotal}>Total: <strong>{total.toFixed(2)}h</strong></div>
         </>
       )}
     </div>
