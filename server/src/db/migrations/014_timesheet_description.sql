@@ -1,0 +1,1 @@
+ALTER TABLE timesheets ADD COLUMN IF NOT EXISTS description TEXT;
