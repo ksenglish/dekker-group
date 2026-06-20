@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import styles from './Settings.module.css';
 
-const TABS = ['Quote Theme'];
+const TABS = ['Quote Theme', 'Terms & Conditions'];
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('Quote Theme');
@@ -251,6 +251,32 @@ export default function SettingsPage() {
                   <p className={styles.hint} style={{ marginTop: 8 }}>
                     Click <strong>Preview PDF</strong> above to download a full sample document.
                   </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'Terms & Conditions' && (
+            <div className={styles.section}>
+              <div className={styles.card}>
+                <div className={styles.cardHeader}><h2>Terms & Conditions</h2></div>
+                <div className={styles.cardBody}>
+                  <div className={styles.field}>
+                    <label>Quote Terms & Conditions</label>
+                    <textarea rows={12} value={theme.quoteTerms || ''}
+                      onChange={e => set('quoteTerms', e.target.value)}
+                      placeholder="Enter your standard terms and conditions for quotes…&#10;&#10;e.g. Payment terms, warranty, cancellation policy, etc."
+                      className={styles.termsArea} />
+                    <span className={styles.hint}>These terms will appear on all quote PDFs below the line items.</span>
+                  </div>
+                  <div className={styles.field} style={{ marginTop: 20 }}>
+                    <label>Invoice Terms & Conditions</label>
+                    <textarea rows={12} value={theme.invoiceTerms || ''}
+                      onChange={e => set('invoiceTerms', e.target.value)}
+                      placeholder="Enter your standard terms and conditions for invoices…&#10;&#10;e.g. Payment due date, late payment fees, bank account details, etc."
+                      className={styles.termsArea} />
+                    <span className={styles.hint}>These terms will appear on all invoice PDFs below the line items.</span>
+                  </div>
                 </div>
               </div>
             </div>

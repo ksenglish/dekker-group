@@ -1,0 +1,100 @@
+.page { padding: 32px; max-width: 1100px; }
+.pageHeader { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; gap: 16px; }
+.pageTitle { font-size: 24px; font-weight: 700; margin-bottom: 2px; }
+.pageSubtitle { font-size: 13px; color: var(--color-text-muted); }
+.headerActions { display: flex; gap: 8px; flex-shrink: 0; }
+.loading, .empty { padding: 48px; text-align: center; color: var(--color-text-muted); font-size: 14px; }
+
+/* Filters */
+.filters { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+.weekBtn { padding: 8px 12px; border: 1px solid var(--color-border); background: white; border-radius: var(--radius); cursor: pointer; font-size: 16px; }
+.weekBtn:hover { background: #f1f5f9; }
+.dateRange { display: flex; align-items: center; gap: 8px; }
+.dateRange input { padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--radius); font-size: 13px; }
+.dateRange span { font-size: 13px; color: var(--color-text-muted); }
+.filterSelect { padding: 8px 12px; border: 1px solid var(--color-border); border-radius: var(--radius); font-size: 13px; background: white; }
+
+/* Summary cards */
+.summaryGrid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.summaryCard { display: flex; align-items: center; gap: 10px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px 16px; }
+.summaryAvatar { width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+.summaryName { font-size: 13px; font-weight: 500; }
+.summaryHours { font-size: 12px; color: var(--color-text-muted); }
+
+/* Table */
+.table { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden; }
+.tableHeader {
+  display: grid; grid-template-columns: 130px 130px 160px 1fr 80px 70px;
+  gap: 12px; padding: 10px 16px; background: #f8fafc;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 11px; font-weight: 600; color: var(--color-text-muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.tableHeader:has(+ .tableRow:nth-child(2)) { grid-template-columns: 130px 130px 160px 1fr 80px 70px; }
+.tableRow {
+  display: grid; grid-template-columns: 130px 130px 160px 1fr 80px 70px;
+  gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--color-border);
+  font-size: 13px; align-items: center; transition: background 0.1s;
+}
+.tableRow:last-child { border-bottom: none; }
+.tableRow:hover { background: #f8fafc; }
+.totalRow {
+  display: grid; grid-template-columns: 130px 130px 160px 1fr 80px 70px;
+  gap: 12px; padding: 12px 16px;
+  background: #f8fafc; border-top: 2px solid var(--color-border);
+  font-size: 13px; align-items: center;
+}
+
+.dateCell { font-size: 13px; }
+.nameCell { font-size: 13px; font-weight: 500; }
+.jobCell { font-size: 12px; }
+.jobTag { display: inline-block; background: #f1f5f9; border-radius: 4px; padding: 2px 6px; font-size: 12px; }
+.descCell { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.muted { color: var(--color-text-muted); }
+.actions { display: flex; gap: 4px; justify-content: flex-end; }
+.btnIcon { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: var(--radius); font-size: 13px; opacity: 0.6; transition: opacity 0.15s; }
+.btnIcon:hover { opacity: 1; background: #f1f5f9; }
+
+/* Modal */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.modal { background: var(--color-surface); border-radius: var(--radius); box-shadow: var(--shadow-lg); width: 100%; max-width: 500px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; }
+.modalHeader { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid var(--color-border); }
+.modalHeader h2 { font-size: 16px; font-weight: 600; }
+.closeBtn { background: none; border: none; cursor: pointer; font-size: 18px; color: var(--color-text-muted); padding: 2px 6px; }
+.modalBody { padding: 20px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.modalFooter { display: flex; gap: 8px; justify-content: flex-end; padding-top: 8px; }
+
+.formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 13px; font-weight: 500; color: var(--color-text-muted); }
+.field input, .field select, .field textarea {
+  padding: 9px 12px; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 14px; outline: none; font-family: inherit;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+.error { background: #fef2f2; border: 1px solid #fecaca; color: var(--color-error); padding: 10px 14px; border-radius: var(--radius); font-size: 13px; }
+
+.btnPrimary { padding: 9px 16px; background: var(--color-primary); color: white; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; }
+.btnPrimary:hover:not(:disabled) { background: var(--color-primary-dark); }
+.btnPrimary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btnSecondary { padding: 9px 16px; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; }
+.btnSecondary:hover { background: #f1f5f9; }
+
+@media (max-width: 768px) {
+  .page { padding: 12px; }
+  .pageHeader { flex-direction: column; gap: 10px; }
+  .filters { gap: 6px; }
+  .tableHeader { display: none; }
+  .tableRow { grid-template-columns: 1fr auto; grid-template-rows: auto auto auto; gap: 3px 8px; }
+  .totalRow { grid-template-columns: 1fr auto; }
+  .dateCell { grid-column: 1; grid-row: 1; font-weight: 500; }
+  .nameCell { grid-column: 1; grid-row: 2; color: var(--color-text-muted); }
+  .jobCell { grid-column: 1; grid-row: 3; }
+  .descCell { display: none; }
+  .tableRow > :nth-child(5) { grid-column: 2; grid-row: 1; font-weight: 700; text-align: right; }
+  .actions { grid-column: 2; grid-row: 2 / 4; align-items: flex-start; }
+  .summaryGrid { gap: 8px; }
+  .formGrid { grid-template-columns: 1fr; }
+}

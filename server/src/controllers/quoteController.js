@@ -142,7 +142,7 @@ async function downloadPdf(req, res) {
       type: 'Quote', number: `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, issuedAt: q.created_at, theme,
+      status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, theme,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="quote-${q.id.slice(0,8)}.pdf"` });
     res.send(pdf);
@@ -166,7 +166,7 @@ async function sendEmail(req, res) {
       type: 'Quote', number: `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, issuedAt: q.created_at, theme,
+      status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, theme,
     });
     const totalNZD = `$${(q.total / 100).toFixed(2)}`;
     await sendMail({

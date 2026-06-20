@@ -12,6 +12,8 @@ import InvoiceList from '../../pages/invoices/InvoiceList';
 import InvoiceDetail from '../../pages/invoices/InvoiceDetail';
 import SettingsPage from '../../pages/settings/SettingsPage';
 import ProductList from '../../pages/products/ProductList';
+import UsersPage from '../../pages/users/UsersPage';
+import TimesheetsPage from '../../pages/timesheets/TimesheetsPage';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
@@ -22,6 +24,7 @@ const NAV_ITEMS = [
   { to: '/quotes', label: 'Quotes', icon: '📋' },
   { to: '/invoices', label: 'Invoices', icon: '💰' },
   { to: '/products', label: 'Price List', icon: '🏷' },
+  { to: '/timesheets', label: 'Timesheets', icon: '⏱' },
 ];
 
 const ADMIN_ITEMS = [
@@ -110,6 +113,8 @@ export default function AppShell() {
           <Route path="/invoices/:id" element={<InvoiceDetail />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/products" element={<ProductList />} />
+          <Route path="/users" element={<UsersPage />} />
+          <Route path="/timesheets" element={<TimesheetsPage />} />
           <Route path="/users/*" element={<ComingSoon title="Users" />} />
         </Routes>
       </main>

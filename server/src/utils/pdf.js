@@ -26,7 +26,7 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-function buildPDF({ type, number, customer, items, subtotal, gst, total, status, dueDate, notes, issuedAt, theme = {} }) {
+function buildPDF({ type, number, customer, items, subtotal, gst, total, status, dueDate, notes, terms, issuedAt, theme = {} }) {
   const t = { ...DEFAULT_THEME, ...theme };
   const BRAND = t.brandColour || '#1e40af';
 
@@ -174,10 +174,17 @@ function buildPDF({ type, number, customer, items, subtotal, gst, total, status,
     doc.text(formatNZD(total),    totX, rowY + 40, { width: W - totX + 50, align: 'right' });
 
     // ── Notes ────────────────────────────────────────────────────
+    let afterTotalsY = rowY + 80;
     if (notes) {
-      const notesY = rowY + 80;
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('NOTES', 50, notesY);
-      doc.fontSize(9).font('Helvetica').fillColor(TEXT).text(notes, 50, notesY + 14, { width: W });
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('NOTES', 50, afterTotalsY);
+      doc.fontSize(9).font('Helvetica').fillColor(TEXT).text(notes, 50, afterTotalsY + 14, { width: W });
+      afterTotalsY += 14 + doc.heightOfString(notes, { width: W }) + 20;
+    }
+
+    // ── Terms & Conditions ───────────────────────────────────────
+    if (terms) {
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('TERMS & CONDITIONS', 50, afterTotalsY);
+      doc.fontSize(8).font('Helvetica').fillColor(MID_GREY).text(terms, 50, afterTotalsY + 14, { width: W });
     }
 
     // ── Footer ───────────────────────────────────────────────────

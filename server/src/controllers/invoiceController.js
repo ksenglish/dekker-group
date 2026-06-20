@@ -93,7 +93,7 @@ async function downloadPdf(req, res) {
       type: 'Invoice', number: `INV-${inv.id.slice(0,8).toUpperCase()}`,
       customer: { name: inv.customer_name, company: inv.customer_company, email: inv.customer_email, phone: inv.customer_phone },
       items: enrichedItems, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
-      status: inv.status, dueDate: inv.due_date, notes: inv.notes, issuedAt: inv.created_at, theme,
+      status: inv.status, dueDate: inv.due_date, notes: inv.notes, terms: theme.invoiceTerms || '', issuedAt: inv.created_at, theme,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="invoice-${inv.id.slice(0,8)}.pdf"` });
     res.send(pdf);
@@ -117,7 +117,7 @@ async function sendEmail(req, res) {
       type: 'Invoice', number: `INV-${inv.id.slice(0,8).toUpperCase()}`,
       customer: { name: inv.customer_name, company: inv.customer_company, email: inv.customer_email, phone: inv.customer_phone },
       items: enrichedItems, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
-      status: inv.status, dueDate: inv.due_date, notes: inv.notes, issuedAt: inv.created_at, theme,
+      status: inv.status, dueDate: inv.due_date, notes: inv.notes, terms: theme.invoiceTerms || '', issuedAt: inv.created_at, theme,
     });
     const totalNZD = `$${(inv.total / 100).toFixed(2)}`;
     const dueStr = inv.due_date ? new Date(inv.due_date).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
