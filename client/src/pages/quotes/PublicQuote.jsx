@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API = '/api';
 
 function fmt(cents) {
   return (cents / 100).toLocaleString('en-NZ', { style: 'currency', currency: 'NZD' });
