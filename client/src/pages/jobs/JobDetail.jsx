@@ -87,6 +87,11 @@ function JobTimer({ jobId, onTimeSaved }) {
 
   function stop() {
     clearInterval(tickRef.current);
+    // Snapshot elapsed before clearing startTs so the value is preserved for save
+    const snapped = startTs ? Math.floor((Date.now() - startTs) / 1000) : elapsed;
+    setElapsed(snapped);
+    setStartTs(null);
+    localStorage.removeItem(STORAGE_KEY);
     setShowSave(true);
   }
 
@@ -97,17 +102,21 @@ function JobTimer({ jobId, onTimeSaved }) {
 
   async function save(e) {
     e.preventDefault();
-    const hours = Math.max(0.25, Math.round(elapsed / 900) * 0.25); // round to nearest 0.25h
+    // Minimum 1 minute, rounded to nearest 0.25h
+    const hours = elapsed < 60
+      ? 0.25
+      : Math.max(0.25, Math.round(elapsed / 900) * 0.25);
     setSaving(true);
     try {
       await api.post('/timesheets', {
         job_id: jobId, hours, description: desc || 'Time tracked via timer',
         date: new Date().toISOString().slice(0, 10),
       });
-      localStorage.removeItem(STORAGE_KEY);
       setStartTs(null); setElapsed(0); setShowSave(false); setDesc('');
       onTimeSaved && onTimeSaved(hours);
-    } catch { alert('Failed to save time entry'); }
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to save time entry');
+    }
     finally { setSaving(false); }
   }
 
@@ -116,7 +125,7 @@ function JobTimer({ jobId, onTimeSaved }) {
     return [h, m, sec].map(n => String(n).padStart(2, '0')).join(':');
   }
 
-  const isRunning = !!startTs && !showSave;
+  const isRunning = !!startTs;
 
   return (
     <div className={styles.timerBar}>
