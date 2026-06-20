@@ -317,11 +317,39 @@ function ProductPanel({ product, section, onClose, onPick }) {
   );
 }
 
+// ── Subcategory grid ──────────────────────────────────────────────────────────
+function SubcategoryGrid({ subcategories, section, onPick: onPickSubcat }) {
+  return (
+    <div className={styles.productGrid}>
+      {subcategories.map(sc => (
+        <button key={sc.id} className={styles.productCard} onClick={() => onPickSubcat(sc)}>
+          {sc.image_base64 ? (
+            <img src={sc.image_base64} alt={sc.name} className={styles.productImage} />
+          ) : (
+            <div className={styles.productImagePlaceholder} style={{ background: (section?.color || '#1e40af') + '22' }}>
+              <span style={{ fontSize: 40 }}>📁</span>
+            </div>
+          )}
+          <div className={styles.productInfo}>
+            <h3 className={styles.productName}>{sc.name}</h3>
+            {sc.product_count > 0 && <p className={styles.productDesc}>{sc.product_count} product{sc.product_count !== 1 ? 's' : ''}</p>}
+            <div className={styles.productCta} style={{ background: section?.color || '#1e40af' }}>
+              View Products →
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Main Presenter ────────────────────────────────────────────────────────────
 export default function SalesPresenter({ onPick }) {
   const navigate = useNavigate();
   const [sections, setSections] = useState([]);
   const [activeSection, setActiveSection] = useState(null);
+  const [subcategories, setSubcategories] = useState([]);
+  const [activeSubcat, setActiveSubcat] = useState(null);
   const [products, setProducts] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -335,9 +363,26 @@ export default function SalesPresenter({ onPick }) {
 
   useEffect(() => {
     if (!activeSection) return;
-    setProducts([]);
-    api.get(`/presenter/sections/${activeSection.id}/products`).then(r => setProducts(r.data));
+    setSubcategories([]); setActiveSubcat(null); setProducts([]); setSelectedProduct(null);
+    api.get(`/presenter/sections/${activeSection.id}/subcategories`).then(r => {
+      setSubcategories(r.data);
+      // If no subcategories, load section-level products directly
+      if (r.data.length === 0) {
+        api.get(`/presenter/sections/${activeSection.id}/products`).then(rp =>
+          setProducts(rp.data.filter(p => !p.subcategory_id))
+        );
+      }
+    });
   }, [activeSection]);
+
+  useEffect(() => {
+    if (!activeSubcat) return;
+    setProducts([]); setSelectedProduct(null);
+    api.get(`/presenter/subcategories/${activeSubcat.id}/products`).then(r => setProducts(r.data));
+  }, [activeSubcat]);
+
+  // View mode: 'subcats' | 'products'
+  const viewMode = activeSubcat || subcategories.length === 0 ? 'products' : 'subcats';
 
   if (loading) return (
     <div className={styles.presenter}>
@@ -362,7 +407,9 @@ export default function SalesPresenter({ onPick }) {
               style={activeSection?.id === s.id ? { borderBottomColor: s.color, color: s.color } : {}}
               onClick={() => { setActiveSection(s); setSelectedProduct(null); }}
             >
-              <span>{s.icon}</span>
+              {s.image_base64
+                ? <img src={s.image_base64} alt={s.name} style={{ width: 24, height: 24, objectFit: 'cover', borderRadius: 4 }} />
+                : <span>{s.icon}</span>}
               {s.name}
             </button>
           ))}
@@ -373,23 +420,45 @@ export default function SalesPresenter({ onPick }) {
         </button>
       </header>
 
-      {/* Section hero */}
+      {/* Section hero / breadcrumb */}
       {activeSection && (
         <div className={styles.sectionHero} style={{ borderTopColor: activeSection.color }}>
-          <div className={styles.heroIcon}>{activeSection.icon}</div>
-          <div>
-            <h1 className={styles.heroTitle} style={{ color: activeSection.color }}>{activeSection.name}</h1>
-            <p className={styles.heroSub}>Select a product to view details and pricing</p>
+          {activeSection.image_base64
+            ? <img src={activeSection.image_base64} alt={activeSection.name} className={styles.heroImage} />
+            : <div className={styles.heroIcon}>{activeSection.icon}</div>}
+          <div style={{ flex: 1 }}>
+            <div className={styles.breadcrumb}>
+              <span
+                className={activeSubcat ? styles.breadcrumbLink : styles.breadcrumbCurrent}
+                onClick={() => { if (activeSubcat) { setActiveSubcat(null); setProducts([]); setSelectedProduct(null); } }}
+              >
+                {activeSection.name}
+              </span>
+              {activeSubcat && <>
+                <span className={styles.breadcrumbSep}>›</span>
+                <span className={styles.breadcrumbCurrent}>{activeSubcat.name}</span>
+              </>}
+            </div>
+            <p className={styles.heroSub}>
+              {activeSubcat
+                ? `${products.length} product${products.length !== 1 ? 's' : ''} — select to view details and pricing`
+                : subcategories.length > 0
+                  ? 'Select a category below'
+                  : 'Select a product to view details and pricing'}
+            </p>
           </div>
         </div>
       )}
 
-      {/* Product grid */}
+      {/* Subcategory grid or product grid */}
+      {viewMode === 'subcats' ? (
+        <SubcategoryGrid subcategories={subcategories} section={activeSection} onPick={sc => setActiveSubcat(sc)} />
+      ) : (
       <div className={styles.productGrid}>
         {products.length === 0 ? (
           <div className={styles.emptySection}>
             <div className={styles.emptyIcon}>{activeSection?.icon}</div>
-            <p>No products added yet for {activeSection?.name}.</p>
+            <p>No products added yet{activeSubcat ? ` for ${activeSubcat.name}` : ` for ${activeSection?.name}`}.</p>
             <p className={styles.emptyHint}>Go to <strong>Settings → Sales Presenter</strong> to add products.</p>
           </div>
         ) : products.map(p => (
@@ -416,6 +485,7 @@ export default function SalesPresenter({ onPick }) {
           </button>
         ))}
       </div>
+      )}
 
       {/* Product detail panel */}
       {selectedProduct && (
