@@ -12,36 +12,36 @@ export default function SettingsPage() {
   const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef();
 
-  // SMTP state
-  const [smtp, setSmtp] = useState({ host: '', port: '587', secure: false, user: '', pass: '', from: '', fromName: 'Dekker Group' });
-  const [smtpSaving, setSmtpSaving] = useState(false);
-  const [smtpSaved, setSmtpSaved] = useState(false);
-  const [smtpTesting, setSmtpTesting] = useState(false);
-  const [smtpStatus, setSmtpStatus] = useState(null);
-  const setSmtpField = (k, v) => setSmtp(s => ({ ...s, [k]: v }));
+  // Resend email state
+  const [email, setEmail] = useState({ apiKey: '', from: 'noreply@dekkergroup.co.nz', fromName: 'Dekker Group' });
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailSaved, setEmailSaved] = useState(false);
+  const [emailTesting, setEmailTesting] = useState(false);
+  const [emailStatus, setEmailStatus] = useState(null);
+  const setEmailField = (k, v) => setEmail(s => ({ ...s, [k]: v }));
 
   useEffect(() => {
     api.get('/settings').then(r => setTheme(r.data));
-    api.get('/settings/smtp').then(r => setSmtp(s => ({ ...s, ...r.data }))).catch(() => {});
+    api.get('/settings/email').then(r => setEmail(s => ({ ...s, ...r.data }))).catch(() => {});
   }, []);
 
-  async function saveSmtp() {
-    setSmtpSaving(true); setSmtpStatus(null);
+  async function saveEmail() {
+    setEmailSaving(true); setEmailStatus(null);
     try {
-      await api.put('/settings/smtp', smtp);
-      setSmtpSaved(true); setTimeout(() => setSmtpSaved(false), 3000);
-    } catch (e) { setSmtpStatus({ ok: false, message: e.response?.data?.error || 'Save failed' }); }
-    finally { setSmtpSaving(false); }
+      await api.put('/settings/email', email);
+      setEmailSaved(true); setTimeout(() => setEmailSaved(false), 3000);
+    } catch (e) { setEmailStatus({ ok: false, message: e.response?.data?.error || 'Save failed' }); }
+    finally { setEmailSaving(false); }
   }
 
-  async function testSmtp() {
-    setSmtpTesting(true); setSmtpStatus(null);
+  async function testEmail() {
+    setEmailTesting(true); setEmailStatus(null);
     try {
-      await api.put('/settings/smtp', smtp); // save first
-      const { data } = await api.post('/settings/smtp/test');
-      setSmtpStatus(data);
-    } catch (e) { setSmtpStatus({ ok: false, message: e.response?.data?.message || 'Test failed' }); }
-    finally { setSmtpTesting(false); }
+      await api.put('/settings/email', email);
+      const { data } = await api.post('/settings/email/test', { apiKey: email.apiKey });
+      setEmailStatus(data);
+    } catch (e) { setEmailStatus({ ok: false, message: e.response?.data?.message || 'Test failed' }); }
+    finally { setEmailTesting(false); }
   }
 
   function set(key, val) {
@@ -287,59 +287,54 @@ export default function SettingsPage() {
           {activeTab === 'Email' && (
             <div className={styles.section}>
               <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>SMTP Email Settings</h2></div>
+                <div className={styles.cardHeader}><h2>Email Settings</h2></div>
                 <div className={styles.cardBody}>
-                  <p className={styles.hint} style={{ marginBottom: 16 }}>
-                    Configure your outgoing email server so quotes and invoices can be emailed directly to customers.
-                    Common providers: Gmail (smtp.gmail.com:587), Outlook (smtp.office365.com:587).
-                  </p>
-                  <div className={styles.formGrid}>
+                  <div className={styles.resendBanner}>
+                    <div className={styles.resendIcon}>✉</div>
+                    <div>
+                      <strong>Powered by Resend</strong>
+                      <p>Resend handles all outgoing emails — no per-user setup, no app passwords. Free up to 3,000 emails/month.</p>
+                      <ol style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
+                        <li>Sign up free at <strong>resend.com</strong></li>
+                        <li>Add &amp; verify your domain <strong>dekkergroup.co.nz</strong></li>
+                        <li>Create an API key and paste it below</li>
+                      </ol>
+                    </div>
+                  </div>
+                  <div className={styles.formGrid} style={{ marginTop: 20 }}>
+                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                      <label>Resend API Key</label>
+                      <input
+                        value={email.apiKey}
+                        onChange={e => setEmailField('apiKey', e.target.value)}
+                        placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        style={{ fontFamily: 'monospace' }}
+                      />
+                      <span className={styles.hint}>Found in your Resend dashboard under API Keys</span>
+                    </div>
                     <div className={styles.field}>
                       <label>From Name</label>
-                      <input value={smtp.fromName} onChange={e => setSmtpField('fromName', e.target.value)} placeholder="Dekker Group" />
+                      <input value={email.fromName} onChange={e => setEmailField('fromName', e.target.value)} placeholder="Dekker Group" />
                     </div>
                     <div className={styles.field}>
                       <label>From Email</label>
-                      <input type="email" value={smtp.from} onChange={e => setSmtpField('from', e.target.value)} placeholder="kyle@dekkergroup.co.nz" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>SMTP Host</label>
-                      <input value={smtp.host} onChange={e => setSmtpField('host', e.target.value)} placeholder="smtp.gmail.com" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>SMTP Port</label>
-                      <input type="number" value={smtp.port} onChange={e => setSmtpField('port', e.target.value)} placeholder="587" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Username</label>
-                      <input value={smtp.user} onChange={e => setSmtpField('user', e.target.value)} placeholder="kyle@dekkergroup.co.nz" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Password / App Password</label>
-                      <input type="password" value={smtp.pass} onChange={e => setSmtpField('pass', e.target.value)} placeholder="••••••••" />
-                    </div>
-                    <div className={styles.field} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 20 }}>
-                      <input type="checkbox" id="smtpSecure" checked={!!smtp.secure} onChange={e => setSmtpField('secure', e.target.checked)} />
-                      <label htmlFor="smtpSecure" style={{ marginBottom: 0 }}>Use SSL (port 465)</label>
+                      <input type="email" value={email.from} onChange={e => setEmailField('from', e.target.value)} placeholder="jobs@dekkergroup.co.nz" />
+                      <span className={styles.hint}>Must be on a domain verified in Resend</span>
                     </div>
                   </div>
-                  {smtpStatus && (
-                    <div className={smtpStatus.ok ? styles.successMsg : styles.errorMsg} style={{ marginTop: 16 }}>
-                      {smtpStatus.ok ? '✓ ' : '✕ '}{smtpStatus.message}
+                  {emailStatus && (
+                    <div className={emailStatus.ok ? styles.successMsg : styles.errorMsg} style={{ marginTop: 16 }}>
+                      {emailStatus.message}
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-                    <button className={styles.btnSecondary} onClick={testSmtp} disabled={smtpTesting || !smtp.host}>
-                      {smtpTesting ? 'Testing…' : 'Test Connection'}
+                    <button className={styles.btnSecondary} onClick={testEmail} disabled={emailTesting || !email.apiKey}>
+                      {emailTesting ? 'Testing…' : 'Test Connection'}
                     </button>
-                    <button className={styles.btnPrimary} onClick={saveSmtp} disabled={smtpSaving}>
-                      {smtpSaving ? 'Saving…' : smtpSaved ? '✓ Saved' : 'Save Email Settings'}
+                    <button className={styles.btnPrimary} onClick={saveEmail} disabled={emailSaving}>
+                      {emailSaving ? 'Saving…' : emailSaved ? '✓ Saved' : 'Save'}
                     </button>
                   </div>
-                  <p className={styles.hint} style={{ marginTop: 12 }}>
-                    For Gmail: enable 2FA and use an <strong>App Password</strong> (not your regular password).
-                    Go to Google Account → Security → App Passwords.
-                  </p>
                 </div>
               </div>
             </div>

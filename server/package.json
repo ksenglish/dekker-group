@@ -23,6 +23,7 @@
     "nodemailer": "^9.0.1",
     "pdfkit": "^0.19.1",
     "pg": "^8.12.0",
+    "resend": "^6.14.0",
     "uuid": "^10.0.0"
   },
   "devDependencies": {

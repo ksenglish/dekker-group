@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { authenticate, requireRole } = require('../middleware/auth');
 const c = require('../controllers/settingsController');
 const { buildPDF } = require('../utils/pdf');
-const { testConnection, getSmtpSettings } = require('../utils/email');
+const { testConnection, getResendSettings } = require('../utils/email');
 const pool = require('../db/pool');
 
 router.get('/', authenticate, c.get);
@@ -21,53 +21,50 @@ router.get('/preview-pdf', authenticate, requireRole('admin', 'office'), async (
         { description: 'Installation labour (4 hrs)', quantity: 4, unit_price: 12500 },
         { description: 'Refrigerant pipework', quantity: 1, unit_price: 45000 },
       ],
-      subtotal: 347500,
-      gst: 52125,
-      total: 399625,
-      status: 'draft',
+      subtotal: 347500, gst: 52125, total: 399625, status: 'draft',
       notes: 'This is a sample quote to preview your theme. All values are for demonstration only.',
-      issuedAt: new Date(),
-      theme,
+      issuedAt: new Date(), theme,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="preview.pdf"' });
     res.send(pdf);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Preview failed' }); }
 });
 
-// Get SMTP settings (password masked)
-router.get('/smtp', authenticate, requireRole('admin'), async (req, res) => {
+// Get email settings
+router.get('/email', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const s = await getSmtpSettings();
-    if (!s) return res.json({});
-    res.json({ ...s, pass: s.pass ? '••••••••' : '' });
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+    const s = await getResendSettings();
+    if (!s) return res.json({ apiKey: '', from: '', fromName: '' });
+    res.json({ apiKey: s.apiKey ? '••••••••••••••••' : '', from: s.from || '', fromName: s.fromName || '' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// Save SMTP settings
-router.put('/smtp', authenticate, requireRole('admin'), async (req, res) => {
+// Save email settings
+router.put('/email', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const { host, port, secure, user, pass, from, fromName } = req.body;
-    // If password is masked placeholder, keep existing
-    let savePass = pass;
-    if (pass === '••••••••') {
-      const existing = await getSmtpSettings();
-      savePass = existing?.pass || '';
+    const { apiKey, from, fromName } = req.body;
+    let saveKey = apiKey;
+    if (apiKey === '••••••••••••••••') {
+      const existing = await getResendSettings();
+      saveKey = existing?.apiKey || '';
     }
-    const settings = { host, port: parseInt(port) || 587, secure: !!secure, user, pass: savePass, from, fromName };
+    const settings = { apiKey: saveKey, from: from || 'noreply@dekkergroup.co.nz', fromName: fromName || 'Dekker Group' };
     await pool.query(
-      `INSERT INTO settings (key, value, updated_at) VALUES ('smtp', $1, NOW())
+      `INSERT INTO settings (key, value, updated_at) VALUES ('resend', $1, NOW())
        ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
       [JSON.stringify(settings)]
     );
-    res.json({ ...settings, pass: savePass ? '••••••••' : '' });
+    res.json({ ...settings, apiKey: saveKey ? '••••••••••••••••' : '' });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
-// Test SMTP connection
-router.post('/smtp/test', authenticate, requireRole('admin'), async (req, res) => {
+// Test email connection
+router.post('/email/test', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    await testConnection();
-    res.json({ ok: true, message: 'Connection successful' });
+    const { apiKey } = req.body;
+    const keyToTest = (apiKey && apiKey !== '••••••••••••••••') ? apiKey : null;
+    await testConnection(keyToTest);
+    res.json({ ok: true, message: '✓ API key is valid and connected' });
   } catch (err) { res.status(400).json({ ok: false, message: err.message }); }
 });
 

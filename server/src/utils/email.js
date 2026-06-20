@@ -1,51 +1,48 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const pool = require('../db/pool');
 
-async function getSmtpSettings() {
-  // Env vars take priority over DB settings
-  if (process.env.SMTP_HOST) {
+async function getResendSettings() {
+  // Env var takes priority
+  if (process.env.RESEND_API_KEY) {
     return {
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT) || 587,
-      secure: process.env.SMTP_SECURE === 'true',
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-      from: process.env.EMAIL_FROM,
+      apiKey: process.env.RESEND_API_KEY,
+      from: process.env.EMAIL_FROM || 'noreply@dekkergroup.co.nz',
       fromName: process.env.EMAIL_FROM_NAME || 'Dekker Group',
     };
   }
   try {
-    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='smtp'`);
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='resend'`);
     if (rows[0]) return rows[0].value;
   } catch { /* ignore */ }
   return null;
 }
 
-async function getTransport() {
-  const s = await getSmtpSettings();
-  if (!s?.host) return null;
-  return nodemailer.createTransport({
-    host: s.host,
-    port: s.port || 587,
-    secure: !!s.secure,
-    auth: { user: s.user, pass: s.pass },
-  });
+async function sendMail({ to, subject, html, text, attachments }) {
+  const s = await getResendSettings();
+  if (!s?.apiKey) throw new Error('Email not configured — go to Settings → Email to add your Resend API key');
+
+  const resend = new Resend(s.apiKey);
+  const from = `${s.fromName || 'Dekker Group'} <${s.from}>`;
+
+  const payload = { from, to, subject, html: html || text };
+  if (attachments?.length) {
+    payload.attachments = attachments.map(a => ({
+      filename: a.filename,
+      content: a.content, // Buffer
+    }));
+  }
+
+  const { error } = await resend.emails.send(payload);
+  if (error) throw new Error(error.message);
 }
 
-async function sendMail({ to, subject, html, attachments }) {
-  const s = await getSmtpSettings();
-  if (!s?.host) throw new Error('Email not configured — go to Settings → Email to set up SMTP');
-  const transport = await getTransport();
-  await transport.sendMail({
-    from: `"${s.fromName || 'Dekker Group'}" <${s.from || s.user}>`,
-    to, subject, html, attachments,
-  });
+async function testConnection(apiKey) {
+  const key = apiKey || (await getResendSettings())?.apiKey;
+  if (!key) throw new Error('No API key configured');
+  const resend = new Resend(key);
+  // Verify key by hitting the domains list endpoint
+  const { error } = await resend.domains.list();
+  if (error) throw new Error(error.message);
 }
 
-async function testConnection() {
-  const transport = await getTransport();
-  if (!transport) throw new Error('No SMTP settings configured');
-  await transport.verify();
-}
-
-module.exports = { sendMail, testConnection, getSmtpSettings };
+module.exports = { sendMail, testConnection, getResendSettings };
