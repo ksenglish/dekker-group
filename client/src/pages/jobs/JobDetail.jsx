@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
+import SalesPresenter from '../presenter/SalesPresenter';
 import styles from './Jobs.module.css';
 
 // ── Job Email Modal ───────────────────────────────────────────────────────────
@@ -341,6 +342,7 @@ export default function JobDetail() {
   const [creatingQuote, setCreatingQuote] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailFlash, setEmailFlash] = useState('');
+  const [showPresenter, setShowPresenter] = useState(false);
 
   useEffect(() => {
     if (isNew) return;
@@ -428,6 +430,7 @@ export default function JobDetail() {
           {job.customer_email && user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={() => setShowEmailModal(true)}>✉ Email Customer</button>
           )}
+          <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
           {user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
           )}
@@ -491,6 +494,36 @@ export default function JobDetail() {
           onClose={() => setShowEmailModal(false)}
           onSent={() => setEmailFlash(`Email sent to ${job.customer_name}`)}
         />
+      )}
+
+      {/* Sales Presenter picker */}
+      {showPresenter && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300 }}>
+          <SalesPresenter onPick={async (product) => {
+            setShowPresenter(false);
+            if (!product) return;
+            try {
+              const existing = job.line_items || [];
+              const newItem = {
+                description: product.name,
+                quantity: 1,
+                unit_price: product.price_from > 0 ? product.price_from / 100 : 0,
+                product_id: null,
+              };
+              const items = [
+                ...existing.map(i => ({ ...i, unit_price: i.unit_price / 100 })),
+                newItem,
+              ];
+              await api.put(`/jobs/${id}/line-items`, { items });
+              setActiveTab('line_items');
+              setEmailFlash(`${product.name} added to job`);
+              const { data: updated } = await api.get(`/jobs/${id}`);
+              setJob(updated);
+            } catch {
+              setEmailFlash('Failed to add product');
+            }
+          }} />
+        </div>
       )}
 
       {/* Main layout */}

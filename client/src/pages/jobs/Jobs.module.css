@@ -534,6 +534,18 @@
 
 .btnSecondary:hover { background: #f1f5f9; }
 
+.btnPresenter {
+  padding: 9px 16px;
+  background: #0f172a;
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btnPresenter:hover { background: #1e293b; }
+
 .btnDanger {
   padding: 9px 16px;
   background: #fef2f2;

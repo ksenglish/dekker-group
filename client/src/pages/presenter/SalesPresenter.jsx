@@ -259,7 +259,7 @@ function Calculator({ product }) {
 }
 
 // ── Product Detail Panel ──────────────────────────────────────────────────────
-function ProductPanel({ product, section, onClose }) {
+function ProductPanel({ product, section, onClose, onPick }) {
   return (
     <div className={styles.panelOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.panel}>
@@ -286,6 +286,11 @@ function ProductPanel({ product, section, onClose }) {
             </div>
           )}
           <Calculator product={product} />
+          {onPick && (
+            <button className={styles.addToJobBtn} onClick={() => onPick(product)}>
+              + Add to Job
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -293,7 +298,7 @@ function ProductPanel({ product, section, onClose }) {
 }
 
 // ── Main Presenter ────────────────────────────────────────────────────────────
-export default function SalesPresenter() {
+export default function SalesPresenter({ onPick }) {
   const navigate = useNavigate();
   const [sections, setSections] = useState([]);
   const [activeSection, setActiveSection] = useState(null);
@@ -343,8 +348,8 @@ export default function SalesPresenter() {
           ))}
         </nav>
 
-        <button className={styles.exitBtn} onClick={() => navigate('/')}>
-          ✕ Exit
+        <button className={styles.exitBtn} onClick={() => onPick ? onPick(null) : navigate('/')}>
+          ✕ {onPick ? 'Cancel' : 'Exit'}
         </button>
       </header>
 
@@ -398,6 +403,7 @@ export default function SalesPresenter() {
           product={selectedProduct}
           section={activeSection}
           onClose={() => setSelectedProduct(null)}
+          onPick={onPick}
         />
       )}
     </div>

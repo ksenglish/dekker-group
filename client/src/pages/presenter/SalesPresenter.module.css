@@ -126,6 +126,13 @@
 .panelFeatures { list-style: none; padding: 0; margin: 0 0 16px; display: flex; flex-direction: column; gap: 6px; }
 .panelFeatures li { font-size: 14px; color: #16a34a; font-weight: 500; }
 .panelPriceFrom { font-size: 15px; color: #64748b; margin-bottom: 20px; }
+.addToJobBtn {
+  display: block; width: 100%; margin-top: 20px; padding: 14px;
+  background: #16a34a; color: white; border: none; border-radius: 10px;
+  font-size: 16px; font-weight: 700; cursor: pointer; font-family: inherit;
+  transition: background 0.15s;
+}
+.addToJobBtn:hover { background: #15803d; }
 .panelPriceFrom strong { font-size: 22px; color: #0f172a; }
 .panelPriceFrom span { font-size: 12px; }
 
