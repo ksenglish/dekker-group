@@ -14,8 +14,8 @@ async function list(req, res) {
   if (status) { conditions.push(`j.status = $${p}`); params.push(status); p++; }
   if (tech) { conditions.push(`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id=j.id AND jt.user_id=$${p})`); params.push(tech); p++; }
   if (customer) { conditions.push(`j.customer_id = $${p}`); params.push(customer); p++; }
-  if (from) { conditions.push(`j.due_date >= $${p}`); params.push(from); p++; }
-  if (to) { conditions.push(`j.due_date <= $${p}`); params.push(to); p++; }
+  if (from) { conditions.push(`(SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) >= $${p}`); params.push(from); p++; }
+  if (to) { conditions.push(`(SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) <= $${p}`); params.push(to); p++; }
 
   // Subcontractors/field_tech only see their own jobs
   const normalised = req.user.role === 'subcontractor' ? 'field_tech' : req.user.role;
@@ -29,7 +29,9 @@ async function list(req, res) {
   try {
     const { rows } = await pool.query(
       `SELECT j.id, j.job_number, j.type, j.status, j.priority, j.description,
-              j.due_date, j.created_at,
+              j.created_at,
+              (SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) AS scheduled_date,
+              (SELECT s.start_time FROM schedules s WHERE s.job_id=j.id ORDER BY s.scheduled_date LIMIT 1) AS scheduled_time,
               c.id AS customer_id, c.name AS customer_name,
               s.address AS site_address,
               COALESCE(
@@ -62,7 +64,8 @@ async function get(req, res) {
     const { rows } = await pool.query(
       `SELECT j.*,
               c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email,
-              s.address AS site_address, s.label AS site_label
+              s.address AS site_address, s.label AS site_label,
+              (SELECT MIN(sc.scheduled_date) FROM schedules sc WHERE sc.job_id=j.id) AS scheduled_date
        FROM jobs j
        LEFT JOIN customers c ON c.id = j.customer_id
        LEFT JOIN customer_sites s ON s.id = j.site_id

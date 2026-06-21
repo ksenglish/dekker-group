@@ -30,7 +30,7 @@ export default function SchedulePage() {
   const [filterTech, setFilterTech] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
-  const [calRange, setCalRange] = useState(null); // { from, to } of current visible range
+  const calRangeRef = useRef(null); // always up-to-date, no stale closure issues
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
   const [view, setView] = useState(() => localStorage.getItem(viewKey) || 'dayGridMonth');
 
@@ -80,11 +80,11 @@ export default function SchedulePage() {
   }, [filterTech, techMap]);
 
   useEffect(() => {
-    if (calRange) fetchEvents(calRange.from, calRange.to);
+    if (calRangeRef.current) fetchEvents(calRangeRef.current.from, calRangeRef.current.to);
   }, [filterTech, techMap, fetchEvents]);
 
   function reloadEvents() {
-    if (calRange) fetchEvents(calRange.from, calRange.to);
+    if (calRangeRef.current) fetchEvents(calRangeRef.current.from, calRangeRef.current.to);
   }
 
   async function handleEventDrop({ event, revert }) {
@@ -178,7 +178,7 @@ export default function SchedulePage() {
           datesSet={info => {
             const from = info.startStr.split('T')[0];
             const to = info.endStr.split('T')[0];
-            setCalRange({ from, to });
+            calRangeRef.current = { from, to };
             fetchEvents(from, to);
           }}
           viewDidMount={info => {

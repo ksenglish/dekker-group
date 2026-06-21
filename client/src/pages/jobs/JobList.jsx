@@ -119,10 +119,9 @@ export default function JobList() {
             <span>Customer</span>
             <span>Description</span>
             <span>Type</span>
-            <span>Priority</span>
             <span>Status</span>
-            <span>Technician</span>
-            <span>Due Date</span>
+            <span>Team Member</span>
+            <span>Schedule Date</span>
           </div>
           {jobs.map(job => (
             <Link key={job.id} to={`/jobs/${job.id}`} className={styles.tableRow}>
@@ -131,17 +130,12 @@ export default function JobList() {
               <span className={styles.jobDesc}>{job.description || <span className={styles.muted}>—</span>}</span>
               <span className={styles.typeTag}>{job.type?.replace('_', ' ')}</span>
               <span>
-                <span className={styles.priorityBadge} style={{ color: PRIORITY_COLOURS[job.priority] }}>
-                  {job.priority === 'high' ? '▲' : job.priority === 'low' ? '▼' : '●'} {job.priority}
-                </span>
-              </span>
-              <span>
                 <span className={styles.statusBadge} style={{ background: STATUS_COLOURS[job.status] + '18', color: STATUS_COLOURS[job.status] }}>
                   {job.status.replace('_', ' ')}
                 </span>
               </span>
               <span>{job.tech_name || <span className={styles.muted}>Unassigned</span>}</span>
-              <span>{job.due_date ? new Date(job.due_date).toLocaleDateString('en-NZ') : <span className={styles.muted}>—</span>}</span>
+              <span>{job.scheduled_date ? new Date(job.scheduled_date).toLocaleDateString('en-NZ') : <span className={styles.muted}>Not scheduled</span>}</span>
             </Link>
           ))}
         </div>

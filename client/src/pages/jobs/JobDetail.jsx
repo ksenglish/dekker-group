@@ -551,9 +551,6 @@ export default function JobDetail() {
                 </div>
                 <div className={styles.detailItem}><span>Site</span><strong>{job.site_address || '—'}{job.site_label ? ` (${job.site_label})` : ''}</strong></div>
                 <div className={styles.detailItem}><span>Type</span><strong style={{ textTransform: 'capitalize' }}>{job.type.replace('_', ' ')}</strong></div>
-                <div className={styles.detailItem}><span>Priority</span>
-                  <strong style={{ color: PRIORITY_COLOURS[job.priority], textTransform: 'capitalize' }}>{job.priority}</strong>
-                </div>
                 <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
                   <span>Team Members</span>
                   <strong>{job.technicians?.length ? job.technicians.map(t => t.name).join(', ') : (job.tech_name || '—')}</strong>
@@ -563,8 +560,9 @@ export default function JobDetail() {
                     <strong style={{ color: '#0891b2' }}>🔁 {job.recurrence_interval} · Next: {job.recurrence_next_date ? new Date(job.recurrence_next_date).toLocaleDateString('en-NZ') : '—'}</strong>
                   </div>
                 )}
-                <div className={styles.detailItem}><span>Due Date</span>
-                  <strong>{job.due_date ? new Date(job.due_date).toLocaleDateString('en-NZ') : '—'}</strong>
+                <div className={styles.detailItem}>
+                  <span>Schedule Date</span>
+                  <strong>{job.scheduled_date ? new Date(job.scheduled_date).toLocaleDateString('en-NZ') : '—'}</strong>
                 </div>
                 {job.description && (
                   <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
