@@ -174,10 +174,11 @@ export default function SchedulePage() {
               <Link to={`/jobs/${selectedEvent.job_id}`} className={styles.btnSecondary} onClick={() => setSelectedEvent(null)}>View Job</Link>
               {canEdit && selectedEvent.schedId && (
                 <button className={styles.btnDanger} onClick={async () => {
+                  if (!confirm('Remove this appointment from the schedule?')) return;
                   await api.delete(`/schedules/${selectedEvent.schedId}`);
                   setSelectedEvent(null);
                   loadSchedules();
-                }}>Remove</button>
+                }}>Delete Appt</button>
               )}
             </div>
           </div>

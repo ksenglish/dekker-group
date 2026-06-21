@@ -435,8 +435,8 @@ export default function JobDetail() {
           {user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
           )}
-          {user?.role === 'admin' && (
-            <button className={styles.btnDanger} onClick={handleDelete}>Delete</button>
+          {user?.role !== 'field_tech' && (
+            <button className={styles.btnDanger} onClick={handleDelete}>Delete Job</button>
           )}
         </div>
       </div>
