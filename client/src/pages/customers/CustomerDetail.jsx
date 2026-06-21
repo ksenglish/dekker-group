@@ -317,12 +317,12 @@ export default function CustomerDetail() {
                 {customer?.contact_name && customer.contact_name !== customer.name && (
                   <div className={styles.detailItem}><span>Contact Name</span><strong>{customer.contact_name}</strong></div>
                 )}
-                {customer?.company && <div className={styles.detailItem}><span>Company</span><strong>{customer.company}</strong></div>}
+                {fullAddress && <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}><span>Address</span><strong>{fullAddress}</strong></div>}
                 {customer?.mobile && <div className={styles.detailItem}><span>Mobile</span><strong><a href={`tel:${customer.mobile}`}>{customer.mobile}</a></strong></div>}
                 {customer?.phone && <div className={styles.detailItem}><span>Phone</span><strong><a href={`tel:${customer.phone}`}>{customer.phone}</a></strong></div>}
                 {customer?.email && <div className={styles.detailItem}><span>Email</span><strong><a href={`mailto:${customer.email}`}>{customer.email}</a></strong></div>}
                 {customer?.lead_source && <div className={styles.detailItem}><span>Lead Source</span><strong>{customer.lead_source}</strong></div>}
-                {fullAddress && <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}><span>Address</span><strong>{fullAddress}</strong></div>}
+                {customer?.company && <div className={styles.detailItem}><span>Company</span><strong>{customer.company}</strong></div>}
               </div>
             )}
           </div>
