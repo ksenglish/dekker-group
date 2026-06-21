@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
@@ -41,6 +41,8 @@ export default function CustomerDetail() {
   const [noteText, setNoteText] = useState('');
   const [addingSite, setAddingSite] = useState(false);
   const [newSite, setNewSite] = useState({ address: '', label: '' });
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templates, setTemplates] = useState([]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -161,6 +163,26 @@ export default function CustomerDetail() {
     { key: 'quotes',   label: 'Quotes',   count: quotes.length },
     { key: 'invoices', label: 'Invoices', count: invoices.length },
   ];
+
+  async function openTemplates() {
+    if (templates.length === 0) {
+      const { data } = await api.get('/settings/job-templates');
+      setTemplates(data);
+    }
+    setShowTemplates(true);
+  }
+
+  function useTemplate(tpl) {
+    const params = new URLSearchParams({
+      customer: id,
+      template_type:        tpl.type || '',
+      template_description: tpl.description || '',
+      template_priority:    tpl.priority || 'medium',
+      template_recurring:   tpl.is_recurring ? '1' : '0',
+      template_interval:    tpl.recurrence_interval || 'annual',
+    });
+    navigate(`/jobs/new?${params}`);
+  }
 
   if (loading) return <div className={styles.page}><div className={styles.loading}>Loading…</div></div>;
 
@@ -361,6 +383,7 @@ export default function CustomerDetail() {
         {tab === 'jobs' && (
           <div className={styles.tabPanel}>
             <div className={styles.tabToolbar}>
+              <button className={styles.btnSecondary} onClick={openTemplates}>New Job from Template</button>
               <Link to={`/jobs/new?customer=${id}`} className={styles.btnPrimary}>+ New Job</Link>
             </div>
             {jobs.length === 0 && <p className={styles.emptyState}>No jobs for this customer yet.</p>}
@@ -476,6 +499,38 @@ export default function CustomerDetail() {
               </div>
             </div>
           )}
+        </div>
+      )}
+      {/* Template picker modal */}
+      {showTemplates && (
+        <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && setShowTemplates(false)}>
+          <div className={styles.modal}>
+            <div className={styles.modalHeader}>
+              <h2>New Job from Template</h2>
+              <button className={styles.modalClose} onClick={() => setShowTemplates(false)}>✕</button>
+            </div>
+            <div className={styles.modalBody}>
+              {templates.length === 0 ? (
+                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '24px 0' }}>
+                  No templates yet. Create them in <strong>Settings → Job Types &amp; Templates</strong>.
+                </p>
+              ) : (
+                <div className={styles.templateList}>
+                  {templates.map(tpl => (
+                    <button key={tpl.id} className={styles.templateCard}
+                      onClick={() => { setShowTemplates(false); useTemplate(tpl); }}>
+                      <div className={styles.templateName}>{tpl.name}</div>
+                      {tpl.type && <div className={styles.templateMeta}>{tpl.type}</div>}
+                      {tpl.description && <div className={styles.templateDesc}>{tpl.description}</div>}
+                      <div className={styles.templateMeta}>
+                        Priority: {tpl.priority}{tpl.is_recurring && ` · Recurring ${tpl.recurrence_interval}`}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -651,6 +651,18 @@
   gap: 8px;
 }
 
+/* Template picker */
+.templateList { display: flex; flex-direction: column; gap: 8px; }
+.templateCard {
+  text-align: left; background: var(--color-surface);
+  border: 1.5px solid var(--color-border); border-radius: var(--radius);
+  padding: 14px 16px; cursor: pointer; transition: border-color 0.15s, background 0.15s; width: 100%;
+}
+.templateCard:hover { border-color: var(--color-primary); background: var(--color-primary-light); }
+.templateName { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+.templateDesc { font-size: 13px; color: var(--color-text-muted); margin-bottom: 4px; }
+.templateMeta { font-size: 12px; color: var(--color-text-muted); text-transform: capitalize; }
+
 .importHint {
   font-size: 13px;
   color: var(--color-text-muted);
