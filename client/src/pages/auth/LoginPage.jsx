@@ -28,8 +28,8 @@ export default function LoginPage() {
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.logo}>
-          <div className={styles.logoMark}>DG</div>
-          <span className={styles.logoText}>Dekker Group</span>
+          <img src="/favicon.png" alt="Dekker" className={styles.logoMark} />
+          <span className={styles.logoText}>Dekker App</span>
         </div>
         <h1 className={styles.title}>Sign in to your account</h1>
 

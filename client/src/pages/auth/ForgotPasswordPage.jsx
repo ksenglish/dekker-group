@@ -20,8 +20,8 @@ export default function ForgotPasswordPage() {
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.logo}>
-          <div className={styles.logoMark}>DG</div>
-          <span className={styles.logoText}>Dekker Group</span>
+          <img src="/favicon.png" alt="Dekker" className={styles.logoMark} />
+          <span className={styles.logoText}>Dekker App</span>
         </div>
         <h1 className={styles.title}>Reset your password</h1>
 

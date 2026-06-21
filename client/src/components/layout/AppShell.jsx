@@ -59,8 +59,8 @@ export default function AppShell() {
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
         <div className={styles.brand}>
-          <div className={styles.brandMark}>DG</div>
-          <span className={styles.brandName}>Dekker Group</span>
+          <img src="/favicon.png" alt="Dekker" className={styles.brandMark} />
+          <span className={styles.brandName}>Dekker App</span>
         </div>
 
         <nav className={styles.nav}>

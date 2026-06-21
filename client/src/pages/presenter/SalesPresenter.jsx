@@ -403,8 +403,8 @@ export default function SalesPresenter({ onPick }) {
       {/* Top bar */}
       <header className={styles.header}>
         <div className={styles.headerBrand}>
-          <div className={styles.headerLogo}>DG</div>
-          <span className={styles.headerName}>Dekker Group</span>
+          <img src="/favicon.png" alt="Dekker" className={styles.headerLogo} />
+          <span className={styles.headerName}>Dekker App</span>
         </div>
 
         <nav className={styles.sectionTabs}>
