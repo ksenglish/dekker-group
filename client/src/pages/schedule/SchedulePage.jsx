@@ -20,6 +20,7 @@ export default function SchedulePage() {
   const [searchParams] = useSearchParams();
   const [rawSchedules, setRawSchedules] = useState([]);
   const [techMap, setTechMap] = useState({});
+  const [calReady, setCalReady] = useState(false);
   const [filterTech, setFilterTech] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
@@ -44,34 +45,57 @@ export default function SchedulePage() {
     }).catch(() => {});
   }, []);
 
-  // Fetch all schedules — simple, no date range needed
+  const techKeysRef = useRef([]);
+  useEffect(() => { techKeysRef.current = Object.keys(techMap); }, [techMap]);
+
+  function techColour(userId) {
+    const idx = techKeysRef.current.indexOf(userId);
+    return TECH_COLOURS[idx >= 0 ? idx % TECH_COLOURS.length : 0];
+  }
+
+  function buildCalEvents(schedules) {
+    return schedules
+      .filter(s => !filterTech || s.user_id === filterTech)
+      .map(s => {
+        const d = s.scheduled_date.split('T')[0];
+        return {
+          id: `sched-${s.id}`,
+          schedId: s.id,
+          jobId: s.job_id,
+          title: `#${s.job_number} ${s.customer_name || ''} — ${s.tech_name || ''}`,
+          start: s.start_time ? `${d}T${s.start_time}` : d,
+          end:   s.end_time   ? `${d}T${s.end_time}`   : undefined,
+          allDay: !s.start_time,
+          backgroundColor: techColour(s.user_id),
+          borderColor:     techColour(s.user_id),
+          extendedProps: { ...s, type: 'scheduled' },
+        };
+      });
+  }
+
+  // Push events directly into FullCalendar via imperative API — most reliable
+  function pushToCalendar(schedules) {
+    const cal = calRef.current?.getApi();
+    if (!cal) return;
+    cal.removeAllEvents();
+    buildCalEvents(schedules).forEach(ev => cal.addEvent(ev));
+  }
+
   function loadSchedules() {
-    api.get('/schedules').then(r => setRawSchedules(r.data)).catch(() => {});
+    api.get('/schedules')
+      .then(r => {
+        setRawSchedules(r.data);
+        pushToCalendar(r.data);
+      })
+      .catch(() => {});
   }
 
   useEffect(() => { loadSchedules(); }, []);
 
-  // Build FullCalendar event objects from raw schedule rows
-  const techKeys = Object.keys(techMap);
-  function techColour(userId) {
-    const idx = techKeys.indexOf(userId);
-    return TECH_COLOURS[idx >= 0 ? idx % TECH_COLOURS.length : 0];
-  }
-
-  const events = rawSchedules
-    .filter(s => !filterTech || s.user_id === filterTech)
-    .map(s => ({
-      id: `sched-${s.id}`,
-      schedId: s.id,
-      jobId: s.job_id,
-      title: `#${s.job_number} ${s.customer_name || ''} — ${s.tech_name || ''}`,
-      start: s.start_time ? `${s.scheduled_date.split('T')[0]}T${s.start_time}` : s.scheduled_date.split('T')[0],
-      end: s.end_time ? `${s.scheduled_date.split('T')[0]}T${s.end_time}` : undefined,
-      allDay: !s.start_time,
-      backgroundColor: techColour(s.user_id),
-      borderColor: techColour(s.user_id),
-      extendedProps: { ...s, type: 'scheduled' },
-    }));
+  // Re-push when filter changes or calendar becomes ready
+  useEffect(() => {
+    if (calReady && rawSchedules.length > 0) pushToCalendar(rawSchedules);
+  }, [filterTech, calReady]);
 
   async function handleEventDrop({ event, revert }) {
     const { jobId } = event.extendedProps;
@@ -149,7 +173,6 @@ export default function SchedulePage() {
           eventDrop={handleEventDrop}
           eventClick={handleEventClick}
           dateClick={handleDateClick}
-          events={events}
           eventDisplay="block"
           dayMaxEvents={4}
           slotMinTime="07:00:00"
@@ -161,6 +184,7 @@ export default function SchedulePage() {
           viewDidMount={info => {
             setView(info.view.type);
             localStorage.setItem(viewKey, info.view.type);
+            setCalReady(true);
           }}
           eventDidMount={({ el, event }) => {
             el.title = event.title;
