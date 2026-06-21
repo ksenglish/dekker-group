@@ -157,4 +157,19 @@ async function setPassword(req, res) {
   } catch { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { login, refresh, logout, me, forgotPassword, checkResetToken, setPassword, sendResetEmail };
+async function changePassword(req, res) {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword || newPassword.length < 8)
+    return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+  try {
+    const { rows } = await pool.query('SELECT password_hash FROM users WHERE id=$1', [req.user.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    const valid = await bcrypt.compare(currentPassword, rows[0].password_hash);
+    if (!valid) return res.status(401).json({ error: 'Current password is incorrect.' });
+    const hash = await bcrypt.hash(newPassword, 12);
+    await pool.query('UPDATE users SET password_hash=$1, updated_at=NOW() WHERE id=$2', [hash, req.user.id]);
+    res.json({ message: 'Password updated.' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+}
+
+module.exports = { login, refresh, logout, me, forgotPassword, checkResetToken, setPassword, sendResetEmail, changePassword };

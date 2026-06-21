@@ -186,9 +186,8 @@ export default function UsersPage() {
               <div><span className={`${styles.badge} ${u.is_active ? styles.badgeActive : styles.badgeInactive}`}>{u.is_active ? 'Active' : 'Inactive'}</span></div>
               <div className={styles.dateCell}>{new Date(u.created_at).toLocaleDateString('en-NZ')}</div>
               <div className={styles.actions}>
-                <button className={styles.btnIcon} onClick={() => sendInvite(u)} title="Send invite email"
-                  disabled={inviting === u.id} style={{ fontSize: 16 }}>
-                  {inviting === u.id ? '…' : '✉'}
+                <button className={styles.btnInvite} onClick={() => sendInvite(u)} disabled={inviting === u.id}>
+                  {inviting === u.id ? 'Sending…' : '✉ Invite'}
                 </button>
                 <button className={styles.btnIcon} onClick={() => setEditing(u)} title="Edit">✏</button>
                 {u.id !== currentUser.id && (

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 import styles from './Settings.module.css';
 
-const TABS = ['Quote Theme', 'Terms & Conditions', 'Email', 'Job Types & Templates'];
+const TABS = ['My Account', 'Quote Theme', 'Terms & Conditions', 'Email', 'Job Types & Templates'];
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('Quote Theme');
+  const [activeTab, setActiveTab] = useState('My Account');
   const [theme, setTheme] = useState(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -116,6 +117,8 @@ export default function SettingsPage() {
 
         {/* Content */}
         <div className={styles.content}>
+          {activeTab === 'My Account' && <MyAccountTab />}
+
           {activeTab === 'Quote Theme' && (
             <div className={styles.section}>
               {/* Logo */}
@@ -369,6 +372,81 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MyAccountTab() {
+  const { user } = useAuth();
+  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [status, setStatus] = useState(''); // '' | 'saving' | 'saved' | 'error'
+  const [msg, setMsg] = useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.currentPassword) { setMsg('Enter your current password.'); setStatus('error'); return; }
+    if (form.newPassword.length < 8) { setMsg('New password must be at least 8 characters.'); setStatus('error'); return; }
+    if (form.newPassword !== form.confirmPassword) { setMsg('New passwords do not match.'); setStatus('error'); return; }
+    setStatus('saving'); setMsg('');
+    try {
+      await api.post('/auth/change-password', { currentPassword: form.currentPassword, newPassword: form.newPassword });
+      setStatus('saved'); setMsg('Password updated successfully.');
+      setForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      setStatus('error'); setMsg(err.response?.data?.error || 'Failed to update password.');
+    }
+  }
+
+  return (
+    <div className={styles.section}>
+      <div className={styles.card}>
+        <div className={styles.cardHeader}><h2>Your Profile</h2></div>
+        <div className={styles.cardBody}>
+          <div className={styles.formGrid}>
+            <div className={styles.field}>
+              <label>Name</label>
+              <input value={user?.name || ''} disabled style={{ background: '#f8fafc' }} />
+            </div>
+            <div className={styles.field}>
+              <label>Email</label>
+              <input value={user?.email || ''} disabled style={{ background: '#f8fafc' }} />
+            </div>
+            <div className={styles.field}>
+              <label>Role</label>
+              <input value={{ admin: 'Admin', sales: 'Sales', operations: 'Operations', subcontractor: 'Subcontractor', office: 'Office', field_tech: 'Field Tech' }[user?.role] || user?.role || ''} disabled style={{ background: '#f8fafc' }} />
+            </div>
+          </div>
+          <p className={styles.hint} style={{ marginTop: 8 }}>Contact an Admin to update your name, email, or role.</p>
+        </div>
+      </div>
+
+      <div className={styles.card}>
+        <div className={styles.cardHeader}><h2>Change Password</h2></div>
+        <div className={styles.cardBody}>
+          {status === 'error' && <div className={styles.error} style={{ marginBottom: 16 }}>{msg}</div>}
+          {status === 'saved' && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', padding: '10px 14px', borderRadius: 'var(--radius)', fontSize: 13, marginBottom: 16 }}>{msg}</div>}
+          <form onSubmit={handleSubmit}>
+            <div className={styles.formGrid} style={{ maxWidth: 480 }}>
+              <div className={styles.field} style={{ gridColumn: '1/-1' }}>
+                <label>Current Password</label>
+                <input type="password" value={form.currentPassword} onChange={e => set('currentPassword', e.target.value)} placeholder="Enter your current password" />
+              </div>
+              <div className={styles.field}>
+                <label>New Password</label>
+                <input type="password" value={form.newPassword} onChange={e => set('newPassword', e.target.value)} placeholder="At least 8 characters" />
+              </div>
+              <div className={styles.field}>
+                <label>Confirm New Password</label>
+                <input type="password" value={form.confirmPassword} onChange={e => set('confirmPassword', e.target.value)} placeholder="Repeat new password" />
+              </div>
+            </div>
+            <button type="submit" className={styles.btnPrimary} disabled={status === 'saving'} style={{ marginTop: 16 }}>
+              {status === 'saving' ? 'Updating…' : 'Update Password'}
+            </button>
+          </form>
         </div>
       </div>
     </div>
