@@ -58,7 +58,7 @@ export default function SchedulePage() {
           allDay: !s.start_time,
           backgroundColor: colour,
           borderColor: colour,
-          extendedProps: { ...s, type: 'scheduled' },
+          extendedProps: { ...s, schedId: s.id, type: 'scheduled' },
         };
       });
   }
@@ -134,7 +134,8 @@ export default function SchedulePage() {
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
           initialView={view}
           headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
-          height="auto"
+          height="100%"
+          expandRows
           editable={canEdit}
           droppable={canEdit}
           eventDrop={handleEventDrop}

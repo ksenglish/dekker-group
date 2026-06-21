@@ -1,4 +1,4 @@
-.page { padding: 32px; max-width: 1300px; }
+.page { padding: 24px 32px; max-width: 100%; }
 
 .pageHeader {
   display: flex;
@@ -55,6 +55,7 @@
   border-radius: var(--radius);
   overflow: hidden;
   padding: 4px;
+  min-height: calc(100vh - 220px);
 }
 
 /* FullCalendar overrides */
