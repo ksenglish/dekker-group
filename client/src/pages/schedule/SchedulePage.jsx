@@ -3,7 +3,7 @@ import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import AssignModal from './AssignModal';
@@ -24,7 +24,7 @@ function techColour(techId, techMap) {
 export default function SchedulePage() {
   const { user } = useAuth();
   const calRef = useRef(null);
-  const [events, setEvents] = useState([]);
+  const [searchParams] = useSearchParams();
   const [techMap, setTechMap] = useState({});   // id -> name
   const [filterTech, setFilterTech] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -32,11 +32,20 @@ export default function SchedulePage() {
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
   const [view, setView] = useState(() => localStorage.getItem(viewKey) || 'dayGridMonth');
 
+  // Auto-open assign modal if ?job= param present
+  useEffect(() => {
+    const jobId = searchParams.get('job');
+    if (jobId) {
+      const today = new Date().toISOString().split('T')[0];
+      setAssignTarget({ jobId, date: today });
+    }
+  }, []);
+
   // Load techs
   useEffect(() => {
     api.get('/users').then(r => {
       const map = {};
-      r.data.filter(u => u.role !== 'office').forEach(u => { map[u.id] = u.name; });
+      r.data.forEach(u => { map[u.id] = u.name; });
       setTechMap(map);
     }).catch(() => {});
   }, []);

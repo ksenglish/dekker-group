@@ -430,7 +430,7 @@ export default function JobDetail() {
           {job.customer_email && user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={() => setShowEmailModal(true)}>✉ Email Customer</button>
           )}
-          <button className={styles.btnSecondary} onClick={() => navigate('/schedule')}>📅 Schedule</button>
+          <button className={styles.btnSecondary} onClick={() => navigate(`/schedule?job=${id}`)}>📅 Schedule</button>
           <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
           {user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
