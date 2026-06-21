@@ -9,7 +9,7 @@ async function login(req, res) {
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, email, password_hash, role, is_active FROM users WHERE email = $1',
+      'SELECT id, name, email, password_hash, role, COALESCE(is_active, true) AS is_active FROM users WHERE email = $1',
       [email.toLowerCase().trim()]
     );
     const user = rows[0];
