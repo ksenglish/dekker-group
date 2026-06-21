@@ -86,23 +86,42 @@ export default function CustomerList() {
   );
 }
 
+function parseCsv(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+  // Handle quoted fields properly
+  function splitLine(line) {
+    const result = []; let cur = ''; let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQ = !inQ; }
+      else if (line[i] === ',' && !inQ) { result.push(cur.trim()); cur = ''; }
+      else { cur += line[i]; }
+    }
+    result.push(cur.trim());
+    return result;
+  }
+  const headers = splitLine(lines[0]);
+  return lines.slice(1).map(line => {
+    const vals = splitLine(line);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = (vals[i] || '').replace(/^"|"$/g, ''); });
+    return obj;
+  }).filter(r => r['Customer Name'] || r['name'] || r['Name']);
+}
+
+function getField(row, keys) {
+  for (const k of keys) {
+    if (row[k]) return row[k];
+  }
+  return '';
+}
+
 function ImportModal({ onClose, onImported }) {
   const [csvText, setCsvText] = useState('');
   const [preview, setPreview] = useState([]);
+  const [rowCount, setRowCount] = useState(0);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null);
-
-  function parseCsv(text) {
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return [];
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    return lines.slice(1).map(line => {
-      const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-      const obj = {};
-      headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
-      return obj;
-    }).filter(r => r.name);
-  }
 
   function handleFileChange(e) {
     const file = e.target.files[0];
@@ -111,7 +130,9 @@ function ImportModal({ onClose, onImported }) {
     reader.onload = ev => {
       const text = ev.target.result;
       setCsvText(text);
-      setPreview(parseCsv(text).slice(0, 5));
+      const rows = parseCsv(text);
+      setRowCount(rows.length);
+      setPreview(rows.slice(0, 5));
     };
     reader.readAsText(file);
   }
@@ -123,7 +144,7 @@ function ImportModal({ onClose, onImported }) {
     try {
       const { data } = await api.post('/customers/import', { rows });
       setResult(data.imported);
-      setTimeout(() => onImported(), 1500);
+      setTimeout(() => onImported(), 1800);
     } finally {
       setImporting(false);
     }
@@ -137,16 +158,31 @@ function ImportModal({ onClose, onImported }) {
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
         <div className={styles.modalBody}>
-          <p className={styles.importHint}>CSV must have a header row with columns: <code>name, company, phone, email</code></p>
+          <p className={styles.importHint}>
+            Supports <strong>Tradify exports</strong> directly — just upload the file as-is.<br />
+            Also accepts custom CSVs with columns: <code>name, mobile, phone, email, lead_source, address_street, address_city, address_region, address_postcode</code>
+          </p>
           <input type="file" accept=".csv" onChange={handleFileChange} className={styles.fileInput} />
           {preview.length > 0 && (
             <div className={styles.importPreview}>
-              <p className={styles.previewLabel}>Preview (first 5 rows):</p>
-              {preview.map((r, i) => (
-                <div key={i} className={styles.previewRow}>
-                  <strong>{r.name}</strong>{r.company ? ` · ${r.company}` : ''}{r.email ? ` · ${r.email}` : ''}
-                </div>
-              ))}
+              <p className={styles.previewLabel}>Preview — {rowCount} customers detected:</p>
+              {preview.map((r, i) => {
+                const name    = getField(r, ['Customer Name', 'name', 'Name']);
+                const mobile  = getField(r, ['Mobile Number', 'mobile']);
+                const email   = getField(r, ['Email Address', 'email']);
+                const street  = getField(r, ['Physical Address Street', 'address_street']);
+                const city    = getField(r, ['Physical Address City', 'address_city']);
+                const source  = getField(r, ['Lead Source', 'lead_source']);
+                return (
+                  <div key={i} className={styles.previewRow}>
+                    <strong>{name}</strong>
+                    {mobile ? <span> · {mobile}</span> : null}
+                    {email  ? <span> · {email}</span>  : null}
+                    {street ? <span> · {[street, city].filter(Boolean).join(', ')}</span> : null}
+                    {source ? <span className={styles.previewTag}>{source}</span> : null}
+                  </div>
+                );
+              })}
             </div>
           )}
           {result !== null && <div className={styles.importSuccess}>✓ Imported {result} customers</div>}
@@ -154,7 +190,7 @@ function ImportModal({ onClose, onImported }) {
         <div className={styles.modalFooter}>
           <button className={styles.btnSecondary} onClick={onClose}>Cancel</button>
           <button className={styles.btnPrimary} onClick={handleImport} disabled={!csvText || importing}>
-            {importing ? 'Importing…' : 'Import'}
+            {importing ? 'Importing…' : `Import ${rowCount > 0 ? rowCount + ' customers' : ''}`}
           </button>
         </div>
       </div>

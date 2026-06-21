@@ -9,6 +9,18 @@ const STATUS_COLOURS = {
   in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
 };
 
+const LEAD_SOURCES = [
+  '', 'Inbound Web Lead', 'Referral', 'Google', 'Facebook', 'Instagram',
+  'Flyer / Letterbox', 'Repeat Customer', 'Tradify Import', 'Other',
+];
+
+const EMPTY_FORM = {
+  name: '', contact_name: '', company: '', phone: '', mobile: '', email: '',
+  lead_source: '',
+  address_street: '', address_city: '', address_region: '', address_postcode: '',
+  address_country: 'New Zealand',
+};
+
 export default function CustomerDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -27,7 +39,12 @@ export default function CustomerDetail() {
   const [addingSite, setAddingSite] = useState(false);
   const [newSite, setNewSite] = useState({ address: '', label: '' });
   const [editMode, setEditMode] = useState(isNew);
-  const [form, setForm] = useState({ name: '', company: '', phone: '', email: '' });
+  const [form, setForm] = useState(EMPTY_FORM);
+
+  // Checkboxes: contact name same as customer name, postal = physical
+  const [contactSameAsName, setContactSameAsName] = useState(true);
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   useEffect(() => {
     if (isNew) return;
@@ -35,7 +52,21 @@ export default function CustomerDetail() {
       try {
         const { data } = await api.get(`/customers/${id}`);
         setCustomer(data);
-        setForm({ name: data.name, company: data.company || '', phone: data.phone || '', email: data.email || '' });
+        setForm({
+          name:             data.name || '',
+          contact_name:     data.contact_name || '',
+          company:          data.company || '',
+          phone:            data.phone || '',
+          mobile:           data.mobile || '',
+          email:            data.email || '',
+          lead_source:      data.lead_source || '',
+          address_street:   data.address_street || '',
+          address_city:     data.address_city || '',
+          address_region:   data.address_region || '',
+          address_postcode: data.address_postcode || '',
+          address_country:  data.address_country || 'New Zealand',
+        });
+        setContactSameAsName(!data.contact_name || data.contact_name === data.name);
         const [notesRes, quotesRes, invoicesRes, emailsRes] = await Promise.all([
           api.get(`/customers/${id}/notes`),
           api.get('/quotes', { params: { customer: id } }),
@@ -52,15 +83,21 @@ export default function CustomerDetail() {
     })();
   }, [id]);
 
+  // Keep contact_name in sync when checkbox is on
+  useEffect(() => {
+    if (contactSameAsName) set('contact_name', form.name);
+  }, [contactSameAsName, form.name]);
+
   async function handleSave() {
-    if (!form.name.trim()) { setError('Name is required'); return; }
+    if (!form.name.trim()) { setError('Customer name is required'); return; }
     setSaving(true); setError('');
+    const payload = { ...form, contact_name: contactSameAsName ? form.name : form.contact_name };
     try {
       if (isNew) {
-        const { data } = await api.post('/customers', form);
+        const { data } = await api.post('/customers', payload);
         navigate(`/customers/${data.id}`, { replace: true });
       } else {
-        const { data } = await api.put(`/customers/${id}`, form);
+        const { data } = await api.put(`/customers/${id}`, payload);
         setCustomer(c => ({ ...c, ...data }));
         setEditMode(false);
       }
@@ -102,6 +139,11 @@ export default function CustomerDetail() {
     setCustomer(c => ({ ...c, sites: c.sites.filter(s => s.id !== siteId) }));
   }
 
+  const fullAddress = [
+    customer?.address_street, customer?.address_city,
+    customer?.address_region, customer?.address_postcode,
+  ].filter(Boolean).join(', ');
+
   if (loading) return <div className={styles.page}><div className={styles.loading}>Loading…</div></div>;
 
   return (
@@ -124,32 +166,87 @@ export default function CustomerDetail() {
 
       <div className={styles.detailLayout}>
         <div className={styles.detailMain}>
-          {/* Customer Info Card */}
           <div className={styles.card}>
             <div className={styles.cardHeader}>
               <h2>{isNew ? 'New Customer' : 'Customer Details'}</h2>
             </div>
+
             {editMode ? (
               <div className={styles.form}>
                 {error && <div className={styles.errorBanner}>{error}</div>}
-                <div className={styles.formGrid}>
-                  <div className={styles.field}>
-                    <label>Full Name *</label>
-                    <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. John Smith" />
-                  </div>
-                  <div className={styles.field}>
-                    <label>Company</label>
-                    <input value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} placeholder="e.g. Smith Industries" />
-                  </div>
-                  <div className={styles.field}>
-                    <label>Phone</label>
-                    <input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="e.g. 021 123 4567" />
-                  </div>
-                  <div className={styles.field}>
-                    <label>Email</label>
-                    <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="e.g. john@example.com" />
+
+                <div className={styles.formSection}>
+                  <div className={styles.formSectionTitle}>Contact</div>
+                  <div className={styles.formGrid}>
+                    <div className={styles.field}>
+                      <label>Customer Name *</label>
+                      <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. John Smith" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Company</label>
+                      <input value={form.company} onChange={e => set('company', e.target.value)} placeholder="e.g. Smith Industries" />
+                    </div>
+                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                      <label>Contact Name</label>
+                      <div className={styles.checkboxRow}>
+                        <input type="checkbox" id="contactSame" checked={contactSameAsName} onChange={e => setContactSameAsName(e.target.checked)} />
+                        <label htmlFor="contactSame" className={styles.checkLabel}>Same as Customer Name</label>
+                      </div>
+                      {!contactSameAsName && (
+                        <input value={form.contact_name} onChange={e => set('contact_name', e.target.value)} placeholder="e.g. Jane Smith" style={{ marginTop: 6 }} />
+                      )}
+                    </div>
+                    <div className={styles.field}>
+                      <label>Mobile</label>
+                      <input value={form.mobile} onChange={e => set('mobile', e.target.value)} placeholder="e.g. 021 123 4567" type="tel" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Phone</label>
+                      <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="e.g. 07 123 4567" type="tel" />
+                    </div>
+                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                      <label>Email</label>
+                      <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="e.g. john@example.com" />
+                    </div>
+                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                      <label>Lead Source</label>
+                      <select value={form.lead_source} onChange={e => set('lead_source', e.target.value)}>
+                        {LEAD_SOURCES.map(s => <option key={s} value={s}>{s || '— Select —'}</option>)}
+                      </select>
+                    </div>
                   </div>
                 </div>
+
+                <div className={styles.formSection}>
+                  <div className={styles.formSectionTitle}>Physical Address</div>
+                  <div className={styles.formGrid}>
+                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                      <label>Street Address</label>
+                      <input value={form.address_street} onChange={e => set('address_street', e.target.value)} placeholder="e.g. 40A Montgomery Road" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>City / Suburb</label>
+                      <input value={form.address_city} onChange={e => set('address_city', e.target.value)} placeholder="e.g. Tauranga" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Region</label>
+                      <input value={form.address_region} onChange={e => set('address_region', e.target.value)} placeholder="e.g. Bay of Plenty" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Postcode</label>
+                      <input value={form.address_postcode} onChange={e => set('address_postcode', e.target.value)} placeholder="e.g. 3110" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Country</label>
+                      <input value={form.address_country} onChange={e => set('address_country', e.target.value)} placeholder="New Zealand" />
+                    </div>
+                  </div>
+                  <div className={styles.checkboxRow} style={{ marginTop: 8 }}>
+                    <input type="checkbox" id="postalSame" defaultChecked readOnly />
+                    <label htmlFor="postalSame" className={styles.checkLabel}>Postal address is the same as physical address</label>
+                  </div>
+                </div>
+
                 <div className={styles.formActions}>
                   {!isNew && <button className={styles.btnSecondary} onClick={() => setEditMode(false)}>Cancel</button>}
                   <button className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
@@ -159,10 +256,16 @@ export default function CustomerDetail() {
               </div>
             ) : (
               <div className={styles.detailGrid}>
-                <div className={styles.detailItem}><span>Name</span><strong>{customer?.name}</strong></div>
-                <div className={styles.detailItem}><span>Company</span><strong>{customer?.company || '—'}</strong></div>
-                <div className={styles.detailItem}><span>Phone</span><strong>{customer?.phone || '—'}</strong></div>
-                <div className={styles.detailItem}><span>Email</span><strong>{customer?.email ? <a href={`mailto:${customer.email}`}>{customer.email}</a> : '—'}</strong></div>
+                <div className={styles.detailItem}><span>Customer Name</span><strong>{customer?.name}</strong></div>
+                {customer?.contact_name && customer.contact_name !== customer.name && (
+                  <div className={styles.detailItem}><span>Contact Name</span><strong>{customer.contact_name}</strong></div>
+                )}
+                {customer?.company && <div className={styles.detailItem}><span>Company</span><strong>{customer.company}</strong></div>}
+                {customer?.mobile && <div className={styles.detailItem}><span>Mobile</span><strong><a href={`tel:${customer.mobile}`}>{customer.mobile}</a></strong></div>}
+                {customer?.phone && <div className={styles.detailItem}><span>Phone</span><strong><a href={`tel:${customer.phone}`}>{customer.phone}</a></strong></div>}
+                {customer?.email && <div className={styles.detailItem}><span>Email</span><strong><a href={`mailto:${customer.email}`}>{customer.email}</a></strong></div>}
+                {customer?.lead_source && <div className={styles.detailItem}><span>Lead Source</span><strong>{customer.lead_source}</strong></div>}
+                {fullAddress && <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}><span>Address</span><strong>{fullAddress}</strong></div>}
               </div>
             )}
           </div>
@@ -188,16 +291,8 @@ export default function CustomerDetail() {
               ))}
               {addingSite && (
                 <div className={styles.addSiteForm}>
-                  <input
-                    placeholder="Street address"
-                    value={newSite.address}
-                    onChange={e => setNewSite(s => ({ ...s, address: e.target.value }))}
-                  />
-                  <input
-                    placeholder="Label (e.g. Main Office, Site B)"
-                    value={newSite.label}
-                    onChange={e => setNewSite(s => ({ ...s, label: e.target.value }))}
-                  />
+                  <input placeholder="Street address" value={newSite.address} onChange={e => setNewSite(s => ({ ...s, address: e.target.value }))} />
+                  <input placeholder="Label (e.g. Main Office, Site B)" value={newSite.label} onChange={e => setNewSite(s => ({ ...s, label: e.target.value }))} />
                   <div className={styles.formActions}>
                     <button className={styles.btnSecondary} onClick={() => setAddingSite(false)}>Cancel</button>
                     <button className={styles.btnPrimary} onClick={handleAddSite}>Add Site</button>
@@ -212,13 +307,8 @@ export default function CustomerDetail() {
             <div className={styles.card}>
               <div className={styles.cardHeader}><h2>Notes</h2></div>
               <div className={styles.noteInput}>
-                <textarea
-                  rows={3}
-                  placeholder="Add a note…"
-                  value={noteText}
-                  onChange={e => setNoteText(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) handleAddNote(); }}
-                />
+                <textarea rows={3} placeholder="Add a note…" value={noteText} onChange={e => setNoteText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) handleAddNote(); }} />
                 <button className={styles.btnPrimary} onClick={handleAddNote} disabled={!noteText.trim()}>Add Note</button>
               </div>
               {notes.length === 0 && <p className={styles.emptySmall}>No notes yet.</p>}
@@ -241,7 +331,6 @@ export default function CustomerDetail() {
         {/* Sidebar */}
         {!isNew && (
           <div className={styles.detailSidebar}>
-            {/* Stats */}
             {(quotes.length > 0 || invoices.length > 0) && (
               <div className={styles.card}>
                 <div className={styles.cardHeader}><h2>Account Summary</h2></div>
@@ -260,7 +349,6 @@ export default function CustomerDetail() {
               </div>
             )}
 
-            {/* Recent Jobs */}
             {customer?.recent_jobs?.length > 0 && (
               <div className={styles.card}>
                 <div className={styles.cardHeader}><h2>Recent Jobs</h2></div>
@@ -280,7 +368,6 @@ export default function CustomerDetail() {
               </div>
             )}
 
-            {/* Invoices */}
             {invoices.length > 0 && (
               <div className={styles.card}>
                 <div className={styles.cardHeader}><h2>Invoices</h2></div>
@@ -300,7 +387,6 @@ export default function CustomerDetail() {
               </div>
             )}
 
-            {/* Email history */}
             {emails.length > 0 && (
               <div className={styles.card}>
                 <div className={styles.cardHeader}><h2>Email History</h2></div>

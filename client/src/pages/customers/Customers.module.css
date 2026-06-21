@@ -513,6 +513,21 @@
   font-weight: 500;
 }
 
+.formSection { margin-bottom: 20px; }
+.formSectionTitle {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--color-text-muted);
+  padding-bottom: 8px; margin-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+.checkboxRow { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.checkLabel { font-size: 13px; color: var(--color-text-muted); cursor: pointer; }
+.previewTag {
+  display: inline-block; margin-left: 6px;
+  padding: 1px 6px; background: #f0f9ff; color: #0369a1;
+  border-radius: 4px; font-size: 11px;
+}
+
 @media (max-width: 768px) {
   .page { padding: 12px; }
   .pageHeader { flex-direction: column; gap: 10px; }
