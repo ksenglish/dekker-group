@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import styles from './Settings.module.css';
 
-const TABS = ['Quote Theme', 'Terms & Conditions', 'Email'];
+const TABS = ['Quote Theme', 'Terms & Conditions', 'Email', 'Job Types & Templates'];
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('Quote Theme');
@@ -340,10 +340,14 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {activeTab === 'Job Types & Templates' && (
+            <JobTypesTab />
+          )}
+
           {activeTab === 'Terms & Conditions' && (
             <div className={styles.section}>
               <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>Terms & Conditions</h2></div>
+                <div className={styles.cardHeader}><h2>Terms &amp; Conditions</h2></div>
                 <div className={styles.cardBody}>
                   <div className={styles.field}>
                     <label>Quote Terms & Conditions</label>
@@ -367,6 +371,166 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function JobTypesTab() {
+  const [jobTypes, setJobTypes] = useState([]);
+  const [newType, setNewType] = useState('');
+  const [templates, setTemplates] = useState([]);
+  const [editingTpl, setEditingTpl] = useState(null); // null | 'new' | template object
+  const EMPTY_TPL = { name: '', type: '', description: '', priority: 'medium', is_recurring: false, recurrence_interval: 'annual' };
+  const [tplForm, setTplForm] = useState(EMPTY_TPL);
+
+  useEffect(() => {
+    api.get('/settings/job-types').then(r => setJobTypes(r.data)).catch(() => {});
+    api.get('/settings/job-templates').then(r => setTemplates(r.data)).catch(() => {});
+  }, []);
+
+  async function addType() {
+    const t = newType.trim();
+    if (!t || jobTypes.includes(t)) return;
+    const updated = [...jobTypes, t];
+    await api.put('/settings/job-types', updated);
+    setJobTypes(updated);
+    setNewType('');
+  }
+
+  async function removeType(t) {
+    if (!confirm(`Remove job type "${t}"?`)) return;
+    const updated = jobTypes.filter(x => x !== t);
+    await api.put('/settings/job-types', updated);
+    setJobTypes(updated);
+  }
+
+  async function saveTpl() {
+    if (!tplForm.name.trim()) return;
+    if (editingTpl === 'new') {
+      const { data } = await api.post('/settings/job-templates', tplForm);
+      setTemplates(t => [...t, data]);
+    } else {
+      const { data } = await api.put(`/settings/job-templates/${editingTpl.id}`, tplForm);
+      setTemplates(t => t.map(x => x.id === data.id ? data : x));
+    }
+    setEditingTpl(null);
+    setTplForm(EMPTY_TPL);
+  }
+
+  async function deleteTpl(id) {
+    if (!confirm('Delete this template?')) return;
+    await api.delete(`/settings/job-templates/${id}`);
+    setTemplates(t => t.filter(x => x.id !== id));
+  }
+
+  function openEdit(tpl) {
+    setTplForm({ name: tpl.name, type: tpl.type || '', description: tpl.description || '',
+      priority: tpl.priority || 'medium', is_recurring: tpl.is_recurring || false,
+      recurrence_interval: tpl.recurrence_interval || 'annual' });
+    setEditingTpl(tpl);
+  }
+
+  return (
+    <div className={styles.section}>
+      {/* Job Types */}
+      <div className={styles.card}>
+        <div className={styles.cardHeader}><h2>Job Types</h2></div>
+        <div className={styles.cardBody}>
+          <p className={styles.hint} style={{ marginBottom: 12 }}>
+            These types appear in the Job Type dropdown when creating or editing a job.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {jobTypes.map(t => (
+              <div key={t} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid var(--color-border)' }}>
+                <span style={{ fontSize: 14, fontWeight: 500 }}>{t}</span>
+                <button onClick={() => removeType(t)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>✕</button>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input value={newType} onChange={e => setNewType(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addType()}
+              placeholder="New job type…"
+              style={{ flex: 1, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13 }} />
+            <button className={styles.btnPrimary} onClick={addType} disabled={!newType.trim()}>Add</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Job Templates */}
+      <div className={styles.card} style={{ marginTop: 24 }}>
+        <div className={styles.cardHeader}>
+          <h2>Job Templates</h2>
+          <button className={styles.btnPrimary} onClick={() => { setTplForm(EMPTY_TPL); setEditingTpl('new'); }}>+ New Template</button>
+        </div>
+        <div className={styles.cardBody}>
+          <p className={styles.hint} style={{ marginBottom: 12 }}>
+            Templates pre-fill job details. Select them from the "New Job from Template" button on the Jobs page.
+          </p>
+          {templates.length === 0 && <p style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>No templates yet.</p>}
+          {templates.map(tpl => (
+            <div key={tpl.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '12px', background: '#f8fafc', borderRadius: 6, border: '1px solid var(--color-border)', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{tpl.name}</div>
+                {tpl.type && <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>{tpl.type} · {tpl.priority} priority{tpl.is_recurring ? ` · ${tpl.recurrence_interval}` : ''}</div>}
+                {tpl.description && <div style={{ fontSize: 13, marginTop: 4, color: 'var(--color-text)' }}>{tpl.description}</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <button className={styles.btnSmall} onClick={() => openEdit(tpl)}>Edit</button>
+                <button className={styles.btnSmall} style={{ color: '#dc2626' }} onClick={() => deleteTpl(tpl.id)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Template edit modal */}
+      {editingTpl !== null && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={e => e.target === e.currentTarget && setEditingTpl(null)}>
+          <div style={{ background: 'white', borderRadius: 10, padding: 28, width: 480, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>{editingTpl === 'new' ? 'New Template' : 'Edit Template'}</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {[['Template Name *', 'name', 'text', 'e.g. Annual Heat Pump Service'],
+                ['Job Type', 'type', 'text', 'e.g. Service'],
+                ['Description', 'description', 'textarea', 'Pre-filled job description…']].map(([lbl, key, t, ph]) => (
+                <div key={key}>
+                  <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>{lbl}</label>
+                  {t === 'textarea'
+                    ? <textarea rows={3} value={tplForm[key]} onChange={e => setTplForm(f => ({ ...f, [key]: e.target.value }))} placeholder={ph}
+                        style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box' }} />
+                    : <input value={tplForm[key]} onChange={e => setTplForm(f => ({ ...f, [key]: e.target.value }))} placeholder={ph}
+                        style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
+                  }
+                </div>
+              ))}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Priority</label>
+                <select value={tplForm.priority} onChange={e => setTplForm(f => ({ ...f, priority: e.target.value }))}
+                  style={{ padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13 }}>
+                  {['low','medium','high'].map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={tplForm.is_recurring} onChange={e => setTplForm(f => ({ ...f, is_recurring: e.target.checked }))} />
+                Recurring job
+              </label>
+              {tplForm.is_recurring && (
+                <select value={tplForm.recurrence_interval} onChange={e => setTplForm(f => ({ ...f, recurrence_interval: e.target.value }))}
+                  style={{ padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13 }}>
+                  {[['monthly','Monthly'],['quarterly','Quarterly'],['biannual','Every 6 months'],['annual','Annual']].map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 24 }}>
+              <button className={styles.btnSecondary} onClick={() => setEditingTpl(null)}>Cancel</button>
+              <button className={styles.btnPrimary} onClick={saveTpl} disabled={!tplForm.name.trim()}>
+                {editingTpl === 'new' ? 'Create Template' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

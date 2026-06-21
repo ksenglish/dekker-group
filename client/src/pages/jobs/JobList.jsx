@@ -18,11 +18,13 @@ export default function JobList() {
   const [total, setTotal] = useState(0);
   const [techs, setTechs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templates, setTemplates] = useState([]);
 
   const filters = {
-    search: searchParams.get('search') || '',
-    status: searchParams.get('status') || '',
-    tech: searchParams.get('tech') || '',
+    search:   searchParams.get('search') || '',
+    status:   searchParams.get('status') || '',
+    tech:     searchParams.get('tech') || '',
     priority: searchParams.get('priority') || '',
   };
 
@@ -38,9 +40,9 @@ export default function JobList() {
     setLoading(true);
     try {
       const params = {};
-      if (filters.search) params.search = filters.search;
-      if (filters.status) params.status = filters.status;
-      if (filters.tech) params.tech = filters.tech;
+      if (filters.search)   params.search   = filters.search;
+      if (filters.status)   params.status   = filters.status;
+      if (filters.tech)     params.tech     = filters.tech;
       if (filters.priority) params.priority = filters.priority;
       const { data } = await api.get('/jobs', { params });
       setJobs(data.jobs);
@@ -51,10 +53,24 @@ export default function JobList() {
   }, [searchParams]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { api.get('/users').then(r => setTechs(r.data)).catch(() => {}); }, []);
 
-  useEffect(() => {
-    api.get('/users').then(r => setTechs(r.data)).catch(() => {});
-  }, []);
+  async function openTemplates() {
+    const { data } = await api.get('/settings/job-templates');
+    setTemplates(data);
+    setShowTemplates(true);
+  }
+
+  function useTemplate(tpl) {
+    const params = new URLSearchParams({
+      template_type:        tpl.type || '',
+      template_description: tpl.description || '',
+      template_priority:    tpl.priority || 'medium',
+      template_recurring:   tpl.is_recurring ? '1' : '0',
+      template_interval:    tpl.recurrence_interval || 'annual',
+    });
+    navigate(`/jobs/new?${params}`);
+  }
 
   const activeFilters = [filters.status, filters.tech, filters.priority].filter(Boolean).length;
 
@@ -65,17 +81,16 @@ export default function JobList() {
           <h1 className={styles.pageTitle}>Jobs</h1>
           <p className={styles.pageSubtitle}>{total} job{total !== 1 ? 's' : ''}</p>
         </div>
-        <button className={styles.btnPrimary} onClick={() => navigate('/jobs/new')}>+ New Job</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className={styles.btnSecondary} onClick={openTemplates}>New Job from Template</button>
+          <button className={styles.btnPrimary} onClick={() => navigate('/jobs/new')}>+ New Job</button>
+        </div>
       </div>
 
       <div className={styles.toolbar}>
-        <input
-          className={styles.searchInput}
-          type="search"
+        <input className={styles.searchInput} type="search"
           placeholder="Search by job #, description, or customer…"
-          value={filters.search}
-          onChange={e => setFilter('search', e.target.value)}
-        />
+          value={filters.search} onChange={e => setFilter('search', e.target.value)} />
         <select className={styles.filterSelect} value={filters.status} onChange={e => setFilter('status', e.target.value)}>
           <option value="">All statuses</option>
           {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
@@ -114,7 +129,7 @@ export default function JobList() {
               <span className={styles.jobNumber}>#{job.job_number}</span>
               <span>{job.customer_name || <span className={styles.muted}>No customer</span>}</span>
               <span className={styles.jobDesc}>{job.description || <span className={styles.muted}>—</span>}</span>
-              <span className={styles.typeTag}>{job.type.replace('_', ' ')}</span>
+              <span className={styles.typeTag}>{job.type?.replace('_', ' ')}</span>
               <span>
                 <span className={styles.priorityBadge} style={{ color: PRIORITY_COLOURS[job.priority] }}>
                   {job.priority === 'high' ? '▲' : job.priority === 'low' ? '▼' : '●'} {job.priority}
@@ -129,6 +144,39 @@ export default function JobList() {
               <span>{job.due_date ? new Date(job.due_date).toLocaleDateString('en-NZ') : <span className={styles.muted}>—</span>}</span>
             </Link>
           ))}
+        </div>
+      )}
+
+      {/* Template picker modal */}
+      {showTemplates && (
+        <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && setShowTemplates(false)}>
+          <div className={styles.modal}>
+            <div className={styles.modalHeader}>
+              <h2>New Job from Template</h2>
+              <button className={styles.modalClose} onClick={() => setShowTemplates(false)}>✕</button>
+            </div>
+            <div className={styles.modalBody}>
+              {templates.length === 0 ? (
+                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '24px 0' }}>
+                  No templates yet. Create them in <strong>Settings → Job Types & Templates</strong>.
+                </p>
+              ) : (
+                <div className={styles.templateList}>
+                  {templates.map(tpl => (
+                    <button key={tpl.id} className={styles.templateCard} onClick={() => { setShowTemplates(false); useTemplate(tpl); }}>
+                      <div className={styles.templateName}>{tpl.name}</div>
+                      {tpl.type && <div className={styles.templateMeta}>{tpl.type}</div>}
+                      {tpl.description && <div className={styles.templateDesc}>{tpl.description}</div>}
+                      <div className={styles.templateMeta}>
+                        Priority: {tpl.priority}
+                        {tpl.is_recurring && ` · Recurring ${tpl.recurrence_interval}`}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

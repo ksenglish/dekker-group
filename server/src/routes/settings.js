@@ -68,4 +68,70 @@ router.post('/email/test', authenticate, requireRole('admin'), async (req, res) 
   } catch (err) { res.status(400).json({ ok: false, message: err.message }); }
 });
 
+// Job Types (stored in settings table as JSON)
+const DEFAULT_JOB_TYPES = ['Installation', 'Service', 'Inspection', 'Repair', 'Quote Only'];
+
+router.get('/job-types', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='job_types'`);
+    res.json(rows[0]?.value || DEFAULT_JOB_TYPES);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/job-types', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  try {
+    const types = req.body;
+    if (!Array.isArray(types)) return res.status(400).json({ error: 'Array required' });
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('job_types', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
+      [JSON.stringify(types)]
+    );
+    res.json(types);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Job Templates
+router.get('/job-templates', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM job_templates ORDER BY sort_order, name');
+    res.json(rows);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/job-templates', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const { name, type, description, priority, is_recurring, recurrence_interval } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO job_templates (name, type, description, priority, is_recurring, recurrence_interval)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [name, type || null, description || null, priority || 'medium',
+       is_recurring || false, recurrence_interval || 'annual']
+    );
+    res.status(201).json(rows[0]);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/job-templates/:id', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const { name, type, description, priority, is_recurring, recurrence_interval } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE job_templates SET name=$1, type=$2, description=$3, priority=$4,
+         is_recurring=$5, recurrence_interval=$6
+       WHERE id=$7 RETURNING *`,
+      [name, type || null, description || null, priority || 'medium',
+       is_recurring || false, recurrence_interval || 'annual', req.params.id]
+    );
+    res.json(rows[0]);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.delete('/job-templates/:id', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  try {
+    await pool.query('DELETE FROM job_templates WHERE id=$1', [req.params.id]);
+    res.json({ message: 'Deleted' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 module.exports = router;
