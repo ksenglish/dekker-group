@@ -10,11 +10,6 @@ const STATUS_COLOURS = {
   in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
 };
 
-const LEAD_SOURCES = [
-  '', 'Inbound Web Lead', 'Referral', 'Google', 'Facebook', 'Instagram',
-  'Flyer / Letterbox', 'Repeat Customer', 'Tradify Import', 'Other',
-];
-
 const EMPTY_FORM = {
   name: '', contact_name: '', company: '', phone: '', mobile: '', email: '',
   lead_source: '',
@@ -41,11 +36,18 @@ export default function CustomerDetail() {
   const [newSite, setNewSite] = useState({ address: '', label: '' });
   const [editMode, setEditMode] = useState(isNew);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [leadSources, setLeadSources] = useState([]);
+  const [addingLeadSource, setAddingLeadSource] = useState(false);
+  const [newLeadSource, setNewLeadSource] = useState('');
 
-  // Checkboxes: contact name same as customer name, postal = physical
+  // Checkboxes: contact name same as customer name
   const [contactSameAsName, setContactSameAsName] = useState(true);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    api.get('/customers/lead-sources').then(r => setLeadSources(r.data)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (isNew) return;
@@ -107,6 +109,15 @@ export default function CustomerDetail() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleAddLeadSource() {
+    if (!newLeadSource.trim()) return;
+    const { data } = await api.post('/customers/lead-sources', { name: newLeadSource.trim() });
+    setLeadSources(data);
+    set('lead_source', newLeadSource.trim());
+    setNewLeadSource('');
+    setAddingLeadSource(false);
   }
 
   async function handleDelete() {
@@ -176,87 +187,120 @@ export default function CustomerDetail() {
               <div className={styles.form}>
                 {error && <div className={styles.errorBanner}>{error}</div>}
 
-                <div className={styles.formSection}>
-                  <div className={styles.formSectionTitle}>Contact</div>
-                  <div className={styles.formGrid}>
-                    <div className={styles.field}>
-                      <label>Customer Name *</label>
-                      <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. John Smith" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Company</label>
-                      <input value={form.company} onChange={e => set('company', e.target.value)} placeholder="e.g. Smith Industries" />
-                    </div>
-                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
-                      <label>Contact Name</label>
-                      <div className={styles.checkboxRow}>
-                        <input type="checkbox" id="contactSame" checked={contactSameAsName} onChange={e => setContactSameAsName(e.target.checked)} />
-                        <label htmlFor="contactSame" className={styles.checkLabel}>Same as Customer Name</label>
-                      </div>
-                      {!contactSameAsName && (
-                        <input value={form.contact_name} onChange={e => set('contact_name', e.target.value)} placeholder="e.g. Jane Smith" style={{ marginTop: 6 }} />
-                      )}
-                    </div>
-                    <div className={styles.field}>
-                      <label>Mobile</label>
-                      <input value={form.mobile} onChange={e => set('mobile', e.target.value)} placeholder="e.g. 021 123 4567" type="tel" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Phone</label>
-                      <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="e.g. 07 123 4567" type="tel" />
-                    </div>
-                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
-                      <label>Email</label>
-                      <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="e.g. john@example.com" />
-                    </div>
-                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
-                      <label>Lead Source</label>
-                      <select value={form.lead_source} onChange={e => set('lead_source', e.target.value)}>
-                        {LEAD_SOURCES.map(s => <option key={s} value={s}>{s || '— Select —'}</option>)}
-                      </select>
-                    </div>
+                <div className={styles.formGrid}>
+                  {/* Customer Name */}
+                  <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                    <label>Customer Name *</label>
+                    <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. John Smith" />
                   </div>
-                </div>
 
-                <div className={styles.formSection}>
-                  <div className={styles.formSectionTitle}>Physical Address</div>
-                  <div className={styles.formGrid}>
-                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
-                      <label>Street Address</label>
-                      <AddressAutocomplete
-                        value={form.address_street}
-                        onChange={v => set('address_street', v)}
-                        onSelect={({ street, city, region, postcode, country }) => setForm(f => ({
-                          ...f,
-                          address_street:   street,
-                          address_city:     city    || f.address_city,
-                          address_region:   region  || f.address_region,
-                          address_postcode: postcode || f.address_postcode,
-                          address_country:  country || f.address_country,
-                        }))}
-                        placeholder="Start typing an address…"
-                      />
-                    </div>
-                    <div className={styles.field}>
-                      <label>City / Suburb</label>
-                      <input value={form.address_city} onChange={e => set('address_city', e.target.value)} placeholder="e.g. Tauranga" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Region</label>
-                      <input value={form.address_region} onChange={e => set('address_region', e.target.value)} placeholder="e.g. Bay of Plenty" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Postcode</label>
-                      <input value={form.address_postcode} onChange={e => set('address_postcode', e.target.value)} placeholder="e.g. 3110" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Country</label>
-                      <input value={form.address_country} onChange={e => set('address_country', e.target.value)} placeholder="New Zealand" />
+                  {/* Street Address autocomplete */}
+                  <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                    <label>Street Address</label>
+                    <AddressAutocomplete
+                      value={form.address_street}
+                      onChange={v => set('address_street', v)}
+                      onSelect={({ street, city, region, postcode, country }) => setForm(f => ({
+                        ...f,
+                        address_street:   street,
+                        address_city:     city     || f.address_city,
+                        address_region:   region   || f.address_region,
+                        address_postcode: postcode || f.address_postcode,
+                        address_country:  country  || f.address_country,
+                      }))}
+                      placeholder="Start typing an address…"
+                    />
+                  </div>
+
+                  {/* City / Postcode */}
+                  <div className={styles.field}>
+                    <label>City / Suburb</label>
+                    <input value={form.address_city} onChange={e => set('address_city', e.target.value)} placeholder="e.g. Tauranga" />
+                  </div>
+                  <div className={styles.field}>
+                    <label>Postcode</label>
+                    <input value={form.address_postcode} onChange={e => set('address_postcode', e.target.value)} placeholder="e.g. 3110" />
+                  </div>
+
+                  {/* Region / Country */}
+                  <div className={styles.field}>
+                    <label>Region</label>
+                    <input value={form.address_region} onChange={e => set('address_region', e.target.value)} placeholder="e.g. Bay of Plenty" />
+                  </div>
+                  <div className={styles.field}>
+                    <label>Country</label>
+                    <input value={form.address_country} onChange={e => set('address_country', e.target.value)} placeholder="New Zealand" />
+                  </div>
+
+                  {/* Postal same as physical */}
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <div className={styles.checkboxRow}>
+                      <input type="checkbox" id="postalSame" defaultChecked readOnly />
+                      <label htmlFor="postalSame" className={styles.checkLabel}>Postal address is the same as physical address</label>
                     </div>
                   </div>
-                  <div className={styles.checkboxRow} style={{ marginTop: 8 }}>
-                    <input type="checkbox" id="postalSame" defaultChecked readOnly />
-                    <label htmlFor="postalSame" className={styles.checkLabel}>Postal address is the same as physical address</label>
+
+                  <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--color-border)', margin: '4px 0' }} />
+
+                  {/* Contact Name */}
+                  <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                    <label>Contact Name</label>
+                    <div className={styles.checkboxRow}>
+                      <input type="checkbox" id="contactSame" checked={contactSameAsName} onChange={e => setContactSameAsName(e.target.checked)} />
+                      <label htmlFor="contactSame" className={styles.checkLabel}>Same as Customer Name</label>
+                    </div>
+                    {!contactSameAsName && (
+                      <input value={form.contact_name} onChange={e => set('contact_name', e.target.value)} placeholder="e.g. Jane Smith" style={{ marginTop: 6 }} />
+                    )}
+                  </div>
+
+                  {/* Mobile / Phone */}
+                  <div className={styles.field}>
+                    <label>Mobile</label>
+                    <input value={form.mobile} onChange={e => set('mobile', e.target.value)} placeholder="e.g. 021 123 4567" type="tel" />
+                  </div>
+                  <div className={styles.field}>
+                    <label>Phone</label>
+                    <input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="e.g. 07 123 4567" type="tel" />
+                  </div>
+
+                  {/* Email */}
+                  <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                    <label>Email</label>
+                    <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="e.g. john@example.com" />
+                  </div>
+
+                  {/* Lead Source with Add New */}
+                  <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                    <label>Lead Source</label>
+                    {addingLeadSource ? (
+                      <div className={styles.addLeadSourceRow}>
+                        <input
+                          autoFocus
+                          value={newLeadSource}
+                          onChange={e => setNewLeadSource(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleAddLeadSource(); if (e.key === 'Escape') setAddingLeadSource(false); }}
+                          placeholder="e.g. Trade Show"
+                        />
+                        <button className={styles.btnPrimary} onClick={handleAddLeadSource}>Add</button>
+                        <button className={styles.btnSecondary} onClick={() => { setAddingLeadSource(false); setNewLeadSource(''); }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <div className={styles.leadSourceRow}>
+                        <select value={form.lead_source} onChange={e => set('lead_source', e.target.value)}>
+                          <option value="">— Select —</option>
+                          {leadSources.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                        <button className={styles.btnAddSource} onClick={() => setAddingLeadSource(true)}>+ New</button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Company — bottom */}
+                  <div style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--color-border)', margin: '4px 0' }} />
+                  <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                    <label>Company</label>
+                    <input value={form.company} onChange={e => set('company', e.target.value)} placeholder="e.g. Smith Industries" />
                   </div>
                 </div>
 

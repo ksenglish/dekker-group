@@ -5,6 +5,9 @@ const { authenticate, requireRole } = require('../middleware/auth');
 
 router.use(authenticate);
 
+router.get('/lead-sources', c.getLeadSources);
+router.post('/lead-sources', requireRole('admin', 'office'), c.addLeadSource);
+
 router.get('/', c.list);
 router.post('/', requireRole('admin', 'office'), c.create);
 router.post('/import', requireRole('admin', 'office'), c.importCsv);

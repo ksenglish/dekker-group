@@ -279,4 +279,38 @@ async function importCsv(req, res) {
   }
 }
 
-module.exports = { list, get, create, update, remove, listSites, createSite, updateSite, deleteSite, listNotes, createNote, deleteNote, importCsv };
+const DEFAULT_LEAD_SOURCES = [
+  'Inbound Web Lead', 'Referral', 'Google', 'Facebook', 'Instagram',
+  'Flyer / Letterbox', 'Repeat Customer', 'Tradify Import', 'Other',
+];
+
+async function getLeadSources(req, res) {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='lead_sources'`);
+    const custom = rows[0]?.value || [];
+    const all = [...new Set([...DEFAULT_LEAD_SOURCES, ...custom])];
+    res.json(all);
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+async function addLeadSource(req, res) {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Name required' });
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='lead_sources'`);
+    const current = rows[0]?.value || [];
+    const trimmed = name.trim();
+    if ([...DEFAULT_LEAD_SOURCES, ...current].includes(trimmed)) {
+      return res.json([...new Set([...DEFAULT_LEAD_SOURCES, ...current])]);
+    }
+    const updated = [...current, trimmed];
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('lead_sources', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
+      [JSON.stringify(updated)]
+    );
+    res.json([...new Set([...DEFAULT_LEAD_SOURCES, ...updated])]);
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+module.exports = { list, get, create, update, remove, listSites, createSite, updateSite, deleteSite, listNotes, createNote, deleteNote, importCsv, getLeadSources, addLeadSource };
