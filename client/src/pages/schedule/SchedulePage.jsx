@@ -46,7 +46,13 @@ export default function SchedulePage() {
 
   // Fetch all schedules — simple, no date range needed
   function loadSchedules() {
-    api.get('/schedules').then(r => setRawSchedules(r.data)).catch(() => {});
+    console.log('[Schedule] Loading schedules...');
+    api.get('/schedules')
+      .then(r => {
+        console.log('[Schedule] Got schedules:', r.data.length, r.data);
+        setRawSchedules(r.data);
+      })
+      .catch(err => console.error('[Schedule] Load error:', err.response?.status, err.response?.data));
   }
 
   useEffect(() => { loadSchedules(); }, []);
@@ -132,6 +138,11 @@ export default function SchedulePage() {
           ))}
         </div>
       )}
+
+      {/* DEBUG — remove once calendar is confirmed working */}
+      <div style={{ fontSize: 12, color: '#64748b', padding: '4px 0 8px', fontFamily: 'monospace' }}>
+        Schedule entries loaded: {rawSchedules.length} | Showing: {events.length}
+      </div>
 
       <div className={styles.calendarWrap}>
         <FullCalendar

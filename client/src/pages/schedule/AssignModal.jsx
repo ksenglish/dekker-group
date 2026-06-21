@@ -70,10 +70,13 @@ export default function AssignModal({ date, jobId: initialJobId, techMap, onClos
     }
     setSaving(true); setError('');
     try {
-      await api.post('/schedules', form);
+      console.log('[Schedule] Posting:', form);
+      const result = await api.post('/schedules', form);
+      console.log('[Schedule] Save success:', result.data);
       onAssigned();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to schedule');
+      console.error('[Schedule] Save error:', err.response?.status, err.response?.data);
+      setError(err.response?.data?.error || `Save failed (${err.response?.status || 'network error'})`);
     } finally {
       setSaving(false);
     }
