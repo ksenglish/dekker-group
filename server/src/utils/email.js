@@ -43,10 +43,11 @@ async function sendMail({ to, subject, html, text, attachments }) {
   const fromStr = `${s.fromName || 'Dekker Group'} <${s.from}>`;
 
   if (s.provider === 'smtp') {
+    const port = s.port || 587;
     const transporter = nodemailer.createTransport({
-      host: s.host || 'smtp.gmail.com',
-      port: s.port || 465,
-      secure: s.secure !== false,
+      host: s.host || 'smtp-relay.brevo.com',
+      port,
+      secure: port === 465, // true for SSL/465, false for STARTTLS/587
       auth: { user: s.user, pass: s.pass },
     });
     const payload = { from: fromStr, to, subject, html: html || text, text };
@@ -73,10 +74,11 @@ async function testConnection(settings) {
   if (!s) throw new Error('No email configuration found');
 
   if (s.provider === 'smtp') {
+    const port = s.port || 587;
     const transporter = nodemailer.createTransport({
-      host: s.host || 'smtp.gmail.com',
-      port: s.port || 465,
-      secure: s.secure !== false,
+      host: s.host || 'smtp-relay.brevo.com',
+      port,
+      secure: port === 465,
       auth: { user: s.user, pass: s.pass },
     });
     await transporter.verify();

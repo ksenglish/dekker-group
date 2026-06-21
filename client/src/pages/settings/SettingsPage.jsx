@@ -14,7 +14,7 @@ export default function SettingsPage() {
   const fileRef = useRef();
 
   // Email / SMTP state
-  const [email, setEmail] = useState({ provider: 'smtp', host: 'smtp.gmail.com', port: 465, user: '', pass: '', from: '', fromName: 'Dekker Group' });
+  const [email, setEmail] = useState({ provider: 'smtp', host: 'smtp-relay.brevo.com', port: 587, user: '', pass: '', from: '', fromName: 'Dekker Group' });
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailSaved, setEmailSaved] = useState(false);
   const [emailTesting, setEmailTesting] = useState(false);
@@ -294,26 +294,36 @@ export default function SettingsPage() {
                   <div className={styles.resendBanner}>
                     <div className={styles.resendIcon}>✉</div>
                     <div>
-                      <strong>Google Workspace / Gmail SMTP</strong>
-                      <p>Send emails directly from your Google Workspace account using an App Password — no domain verification needed.</p>
-                      <ol style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
-                        <li>Go to <strong>myaccount.google.com</strong> → Security → 2-Step Verification (must be on)</li>
-                        <li>Search for <strong>"App passwords"</strong> in the search bar</li>
-                        <li>Create a new app password — name it "Dekker App"</li>
-                        <li>Copy the 16-character password and paste it below</li>
-                      </ol>
+                      <strong>SMTP Email — works with Gmail, Brevo, or any SMTP provider</strong>
+                      <p style={{ marginTop: 4 }}>
+                        <strong>Recommended: Brevo (free, 300 emails/day)</strong> — no DNS setup needed.
+                        Sign up at <strong>brevo.com</strong> → SMTP &amp; API → copy the SMTP credentials below.
+                      </p>
+                      <p style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
+                        Brevo SMTP host: <code>smtp-relay.brevo.com</code> · Port: <code>587</code> · Username: your Brevo login email · Password: the key from their dashboard.
+                      </p>
                     </div>
                   </div>
                   <div className={styles.formGrid} style={{ marginTop: 20 }}>
                     <div className={styles.field}>
-                      <label>Gmail Address</label>
-                      <input type="email" value={email.user} onChange={e => setEmailField('user', e.target.value)} placeholder="kyle@dekkergroup.co.nz" />
-                      <span className={styles.hint}>Your Google Workspace email address</span>
+                      <label>SMTP Host</label>
+                      <input value={email.host} onChange={e => setEmailField('host', e.target.value)} placeholder="smtp-relay.brevo.com" />
                     </div>
                     <div className={styles.field}>
-                      <label>App Password</label>
-                      <input type="password" value={email.pass} onChange={e => setEmailField('pass', e.target.value)} placeholder="16-character app password" style={{ fontFamily: 'monospace', letterSpacing: 2 }} />
-                      <span className={styles.hint}>From Google Account → Security → App passwords</span>
+                      <label>Port</label>
+                      <select value={email.port} onChange={e => setEmailField('port', parseInt(e.target.value))}>
+                        <option value={587}>587 (TLS — recommended)</option>
+                        <option value={465}>465 (SSL)</option>
+                        <option value={25}>25</option>
+                      </select>
+                    </div>
+                    <div className={styles.field}>
+                      <label>Username / Login</label>
+                      <input type="email" value={email.user} onChange={e => setEmailField('user', e.target.value)} placeholder="kyle@dekkergroup.co.nz" />
+                    </div>
+                    <div className={styles.field}>
+                      <label>Password / API Key</label>
+                      <input type="password" value={email.pass} onChange={e => setEmailField('pass', e.target.value)} placeholder="SMTP password or API key" style={{ fontFamily: 'monospace' }} />
                     </div>
                     <div className={styles.field}>
                       <label>From Name</label>
@@ -322,7 +332,6 @@ export default function SettingsPage() {
                     <div className={styles.field}>
                       <label>From Email</label>
                       <input type="email" value={email.from} onChange={e => setEmailField('from', e.target.value)} placeholder="kyle@dekkergroup.co.nz" />
-                      <span className={styles.hint}>Usually the same as your Gmail address above</span>
                     </div>
                   </div>
                   {emailStatus && (

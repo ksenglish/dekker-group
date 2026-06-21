@@ -34,7 +34,7 @@ router.get('/preview-pdf', authenticate, requireRole('admin', 'office'), async (
 router.get('/email', authenticate, requireRole('admin'), async (req, res) => {
   try {
     const s = await getEmailSettings();
-    if (!s) return res.json({ provider: 'smtp', user: '', pass: '', from: '', fromName: 'Dekker Group', host: 'smtp.gmail.com', port: 465 });
+    if (!s) return res.json({ provider: 'smtp', user: '', pass: '', from: '', fromName: 'Dekker Group', host: 'smtp-relay.brevo.com', port: 587 });
     const safe = { ...s };
     if (safe.pass) safe.pass = '••••••••';
     res.json(safe);
