@@ -2,7 +2,7 @@ const router = require('express').Router();
 const { authenticate, requireRole } = require('../middleware/auth');
 const c = require('../controllers/settingsController');
 const { buildPDF } = require('../utils/pdf');
-const { testConnection, getResendSettings } = require('../utils/email');
+const { testConnection, getEmailSettings } = require('../utils/email');
 const pool = require('../db/pool');
 
 router.get('/', authenticate, c.get);
@@ -33,38 +33,54 @@ router.get('/preview-pdf', authenticate, requireRole('admin', 'office'), async (
 // Get email settings
 router.get('/email', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const s = await getResendSettings();
-    if (!s) return res.json({ apiKey: '', from: '', fromName: '' });
-    res.json({ apiKey: s.apiKey ? '••••••••••••••••' : '', from: s.from || '', fromName: s.fromName || '' });
+    const s = await getEmailSettings();
+    if (!s) return res.json({ provider: 'smtp', user: '', pass: '', from: '', fromName: 'Dekker Group', host: 'smtp.gmail.com', port: 465 });
+    const safe = { ...s };
+    if (safe.pass) safe.pass = '••••••••';
+    res.json(safe);
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
 // Save email settings
 router.put('/email', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const { apiKey, from, fromName } = req.body;
-    let saveKey = apiKey;
-    if (apiKey === '••••••••••••••••') {
-      const existing = await getResendSettings();
-      saveKey = existing?.apiKey || '';
+    const incoming = req.body;
+    // If password is masked, keep existing
+    if (incoming.pass === '••••••••') {
+      const existing = await getEmailSettings();
+      incoming.pass = existing?.pass || '';
     }
-    const settings = { apiKey: saveKey, from: from || 'noreply@dekkergroup.co.nz', fromName: fromName || 'Dekker Group' };
+    const settings = {
+      provider: incoming.provider || 'smtp',
+      host: incoming.host || 'smtp.gmail.com',
+      port: parseInt(incoming.port) || 465,
+      secure: incoming.secure !== false,
+      user: incoming.user || '',
+      pass: incoming.pass || '',
+      from: incoming.from || incoming.user || '',
+      fromName: incoming.fromName || 'Dekker Group',
+    };
     await pool.query(
-      `INSERT INTO settings (key, value, updated_at) VALUES ('resend', $1, NOW())
+      `INSERT INTO settings (key, value, updated_at) VALUES ('email', $1, NOW())
        ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
       [JSON.stringify(settings)]
     );
-    res.json({ ...settings, apiKey: saveKey ? '••••••••••••••••' : '' });
+    const safe = { ...settings, pass: settings.pass ? '••••••••' : '' };
+    res.json(safe);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
 // Test email connection
 router.post('/email/test', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const { apiKey } = req.body;
-    const keyToTest = (apiKey && apiKey !== '••••••••••••••••') ? apiKey : null;
-    await testConnection(keyToTest);
-    res.json({ ok: true, message: '✓ API key is valid and connected' });
+    // Save first so testConnection picks up the latest
+    const incoming = req.body;
+    if (incoming.pass === '••••••••') {
+      const existing = await getEmailSettings();
+      incoming.pass = existing?.pass || '';
+    }
+    await testConnection(incoming);
+    res.json({ ok: true, message: '✓ Connected successfully — emails are ready to send' });
   } catch (err) { res.status(400).json({ ok: false, message: err.message }); }
 });
 

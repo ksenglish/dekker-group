@@ -13,8 +13,8 @@ export default function SettingsPage() {
   const [previewing, setPreviewing] = useState(false);
   const fileRef = useRef();
 
-  // Resend email state
-  const [email, setEmail] = useState({ apiKey: '', from: 'noreply@dekkergroup.co.nz', fromName: 'Dekker Group' });
+  // Email / SMTP state
+  const [email, setEmail] = useState({ provider: 'smtp', host: 'smtp.gmail.com', port: 465, user: '', pass: '', from: '', fromName: 'Dekker Group' });
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailSaved, setEmailSaved] = useState(false);
   const [emailTesting, setEmailTesting] = useState(false);
@@ -38,8 +38,7 @@ export default function SettingsPage() {
   async function testEmail() {
     setEmailTesting(true); setEmailStatus(null);
     try {
-      await api.put('/settings/email', email);
-      const { data } = await api.post('/settings/email/test', { apiKey: email.apiKey });
+      const { data } = await api.post('/settings/email/test', email);
       setEmailStatus(data);
     } catch (e) { setEmailStatus({ ok: false, message: e.response?.data?.message || 'Test failed' }); }
     finally { setEmailTesting(false); }
@@ -295,25 +294,26 @@ export default function SettingsPage() {
                   <div className={styles.resendBanner}>
                     <div className={styles.resendIcon}>✉</div>
                     <div>
-                      <strong>Powered by Resend</strong>
-                      <p>Resend handles all outgoing emails — no per-user setup, no app passwords. Free up to 3,000 emails/month.</p>
+                      <strong>Google Workspace / Gmail SMTP</strong>
+                      <p>Send emails directly from your Google Workspace account using an App Password — no domain verification needed.</p>
                       <ol style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 13, lineHeight: 1.7 }}>
-                        <li>Sign up free at <strong>resend.com</strong></li>
-                        <li>Add &amp; verify your domain <strong>dekkergroup.co.nz</strong></li>
-                        <li>Create an API key and paste it below</li>
+                        <li>Go to <strong>myaccount.google.com</strong> → Security → 2-Step Verification (must be on)</li>
+                        <li>Search for <strong>"App passwords"</strong> in the search bar</li>
+                        <li>Create a new app password — name it "Dekker App"</li>
+                        <li>Copy the 16-character password and paste it below</li>
                       </ol>
                     </div>
                   </div>
                   <div className={styles.formGrid} style={{ marginTop: 20 }}>
-                    <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
-                      <label>Resend API Key</label>
-                      <input
-                        value={email.apiKey}
-                        onChange={e => setEmailField('apiKey', e.target.value)}
-                        placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                        style={{ fontFamily: 'monospace' }}
-                      />
-                      <span className={styles.hint}>Found in your Resend dashboard under API Keys</span>
+                    <div className={styles.field}>
+                      <label>Gmail Address</label>
+                      <input type="email" value={email.user} onChange={e => setEmailField('user', e.target.value)} placeholder="kyle@dekkergroup.co.nz" />
+                      <span className={styles.hint}>Your Google Workspace email address</span>
+                    </div>
+                    <div className={styles.field}>
+                      <label>App Password</label>
+                      <input type="password" value={email.pass} onChange={e => setEmailField('pass', e.target.value)} placeholder="16-character app password" style={{ fontFamily: 'monospace', letterSpacing: 2 }} />
+                      <span className={styles.hint}>From Google Account → Security → App passwords</span>
                     </div>
                     <div className={styles.field}>
                       <label>From Name</label>
@@ -321,8 +321,8 @@ export default function SettingsPage() {
                     </div>
                     <div className={styles.field}>
                       <label>From Email</label>
-                      <input type="email" value={email.from} onChange={e => setEmailField('from', e.target.value)} placeholder="jobs@dekkergroup.co.nz" />
-                      <span className={styles.hint}>Must be on a domain verified in Resend</span>
+                      <input type="email" value={email.from} onChange={e => setEmailField('from', e.target.value)} placeholder="kyle@dekkergroup.co.nz" />
+                      <span className={styles.hint}>Usually the same as your Gmail address above</span>
                     </div>
                   </div>
                   {emailStatus && (
@@ -331,7 +331,7 @@ export default function SettingsPage() {
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-                    <button className={styles.btnSecondary} onClick={testEmail} disabled={emailTesting || !email.apiKey}>
+                    <button className={styles.btnSecondary} onClick={testEmail} disabled={emailTesting || !email.user}>
                       {emailTesting ? 'Testing…' : 'Test Connection'}
                     </button>
                     <button className={styles.btnPrimary} onClick={saveEmail} disabled={emailSaving}>
