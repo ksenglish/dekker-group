@@ -1,7 +1,7 @@
 const pool = require('../db/pool');
 
 async function list(req, res) {
-  const { search = '', status, tech, customer, priority, from, to, page = 1, limit = 100 } = req.query;
+  const { search = '', status, tech, customer, from, to, page = 1, limit = 100 } = req.query;
   const offset = (page - 1) * limit;
   const conditions = [];
   const params = [];
@@ -12,15 +12,15 @@ async function list(req, res) {
     params.push(`%${search}%`); p++;
   }
   if (status) { conditions.push(`j.status = $${p}`); params.push(status); p++; }
-  if (tech) { conditions.push(`j.lead_tech_id = $${p}`); params.push(tech); p++; }
+  if (tech) { conditions.push(`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id=j.id AND jt.user_id=$${p})`); params.push(tech); p++; }
   if (customer) { conditions.push(`j.customer_id = $${p}`); params.push(customer); p++; }
-  if (priority) { conditions.push(`j.priority = $${p}`); params.push(priority); p++; }
   if (from) { conditions.push(`j.due_date >= $${p}`); params.push(from); p++; }
   if (to) { conditions.push(`j.due_date <= $${p}`); params.push(to); p++; }
 
-  // Field techs only see their own jobs
-  if (req.user.role === 'field_tech') {
-    conditions.push(`j.lead_tech_id = $${p}`);
+  // Subcontractors/field_tech only see their own jobs
+  const normalised = req.user.role === 'subcontractor' ? 'field_tech' : req.user.role;
+  if (normalised === 'field_tech') {
+    conditions.push(`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id=j.id AND jt.user_id=$${p})`);
     params.push(req.user.id); p++;
   }
 
@@ -31,11 +31,15 @@ async function list(req, res) {
       `SELECT j.id, j.job_number, j.type, j.status, j.priority, j.description,
               j.due_date, j.created_at,
               c.id AS customer_id, c.name AS customer_name,
-              u.id AS tech_id, u.name AS tech_name,
-              s.address AS site_address
+              s.address AS site_address,
+              COALESCE(
+                (SELECT STRING_AGG(u.name, ', ' ORDER BY u.name)
+                 FROM job_technicians jt JOIN users u ON u.id=jt.user_id
+                 WHERE jt.job_id=j.id),
+                (SELECT u.name FROM users u WHERE u.id=j.lead_tech_id)
+              ) AS tech_name
        FROM jobs j
        LEFT JOIN customers c ON c.id = j.customer_id
-       LEFT JOIN users u ON u.id = j.lead_tech_id
        LEFT JOIN customer_sites s ON s.id = j.site_id
        ${where}
        ORDER BY j.created_at DESC
@@ -58,11 +62,9 @@ async function get(req, res) {
     const { rows } = await pool.query(
       `SELECT j.*,
               c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email,
-              u.name AS tech_name,
               s.address AS site_address, s.label AS site_label
        FROM jobs j
        LEFT JOIN customers c ON c.id = j.customer_id
-       LEFT JOIN users u ON u.id = j.lead_tech_id
        LEFT JOIN customer_sites s ON s.id = j.site_id
        WHERE j.id = $1`,
       [req.params.id]
@@ -75,8 +77,12 @@ async function get(req, res) {
        WHERE n.job_id = $1 ORDER BY n.created_at DESC`,
       [req.params.id]
     );
+    const techs = await pool.query(
+      `SELECT u.id, u.name FROM job_technicians jt JOIN users u ON u.id=jt.user_id WHERE jt.job_id=$1 ORDER BY u.name`,
+      [req.params.id]
+    );
 
-    res.json({ ...rows[0], line_items: items.rows, notes: notes.rows });
+    res.json({ ...rows[0], line_items: items.rows, notes: notes.rows, technicians: techs.rows });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -87,46 +93,70 @@ function nextRecurrenceDate(from, interval) {
   if (interval === 'monthly') d.setMonth(d.getMonth() + 1);
   else if (interval === 'quarterly') d.setMonth(d.getMonth() + 3);
   else if (interval === 'biannual') d.setMonth(d.getMonth() + 6);
-  else d.setFullYear(d.getFullYear() + 1); // annual (default)
+  else d.setFullYear(d.getFullYear() + 1);
   return d.toISOString().split('T')[0];
 }
 
+async function saveTechnicians(client, jobId, techIds) {
+  await client.query('DELETE FROM job_technicians WHERE job_id=$1', [jobId]);
+  for (const uid of (techIds || [])) {
+    if (uid) await client.query(
+      'INSERT INTO job_technicians (job_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [jobId, uid]
+    );
+  }
+}
+
 async function create(req, res) {
-  const { customer_id, site_id, type, description, priority, lead_tech_id, due_date, is_recurring, recurrence_interval, parent_job_id } = req.body;
+  const { customer_id, site_id, type, description, tech_ids, is_recurring, recurrence_interval, parent_job_id } = req.body;
   if (!type) return res.status(400).json({ error: 'Job type is required' });
+  const client = await pool.connect();
   try {
-    const nextDate = is_recurring ? nextRecurrenceDate(due_date, recurrence_interval) : null;
-    const { rows } = await pool.query(
-      `INSERT INTO jobs (customer_id, site_id, type, description, priority, lead_tech_id, due_date, is_recurring, recurrence_interval, recurrence_next_date, parent_job_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    await client.query('BEGIN');
+    const nextDate = is_recurring ? nextRecurrenceDate(null, recurrence_interval) : null;
+    const { rows } = await client.query(
+      `INSERT INTO jobs (customer_id, site_id, type, description, priority, lead_tech_id, is_recurring, recurrence_interval, recurrence_next_date, parent_job_id)
+       VALUES ($1,$2,$3,$4,'medium',$5,$6,$7,$8,$9) RETURNING *`,
       [customer_id || null, site_id || null, type, description || null,
-       priority || 'medium', lead_tech_id || null, due_date || null,
+       (tech_ids?.[0]) || null,
        !!is_recurring, recurrence_interval || null, nextDate, parent_job_id || null]
     );
-    res.status(201).json(rows[0]);
+    await saveTechnicians(client, rows[0].id, tech_ids);
+    await client.query('COMMIT');
+    res.status(201).json({ ...rows[0], technicians: (tech_ids || []).map(id => ({ id })) });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error(err);
     res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
   }
 }
 
 async function update(req, res) {
-  const { customer_id, site_id, type, description, priority, lead_tech_id, due_date, status, is_recurring, recurrence_interval } = req.body;
+  const { customer_id, site_id, type, description, tech_ids, status, is_recurring, recurrence_interval } = req.body;
+  const client = await pool.connect();
   try {
-    const nextDate = is_recurring ? nextRecurrenceDate(due_date, recurrence_interval) : null;
-    const { rows } = await pool.query(
-      `UPDATE jobs SET customer_id=$1, site_id=$2, type=$3, description=$4, priority=$5,
-       lead_tech_id=$6, due_date=$7, status=COALESCE($8, status),
-       is_recurring=$9, recurrence_interval=$10, recurrence_next_date=$11, updated_at=NOW()
-       WHERE id=$12 RETURNING *`,
+    await client.query('BEGIN');
+    const nextDate = is_recurring ? nextRecurrenceDate(null, recurrence_interval) : null;
+    const { rows } = await client.query(
+      `UPDATE jobs SET customer_id=$1, site_id=$2, type=$3, description=$4,
+       lead_tech_id=$5, status=COALESCE($6, status),
+       is_recurring=$7, recurrence_interval=$8, recurrence_next_date=$9, updated_at=NOW()
+       WHERE id=$10 RETURNING *`,
       [customer_id || null, site_id || null, type, description || null,
-       priority || 'medium', lead_tech_id || null, due_date || null, status || null,
+       (tech_ids?.[0]) || null, status || null,
        !!is_recurring, recurrence_interval || null, nextDate, req.params.id]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
+    if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Job not found' }); }
+    await saveTechnicians(client, req.params.id, tech_ids);
+    await client.query('COMMIT');
     res.json(rows[0]);
   } catch (err) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
   }
 }
 
@@ -139,17 +169,21 @@ async function updateStatus(req, res) {
       'UPDATE jobs SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
       [status, req.params.id]
     );
-    // Auto-create next job if this is a recurring job being completed
     if (status === 'complete' && rows[0]?.is_recurring && rows[0]?.recurrence_interval) {
       const j = rows[0];
       const nextDue = nextRecurrenceDate(j.recurrence_next_date || j.due_date, j.recurrence_interval);
-      await pool.query(
+      const { rows: newJob } = await pool.query(
         `INSERT INTO jobs (customer_id, site_id, type, description, priority, lead_tech_id, due_date, is_recurring, recurrence_interval, recurrence_next_date, parent_job_id, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$10,'new')`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9,$10,'new') RETURNING id`,
         [j.customer_id, j.site_id, j.type, j.description, j.priority, j.lead_tech_id,
          j.recurrence_next_date, j.recurrence_interval,
-         nextRecurrenceDate(j.recurrence_next_date, j.recurrence_interval),
-         j.id]
+         nextRecurrenceDate(j.recurrence_next_date, j.recurrence_interval), j.id]
+      );
+      // Copy technicians to next recurring job
+      await pool.query(
+        `INSERT INTO job_technicians (job_id, user_id)
+         SELECT $1, user_id FROM job_technicians WHERE job_id=$2 ON CONFLICT DO NOTHING`,
+        [newJob[0].id, j.id]
       );
     }
     res.json(rows[0]);

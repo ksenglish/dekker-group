@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import styles from './Jobs.module.css';
 
-const PRIORITIES = ['low', 'medium', 'high'];
-
 export default function JobForm({ initial, onSave, onCancel }) {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const presetCustomerId = searchParams.get('customer') || '';
 
   const [form, setForm] = useState({
@@ -14,13 +13,12 @@ export default function JobForm({ initial, onSave, onCancel }) {
     site_id:             initial?.site_id || '',
     type:                initial?.type || searchParams.get('template_type') || '',
     description:         initial?.description || searchParams.get('template_description') || '',
-    priority:            initial?.priority || searchParams.get('template_priority') || 'medium',
-    lead_tech_id:        initial?.lead_tech_id || '',
-    due_date:            initial?.due_date ? initial.due_date.split('T')[0] : '',
-    status:              initial?.status || 'new',
     is_recurring:        initial?.is_recurring || searchParams.get('template_recurring') === '1',
     recurrence_interval: initial?.recurrence_interval || searchParams.get('template_interval') || 'annual',
+    status:              initial?.status || 'new',
+    tech_ids:            initial?.technicians?.map(t => t.id) || [],
   });
+
   const [customers, setCustomers] = useState([]);
   const [sites, setSites] = useState([]);
   const [techs, setTechs] = useState([]);
@@ -30,19 +28,37 @@ export default function JobForm({ initial, onSave, onCancel }) {
 
   useEffect(() => {
     api.get('/customers', { params: { limit: 500 } }).then(r => setCustomers(r.data.customers));
-    api.get('/users').then(r => setTechs(r.data.filter(u => u.role !== 'office'))).catch(() => {});
+    api.get('/users').then(r => setTechs(r.data)).catch(() => {});
     api.get('/settings/job-types').then(r => {
       setJobTypes(r.data);
-      if (!initial?.type && r.data.length > 0) setForm(f => ({ ...f, type: f.type || r.data[0] }));
+      if (!initial?.type && !searchParams.get('template_type') && r.data.length > 0) {
+        setForm(f => ({ ...f, type: f.type || r.data[0] }));
+      }
     }).catch(() => setJobTypes(['Installation', 'Service', 'Inspection', 'Repair', 'Quote Only']));
   }, []);
 
+  // Load sites when customer changes, auto-select primary site
   useEffect(() => {
     if (!form.customer_id) { setSites([]); return; }
-    api.get(`/customers/${form.customer_id}/sites`).then(r => setSites(r.data));
+    api.get(`/customers/${form.customer_id}/sites`).then(r => {
+      setSites(r.data);
+      // Auto-select the first/primary site if not already set
+      if (!form.site_id && r.data.length > 0) {
+        setForm(f => ({ ...f, site_id: r.data[0].id }));
+      }
+    });
   }, [form.customer_id]);
 
   function set(key, val) { setForm(f => ({ ...f, [key]: val })); }
+
+  function toggleTech(id) {
+    setForm(f => ({
+      ...f,
+      tech_ids: f.tech_ids.includes(id)
+        ? f.tech_ids.filter(x => x !== id)
+        : [...f.tech_ids, id],
+    }));
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -53,8 +69,6 @@ export default function JobForm({ initial, onSave, onCancel }) {
         ...form,
         customer_id: form.customer_id || null,
         site_id: form.site_id || null,
-        lead_tech_id: form.lead_tech_id || null,
-        due_date: form.due_date || null,
       };
       const { data } = initial?.id
         ? await api.put(`/jobs/${initial.id}`, payload)
@@ -68,13 +82,14 @@ export default function JobForm({ initial, onSave, onCancel }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className={styles.card} style={{ padding: '24px' }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 24 }}>
+    <form onSubmit={handleSubmit} className={styles.jobFormWrap}>
+      <h2 className={styles.jobFormTitle}>
         {initial?.id ? `Edit Job #${initial.job_number}` : 'New Job'}
       </h2>
       {error && <div className={styles.errorBanner}>{error}</div>}
 
-      <div className={styles.formGrid}>
+      <div className={styles.jobFormGrid}>
+        {/* Customer */}
         <div className={styles.field}>
           <label>Customer</label>
           <select value={form.customer_id} onChange={e => { set('customer_id', e.target.value); set('site_id', ''); }}>
@@ -82,13 +97,18 @@ export default function JobForm({ initial, onSave, onCancel }) {
             {customers.map(c => <option key={c.id} value={c.id}>{c.name}{c.company ? ` — ${c.company}` : ''}</option>)}
           </select>
         </div>
+
+        {/* Site Address */}
         <div className={styles.field}>
           <label>Site Address</label>
-          <select value={form.site_id} onChange={e => set('site_id', e.target.value)} disabled={!form.customer_id || sites.length === 0}>
+          <select value={form.site_id} onChange={e => set('site_id', e.target.value)}
+            disabled={!form.customer_id || sites.length === 0}>
             <option value="">No site selected</option>
             {sites.map(s => <option key={s.id} value={s.id}>{s.address}{s.label ? ` (${s.label})` : ''}</option>)}
           </select>
         </div>
+
+        {/* Job Type */}
         <div className={styles.field}>
           <label>Job Type *</label>
           <select value={form.type} onChange={e => set('type', e.target.value)}>
@@ -96,23 +116,8 @@ export default function JobForm({ initial, onSave, onCancel }) {
             {jobTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
-        <div className={styles.field}>
-          <label>Priority</label>
-          <select value={form.priority} onChange={e => set('priority', e.target.value)}>
-            {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </div>
-        <div className={styles.field}>
-          <label>Team Member</label>
-          <select value={form.lead_tech_id} onChange={e => set('lead_tech_id', e.target.value)}>
-            <option value="">Unassigned</option>
-            {techs.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </div>
-        <div className={styles.field}>
-          <label>Due Date</label>
-          <input type="date" value={form.due_date} onChange={e => set('due_date', e.target.value)} />
-        </div>
+
+        {/* Status (edit only) */}
         {initial?.id && (
           <div className={styles.field}>
             <label>Status</label>
@@ -123,11 +128,31 @@ export default function JobForm({ initial, onSave, onCancel }) {
             </select>
           </div>
         )}
+
+        {/* Description */}
         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
           <label>Description</label>
-          <textarea rows={4} value={form.description} onChange={e => set('description', e.target.value)}
+          <textarea rows={3} value={form.description} onChange={e => set('description', e.target.value)}
             placeholder="Describe the work to be done…" style={{ resize: 'vertical' }} />
         </div>
+
+        {/* Team Members */}
+        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+          <label>Team Members</label>
+          <div className={styles.techCheckList}>
+            {techs.map(t => (
+              <label key={t.id} className={styles.techCheckItem}>
+                <input type="checkbox" checked={form.tech_ids.includes(t.id)}
+                  onChange={() => toggleTech(t.id)} />
+                <span>{t.name}</span>
+                <span className={styles.techRole}>{t.role}</span>
+              </label>
+            ))}
+            {techs.length === 0 && <span style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>No team members added yet</span>}
+          </div>
+        </div>
+
+        {/* Recurring */}
         <div className={styles.field} style={{ gridColumn: '1 / -1', flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', marginBottom: 0 }}>
             <input type="checkbox" checked={form.is_recurring} onChange={e => set('is_recurring', e.target.checked)}
@@ -148,6 +173,9 @@ export default function JobForm({ initial, onSave, onCancel }) {
 
       <div className={styles.formActions}>
         <button type="button" className={styles.btnSecondary} onClick={onCancel}>Cancel</button>
+        <button type="button" className={styles.btnSecondary} onClick={() => navigate('/schedule')}>
+          Schedule
+        </button>
         <button type="submit" className={styles.btnPrimary} disabled={saving}>
           {saving ? 'Saving…' : initial?.id ? 'Save Changes' : 'Create Job'}
         </button>

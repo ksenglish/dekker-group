@@ -298,6 +298,28 @@
 .detailItem strong { font-size: 14px; font-weight: 500; }
 .detailItem a { color: var(--color-primary); }
 
+/* Job create/edit form */
+.jobFormWrap {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+  max-width: 720px;
+}
+.jobFormTitle { font-size: 18px; font-weight: 700; margin-bottom: 24px; }
+.jobFormGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+/* Tech member checkboxes */
+.techCheckList { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--color-border); border-radius: var(--radius); padding: 10px 14px; background: #f8fafc; }
+.techCheckItem { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; padding: 4px 0; }
+.techCheckItem input { width: 16px; height: 16px; accentColor: var(--color-primary); cursor: pointer; flex-shrink: 0; }
+.techRole { font-size: 11px; color: var(--color-text-muted); background: #e2e8f0; padding: 2px 7px; border-radius: 99px; text-transform: capitalize; margin-left: auto; }
+
 /* Form */
 .formGrid {
   display: grid;

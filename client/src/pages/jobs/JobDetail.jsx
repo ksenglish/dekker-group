@@ -430,6 +430,7 @@ export default function JobDetail() {
           {job.customer_email && user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={() => setShowEmailModal(true)}>✉ Email Customer</button>
           )}
+          <button className={styles.btnSecondary} onClick={() => navigate('/schedule')}>📅 Schedule</button>
           <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
           {user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
@@ -553,7 +554,10 @@ export default function JobDetail() {
                 <div className={styles.detailItem}><span>Priority</span>
                   <strong style={{ color: PRIORITY_COLOURS[job.priority], textTransform: 'capitalize' }}>{job.priority}</strong>
                 </div>
-                <div className={styles.detailItem}><span>Team Member</span><strong>{job.tech_name || '—'}</strong></div>
+                <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
+                  <span>Team Members</span>
+                  <strong>{job.technicians?.length ? job.technicians.map(t => t.name).join(', ') : (job.tech_name || '—')}</strong>
+                </div>
                 {job.is_recurring && (
                   <div className={styles.detailItem}><span>Recurrence</span>
                     <strong style={{ color: '#0891b2' }}>🔁 {job.recurrence_interval} · Next: {job.recurrence_next_date ? new Date(job.recurrence_next_date).toLocaleDateString('en-NZ') : '—'}</strong>
