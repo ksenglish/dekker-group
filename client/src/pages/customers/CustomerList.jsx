@@ -62,15 +62,15 @@ export default function CustomerList() {
         <div className={styles.table}>
           <div className={styles.tableHeader}>
             <span>Name</span>
+            <span>Address</span>
             <span>Mobile</span>
-            <span>Phone</span>
             <span>Email</span>
           </div>
           {customers.map(c => (
             <Link key={c.id} to={`/customers/${c.id}`} className={styles.tableRow}>
               <span className={styles.customerName}>{c.name}</span>
-              <span className={styles.nowrap}>{c.mobile || <span className={styles.muted}>—</span>}</span>
-              <span className={styles.nowrap}>{c.phone || <span className={styles.muted}>—</span>}</span>
+              <span className={styles.addressCell}>{[c.address_street, c.address_city].filter(Boolean).join(', ') || <span className={styles.muted}>—</span>}</span>
+              <span className={styles.nowrap}>{c.mobile || c.phone || <span className={styles.muted}>—</span>}</span>
               <span>{c.email || <span className={styles.muted}>—</span>}</span>
             </Link>
           ))}

@@ -91,6 +91,7 @@
 .tableRow:hover { background: #f8fafc; }
 
 .nowrap { white-space: nowrap; }
+.addressCell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .customerName {
   font-weight: 500;
