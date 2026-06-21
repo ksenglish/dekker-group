@@ -4,18 +4,28 @@ import { useAuth } from '../../context/AuthContext';
 import styles from './Users.module.css';
 
 const ROLES = [
-  { value: 'admin',     label: 'Admin',      desc: 'Full access including settings and user management' },
-  { value: 'office',    label: 'Office',      desc: 'Can manage jobs, quotes, invoices and customers' },
-  { value: 'field_tech',label: 'Field Tech',  desc: 'Can view jobs and log time — read only' },
+  { value: 'admin',         label: 'Admin',         desc: 'Full access — settings, users, all data' },
+  { value: 'sales',         label: 'Sales',         desc: 'Customers, Price List, Sales Presenter, own jobs, schedule, quotes & timesheets' },
+  { value: 'operations',    label: 'Operations',    desc: 'Same access as Sales — jobs, schedule, customers, quotes & timesheets' },
+  { value: 'subcontractor', label: 'Subcontractor', desc: 'Own schedule and own jobs only' },
 ];
 
-const ROLE_BADGE = { admin: styles.badgeAdmin, office: styles.badgeOffice, field_tech: styles.badgeTech };
+const ROLE_LABEL = {
+  admin: 'Admin', sales: 'Sales', operations: 'Operations', subcontractor: 'Subcontractor',
+  office: 'Office', field_tech: 'Field Tech', // legacy
+};
+
+const ROLE_BADGE = {
+  admin: styles.badgeAdmin, sales: styles.badgeSales,
+  operations: styles.badgeOps, subcontractor: styles.badgeTech,
+  office: styles.badgeOffice, field_tech: styles.badgeTech,
+};
 
 function UserModal({ user, currentUserId, onSave, onClose }) {
   const [form, setForm] = useState({
     name: user?.name || '',
     email: user?.email || '',
-    role: user?.role || 'field_tech',
+    role: user?.role || 'operations',
     password: '',
     confirmPassword: '',
     is_active: user?.is_active !== false,
@@ -159,7 +169,7 @@ export default function UsersPage() {
                 </div>
               </div>
               <div className={styles.emailCell}>{u.email}</div>
-              <div><span className={`${styles.badge} ${ROLE_BADGE[u.role]}`}>{ROLES.find(r => r.value === u.role)?.label || u.role}</span></div>
+              <div><span className={`${styles.badge} ${ROLE_BADGE[u.role] || styles.badgeTech}`}>{ROLE_LABEL[u.role] || u.role}</span></div>
               <div><span className={`${styles.badge} ${u.is_active ? styles.badgeActive : styles.badgeInactive}`}>{u.is_active ? 'Active' : 'Inactive'}</span></div>
               <div className={styles.dateCell}>{new Date(u.created_at).toLocaleDateString('en-NZ')}</div>
               <div className={styles.actions}>

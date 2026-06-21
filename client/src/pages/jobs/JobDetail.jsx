@@ -553,7 +553,7 @@ export default function JobDetail() {
                 <div className={styles.detailItem}><span>Priority</span>
                   <strong style={{ color: PRIORITY_COLOURS[job.priority], textTransform: 'capitalize' }}>{job.priority}</strong>
                 </div>
-                <div className={styles.detailItem}><span>Lead Technician</span><strong>{job.tech_name || '—'}</strong></div>
+                <div className={styles.detailItem}><span>Team Member</span><strong>{job.tech_name || '—'}</strong></div>
                 {job.is_recurring && (
                   <div className={styles.detailItem}><span>Recurrence</span>
                     <strong style={{ color: '#0891b2' }}>🔁 {job.recurrence_interval} · Next: {job.recurrence_next_date ? new Date(job.recurrence_next_date).toLocaleDateString('en-NZ') : '—'}</strong>

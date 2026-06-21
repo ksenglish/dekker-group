@@ -22,7 +22,7 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required' });
   }
-  if (!['admin', 'office', 'field_tech'].includes(role)) {
+  if (!['admin', 'sales', 'operations', 'subcontractor', 'office', 'field_tech'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role' });
   }
   try {

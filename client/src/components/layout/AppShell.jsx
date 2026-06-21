@@ -104,7 +104,10 @@ export default function AppShell() {
             </div>
             <div className={styles.userDetails}>
               <span className={styles.userName}>{user?.name}</span>
-              <span className={styles.userRole}>{user?.role?.replace('_', ' ')}</span>
+              <span className={styles.userRole}>{{
+                admin: 'Admin', sales: 'Sales', operations: 'Operations',
+                subcontractor: 'Subcontractor', office: 'Office', field_tech: 'Field Tech',
+              }[user?.role] || user?.role}</span>
             </div>
           </div>
           <button className={styles.logoutBtn} onClick={handleLogout} title="Sign out">

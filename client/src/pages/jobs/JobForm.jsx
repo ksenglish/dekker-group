@@ -103,7 +103,7 @@ export default function JobForm({ initial, onSave, onCancel }) {
           </select>
         </div>
         <div className={styles.field}>
-          <label>Lead Technician</label>
+          <label>Team Member</label>
           <select value={form.lead_tech_id} onChange={e => set('lead_tech_id', e.target.value)}>
             <option value="">Unassigned</option>
             {techs.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
