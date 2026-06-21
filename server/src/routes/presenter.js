@@ -5,6 +5,15 @@ const { authenticate, requireRole } = require('../middleware/auth');
 
 router.use(authenticate);
 
+// Merge price-list product fields into presenter product row
+function enrichProduct(r) {
+  const { pl_id, pl_name, pl_unit_price, pl_description, pl_image, ...rest } = r;
+  return {
+    ...rest,
+    price_list_product: pl_id ? { id: pl_id, name: pl_name, unit_price: pl_unit_price, description: pl_description, image_base64: pl_image } : null,
+  };
+}
+
 // ── Sections ──────────────────────────────────────────────────────────────────
 router.get('/sections', async (req, res) => {
   try {
@@ -84,13 +93,13 @@ router.get('/subcategories/:id/subcategories', async (req, res) => {
 });
 
 router.post('/sections/:id/subcategories', requireRole('admin', 'office'), async (req, res) => {
-  const { name, image_base64, sort_order } = req.body;
+  const { name, image_base64, sort_order, hide_label } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO presenter_subcategories (section_id, name, image_base64, sort_order, parent_id)
-       VALUES ($1,$2,$3,$4,NULL) RETURNING *`,
-      [req.params.id, name, image_base64 || null, sort_order || 0]
+      `INSERT INTO presenter_subcategories (section_id, name, image_base64, sort_order, parent_id, hide_label)
+       VALUES ($1,$2,$3,$4,NULL,$5) RETURNING *`,
+      [req.params.id, name, image_base64 || null, sort_order || 0, hide_label || false]
     );
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -139,11 +148,11 @@ router.patch('/subcategories/:id/parent', requireRole('admin', 'office'), async 
 });
 
 router.put('/subcategories/:id', requireRole('admin', 'office'), async (req, res) => {
-  const { name, image_base64, sort_order } = req.body;
+  const { name, image_base64, sort_order, hide_label } = req.body;
   try {
     const { rows } = await pool.query(
-      `UPDATE presenter_subcategories SET name=$1,image_base64=$2,sort_order=$3 WHERE id=$4 RETURNING *`,
-      [name, image_base64 !== undefined ? image_base64 : null, sort_order || 0, req.params.id]
+      `UPDATE presenter_subcategories SET name=$1,image_base64=$2,sort_order=$3,hide_label=$4 WHERE id=$5 RETURNING *`,
+      [name, image_base64 !== undefined ? image_base64 : null, sort_order || 0, hide_label || false, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -160,70 +169,80 @@ router.delete('/subcategories/:id', requireRole('admin', 'office'), async (req, 
 router.get('/sections/:id/products', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM presenter_products WHERE section_id=$1 ORDER BY sort_order, name`,
+      `SELECT pp.*,
+         pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
+         pl.description AS pl_description, pl.image_base64 AS pl_image
+       FROM presenter_products pp
+       LEFT JOIN products pl ON pl.id = pp.price_list_product_id
+       WHERE pp.section_id=$1 ORDER BY pp.sort_order, pp.name`,
       [req.params.id]
     );
-    res.json(rows);
+    res.json(rows.map(r => enrichProduct(r)));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.get('/subcategories/:id/products', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM presenter_products WHERE subcategory_id=$1 ORDER BY sort_order, name`,
+      `SELECT pp.*,
+         pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
+         pl.description AS pl_description, pl.image_base64 AS pl_image
+       FROM presenter_products pp
+       LEFT JOIN products pl ON pl.id = pp.price_list_product_id
+       WHERE pp.subcategory_id=$1 ORDER BY pp.sort_order, pp.name`,
       [req.params.id]
     );
-    res.json(rows);
+    res.json(rows.map(r => enrichProduct(r)));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/sections/:id/products', requireRole('admin', 'office'), async (req, res) => {
-  const { name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order, subcategory_id } = req.body;
+  const { name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order, subcategory_id, price_list_product_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   try {
     const { rows } = await pool.query(
       `INSERT INTO presenter_products
-         (section_id, subcategory_id, name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+         (section_id, subcategory_id, name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order, price_list_product_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [req.params.id, subcategory_id || null, name, description || null, image_base64 || null,
        price_from ? Math.round(price_from * 100) : 0,
        features || [], calculator_type || 'unit',
        calculator_config ? JSON.stringify(calculator_config) : '{}',
-       sort_order || 0]
+       sort_order || 0, price_list_product_id || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/subcategories/:id/products', requireRole('admin', 'office'), async (req, res) => {
-  const { name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order, section_id } = req.body;
+  const { name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order, section_id, price_list_product_id } = req.body;
   if (!name || !section_id) return res.status(400).json({ error: 'Name and section_id are required' });
   try {
     const { rows } = await pool.query(
       `INSERT INTO presenter_products
-         (section_id, subcategory_id, name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+         (section_id, subcategory_id, name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order, price_list_product_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [section_id, req.params.id, name, description || null, image_base64 || null,
        price_from ? Math.round(price_from * 100) : 0,
        features || [], calculator_type || 'unit',
        calculator_config ? JSON.stringify(calculator_config) : '{}',
-       sort_order || 0]
+       sort_order || 0, price_list_product_id || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.put('/products/:id', requireRole('admin', 'office'), async (req, res) => {
-  const { name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order, subcategory_id } = req.body;
+  const { name, description, image_base64, price_from, features, calculator_type, calculator_config, sort_order, subcategory_id, price_list_product_id } = req.body;
   try {
     const { rows } = await pool.query(
       `UPDATE presenter_products SET name=$1,description=$2,image_base64=$3,price_from=$4,
-       features=$5,calculator_type=$6,calculator_config=$7,sort_order=$8,subcategory_id=$9 WHERE id=$10 RETURNING *`,
+       features=$5,calculator_type=$6,calculator_config=$7,sort_order=$8,subcategory_id=$9,price_list_product_id=$10 WHERE id=$11 RETURNING *`,
       [name, description || null, image_base64 || null,
        price_from ? Math.round(price_from * 100) : 0,
        features || [], calculator_type || 'unit',
        calculator_config ? JSON.stringify(calculator_config) : '{}',
-       sort_order || 0, subcategory_id || null, req.params.id]
+       sort_order || 0, subcategory_id || null, price_list_product_id || null, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -42,9 +42,31 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
     calculator_type: product?.calculator_type || 'unit',
     image_base64: product?.image_base64 || '',
     sort_order: product?.sort_order || 0,
+    price_list_product_id: product?.price_list_product_id || '',
   });
+  const [priceListProducts, setPriceListProducts] = useState([]);
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
+  }, []);
+
+  function handlePriceListPick(e) {
+    const id = e.target.value;
+    set('price_list_product_id', id);
+    if (!id) return;
+    const pl = priceListProducts.find(p => p.id === id);
+    if (!pl) return;
+    setForm(f => ({
+      ...f,
+      price_list_product_id: id,
+      name: pl.name,
+      description: pl.description || f.description,
+      price_from: pl.unit_price ? (pl.unit_price / 100).toFixed(2) : f.price_from,
+      image_base64: pl.image_base64 || f.image_base64,
+    }));
+  }
 
   async function handleSave(e) {
     e.preventDefault();
@@ -56,6 +78,7 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
         price_from: parseFloat(form.price_from) || 0,
         features: form.features.split('\n').map(f => f.trim()).filter(Boolean),
         subcategory_id: subcategoryId || null,
+        price_list_product_id: form.price_list_product_id || null,
       };
       let data;
       if (product) {
@@ -72,6 +95,20 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
   return (
     <form onSubmit={handleSave} className={styles.productForm}>
       <div className={styles.formGrid}>
+        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+          <label>Link from Price List <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional — auto-fills fields below)</span></label>
+          <select value={form.price_list_product_id} onChange={handlePriceListPick}>
+            <option value="">— Pick a price list product —</option>
+            {priceListProducts.map(p => (
+              <option key={p.id} value={p.id}>{p.name}{p.unit_price ? ` — $${(p.unit_price / 100).toFixed(2)}` : ''}</option>
+            ))}
+          </select>
+          {form.price_list_product_id && (
+            <span style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4, display: 'block' }}>
+              Linked — price list pricing will be used when adding to quotes/jobs
+            </span>
+          )}
+        </div>
         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
           <label>Product Name *</label>
           <input value={form.name} onChange={e => set('name', e.target.value)} required placeholder="e.g. Mitsubishi 2.5kW Heat Pump" />
@@ -187,7 +224,7 @@ export default function PresenterAdmin() {
   const [editingProduct, setEditingProduct] = useState(null);
   const [showSubcatForm, setShowSubcatForm] = useState(false);
   const [editingSubcat, setEditingSubcat] = useState(null);
-  const [subcatForm, setSubcatForm] = useState({ name: '', image_base64: '' });
+  const [subcatForm, setSubcatForm] = useState({ name: '', image_base64: '', hide_label: false });
   const [sectionForm, setSectionForm] = useState({ name: '', color: '#1e40af', icon: '🏠', image_base64: '' });
   const [showSectionForm, setShowSectionForm] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -296,7 +333,7 @@ export default function PresenterAdmin() {
       const { data } = await api.post(url, { ...subcatForm, sort_order: subcats.length + 1 });
       setSubcats(s => [...s, { ...data, child_count: 0, product_count: 0 }]);
     }
-    setShowSubcatForm(false); setEditingSubcat(null); setSubcatForm({ name: '', image_base64: '' });
+    setShowSubcatForm(false); setEditingSubcat(null); setSubcatForm({ name: '', image_base64: '', hide_label: false });
   }
 
   async function deleteSubcat(id) {
@@ -437,6 +474,11 @@ export default function PresenterAdmin() {
                     <label>Image (optional)</label>
                     <ImgUpload value={subcatForm.image_base64} onChange={v => setSubcatForm(f => ({...f, image_base64: v}))} label="📷 Upload Image" />
                   </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>
+                    <input type="checkbox" checked={subcatForm.hide_label || false}
+                      onChange={e => setSubcatForm(f => ({...f, hide_label: e.target.checked}))} />
+                    Hide label in Sales Presenter
+                  </label>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button type="submit" className={styles.btnPrimary} style={{ padding: '6px 12px', fontSize: 12 }}>
                       {editingSubcat ? 'Update' : 'Add'}
@@ -464,7 +506,7 @@ export default function PresenterAdmin() {
                     key={sc.id}
                     sc={sc}
                     onDrill={drillInto}
-                    onEdit={s => { setEditingSubcat(s); setSubcatForm({ name: s.name, image_base64: s.image_base64 || '' }); setShowSubcatForm(true); }}
+                    onEdit={s => { setEditingSubcat(s); setSubcatForm({ name: s.name, image_base64: s.image_base64 || '', hide_label: s.hide_label || false }); setShowSubcatForm(true); }}
                     onDelete={deleteSubcat}
                   />
                 ))}

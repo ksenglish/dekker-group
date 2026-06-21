@@ -307,8 +307,8 @@ function ProductPanel({ product, section, onClose, onPick }) {
           )}
           <Calculator product={product} onPick={onPick} />
           {onPick && product.calculator_type !== 'smartvent_lite' && (
-            <button className={styles.addToJobBtn} onClick={() => onPick(product)}>
-              + Add to Job
+            <button className={styles.addToJobBtn} onClick={() => onPick(product.price_list_product || product)}>
+              + Add to Quote
             </button>
           )}
         </div>
@@ -331,7 +331,7 @@ function SubcategoryGrid({ subcategories, section, onPick: onPickSubcat }) {
             </div>
           )}
           <div className={styles.productInfo}>
-            <h3 className={styles.productName}>{sc.name}</h3>
+            {!sc.hide_label && <h3 className={styles.productName}>{sc.name}</h3>}
             {sc.product_count > 0 && <p className={styles.productDesc}>{sc.product_count} product{sc.product_count !== 1 ? 's' : ''}</p>}
             <div className={styles.productCta} style={{ background: section?.color || '#1e40af' }}>
               View Products →
