@@ -62,20 +62,16 @@ export default function CustomerList() {
         <div className={styles.table}>
           <div className={styles.tableHeader}>
             <span>Name</span>
-            <span>Company</span>
+            <span>Mobile</span>
             <span>Phone</span>
             <span>Email</span>
-            <span>Sites</span>
-            <span>Jobs</span>
           </div>
           {customers.map(c => (
             <Link key={c.id} to={`/customers/${c.id}`} className={styles.tableRow}>
               <span className={styles.customerName}>{c.name}</span>
-              <span>{c.company || <span className={styles.muted}>—</span>}</span>
-              <span>{c.phone || <span className={styles.muted}>—</span>}</span>
+              <span className={styles.nowrap}>{c.mobile || <span className={styles.muted}>—</span>}</span>
+              <span className={styles.nowrap}>{c.phone || <span className={styles.muted}>—</span>}</span>
               <span>{c.email || <span className={styles.muted}>—</span>}</span>
-              <span>{c.site_count}</span>
-              <span>{c.job_count}</span>
             </Link>
           ))}
         </div>

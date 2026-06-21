@@ -63,7 +63,7 @@
 
 .tableHeader {
   display: grid;
-  grid-template-columns: 2fr 2fr 1fr 2fr 60px 60px;
+  grid-template-columns: 2fr 1fr 1fr 2fr;
   gap: 16px;
   padding: 10px 16px;
   background: #f8fafc;
@@ -77,7 +77,7 @@
 
 .tableRow {
   display: grid;
-  grid-template-columns: 2fr 2fr 1fr 2fr 60px 60px;
+  grid-template-columns: 2fr 1fr 1fr 2fr;
   gap: 16px;
   padding: 13px 16px;
   border-bottom: 1px solid var(--color-border);
@@ -89,6 +89,8 @@
 
 .tableRow:last-child { border-bottom: none; }
 .tableRow:hover { background: #f8fafc; }
+
+.nowrap { white-space: nowrap; }
 
 .customerName {
   font-weight: 500;
