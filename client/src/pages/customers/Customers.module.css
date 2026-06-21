@@ -3,6 +3,12 @@
   max-width: 1200px;
 }
 
+.pagination { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 20px 0 4px; }
+.pageBtn { padding: 8px 18px; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); font-size: 14px; cursor: pointer; }
+.pageBtn:disabled { opacity: 0.4; cursor: default; }
+.pageBtn:not(:disabled):hover { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+.pageInfo { font-size: 14px; color: var(--color-text-muted); }
+
 /* ── Customer Detail — tabbed layout ── */
 .customerDetailPage {
   display: flex;

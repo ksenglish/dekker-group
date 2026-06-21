@@ -9,34 +9,27 @@ import { useAuth } from '../../context/AuthContext';
 import AssignModal from './AssignModal';
 import styles from './Schedule.module.css';
 
-const TECH_COLOURS = [
-  '#1e40af', '#0891b2', '#7c3aed', '#16a34a',
-  '#d97706', '#dc2626', '#9333ea', '#0f766e',
-];
+const TECH_COLOURS = ['#1e40af','#0891b2','#7c3aed','#16a34a','#d97706','#dc2626','#9333ea','#0f766e'];
 
 export default function SchedulePage() {
   const { user } = useAuth();
   const calRef = useRef(null);
   const [searchParams] = useSearchParams();
-  const [rawSchedules, setRawSchedules] = useState([]);
   const [techMap, setTechMap] = useState({});
-  const [calReady, setCalReady] = useState(false);
   const [filterTech, setFilterTech] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
+  // fcEvents drives the calendar — plain state array, replaced on every fetch
+  const [fcEvents, setFcEvents] = useState([]);
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
   const [view, setView] = useState(() => localStorage.getItem(viewKey) || 'dayGridMonth');
 
   // Auto-open assign modal if ?job= param present
   useEffect(() => {
     const jobId = searchParams.get('job');
-    if (jobId) {
-      const today = new Date().toISOString().split('T')[0];
-      setAssignTarget({ jobId, date: today });
-    }
+    if (jobId) setAssignTarget({ jobId, date: new Date().toISOString().split('T')[0] });
   }, []);
 
-  // Load techs once
   useEffect(() => {
     api.get('/users').then(r => {
       const map = {};
@@ -45,78 +38,59 @@ export default function SchedulePage() {
     }).catch(() => {});
   }, []);
 
-  const techKeysRef = useRef([]);
-  useEffect(() => { techKeysRef.current = Object.keys(techMap); }, [techMap]);
-
-  function techColour(userId) {
-    const idx = techKeysRef.current.indexOf(userId);
+  function techColour(userId, map) {
+    const keys = Object.keys(map);
+    const idx = keys.indexOf(userId);
     return TECH_COLOURS[idx >= 0 ? idx % TECH_COLOURS.length : 0];
   }
 
-  function buildCalEvents(schedules) {
-    return schedules
-      .filter(s => !filterTech || s.user_id === filterTech)
+  function toFcEvents(rows, map, tech) {
+    return rows
+      .filter(s => !tech || s.user_id === tech)
       .map(s => {
-        const d = s.scheduled_date.split('T')[0];
+        const d = s.scheduled_date.split('T')[0]; // strip Postgres timestamp
+        const colour = techColour(s.user_id, map);
         return {
           id: `sched-${s.id}`,
-          schedId: s.id,
-          jobId: s.job_id,
           title: `#${s.job_number} ${s.customer_name || ''} — ${s.tech_name || ''}`,
           start: s.start_time ? `${d}T${s.start_time}` : d,
           end:   s.end_time   ? `${d}T${s.end_time}`   : undefined,
           allDay: !s.start_time,
-          backgroundColor: techColour(s.user_id),
-          borderColor:     techColour(s.user_id),
+          backgroundColor: colour,
+          borderColor: colour,
           extendedProps: { ...s, type: 'scheduled' },
         };
       });
   }
 
-  // Push events directly into FullCalendar via imperative API — most reliable
-  function pushToCalendar(schedules) {
-    const cal = calRef.current?.getApi();
-    if (!cal) return;
-    cal.removeAllEvents();
-    buildCalEvents(schedules).forEach(ev => cal.addEvent(ev));
-  }
-
-  function loadSchedules() {
-    api.get('/schedules')
-      .then(r => {
-        setRawSchedules(r.data);
-        pushToCalendar(r.data);
-      })
-      .catch(() => {});
+  function loadSchedules(map, tech) {
+    const resolvedMap  = map  !== undefined ? map  : techMap;
+    const resolvedTech = tech !== undefined ? tech : filterTech;
+    api.get('/schedules').then(r => {
+      setFcEvents(toFcEvents(r.data, resolvedMap, resolvedTech));
+    }).catch(() => {});
   }
 
   useEffect(() => { loadSchedules(); }, []);
 
-  // Re-push when filter changes or calendar becomes ready
-  useEffect(() => {
-    if (calReady && rawSchedules.length > 0) pushToCalendar(rawSchedules);
-  }, [filterTech, calReady]);
+  // Re-filter when filter changes (no new fetch needed)
+  // Re-load when techMap arrives so colours are correct
+  useEffect(() => { loadSchedules(techMap, filterTech); }, [techMap, filterTech]);
 
   async function handleEventDrop({ event, revert }) {
-    const { jobId } = event.extendedProps;
-    if (!jobId) return;
-    const date = event.startStr.split('T')[0];
+    const { job_id } = event.extendedProps;
+    if (!job_id) return;
     try {
-      await api.patch(`/schedules/jobs/${jobId}/reschedule`, { date });
+      await api.patch(`/schedules/jobs/${job_id}/reschedule`, { date: event.startStr.split('T')[0] });
       loadSchedules();
-    } catch {
-      revert();
-    }
+    } catch { revert(); }
   }
 
-  function handleEventClick({ event }) {
-    setSelectedEvent(event.extendedProps);
-  }
+  function handleEventClick({ event }) { setSelectedEvent(event.extendedProps); }
 
   function handleDateClick({ dateStr }) {
     if (user?.role === 'field_tech') return;
-    const jobId = searchParams.get('job') || undefined;
-    setAssignTarget({ date: dateStr.split('T')[0], jobId });
+    setAssignTarget({ date: dateStr.split('T')[0], jobId: searchParams.get('job') || undefined });
   }
 
   function handleAssigned() {
@@ -137,20 +111,17 @@ export default function SchedulePage() {
           {Object.keys(techMap).length > 0 && (
             <select className={styles.filterSelect} value={filterTech} onChange={e => setFilterTech(e.target.value)}>
               <option value="">All team members</option>
-              {Object.entries(techMap).map(([id, name]) => (
-                <option key={id} value={id}>{name}</option>
-              ))}
+              {Object.entries(techMap).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
             </select>
           )}
         </div>
       </div>
 
-      {/* Legend */}
       {Object.keys(techMap).length > 0 && (
         <div className={styles.legend}>
           {Object.entries(techMap).map(([id, name]) => (
             <div key={id} className={styles.legendItem}>
-              <span className={styles.legendDot} style={{ background: techColour(id) }} />
+              <span className={styles.legendDot} style={{ background: techColour(id, techMap) }} />
               {name}
             </div>
           ))}
@@ -162,17 +133,14 @@ export default function SchedulePage() {
           ref={calRef}
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
           initialView={view}
-          headerToolbar={{
-            left: 'prev,next today',
-            center: 'title',
-            right: 'dayGridMonth,timeGridWeek,timeGridDay',
-          }}
+          headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
           height="auto"
           editable={canEdit}
           droppable={canEdit}
           eventDrop={handleEventDrop}
           eventClick={handleEventClick}
           dateClick={handleDateClick}
+          events={fcEvents}
           eventDisplay="block"
           dayMaxEvents={4}
           slotMinTime="07:00:00"
@@ -181,18 +149,11 @@ export default function SchedulePage() {
           firstDay={1}
           locale="en-NZ"
           buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
-          viewDidMount={info => {
-            setView(info.view.type);
-            localStorage.setItem(viewKey, info.view.type);
-            setCalReady(true);
-          }}
-          eventDidMount={({ el, event }) => {
-            el.title = event.title;
-          }}
+          viewDidMount={info => { setView(info.view.type); localStorage.setItem(viewKey, info.view.type); }}
+          eventDidMount={({ el, event }) => { el.title = event.title; }}
         />
       </div>
 
-      {/* Event detail popup */}
       {selectedEvent && (
         <div className={styles.modalOverlay} onClick={() => setSelectedEvent(null)}>
           <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
@@ -202,40 +163,27 @@ export default function SchedulePage() {
             </div>
             <div className={styles.eventDetails}>
               <div className={styles.eventRow}><span>Customer</span><strong>{selectedEvent.customer_name || '—'}</strong></div>
-              <div className={styles.eventRow}><span>Type</span><strong style={{ textTransform: 'capitalize' }}>{selectedEvent.job_type?.replace('_', ' ')}</strong></div>
+              <div className={styles.eventRow}><span>Type</span><strong>{selectedEvent.job_type?.replace('_',' ')}</strong></div>
               {selectedEvent.tech_name && <div className={styles.eventRow}><span>Team Member</span><strong>{selectedEvent.tech_name}</strong></div>}
-              <div className={styles.eventRow}><span>Date</span>
-                <strong>{new Date(selectedEvent.scheduled_date).toLocaleDateString('en-NZ')}</strong>
-              </div>
-              {selectedEvent.start_time && (
-                <div className={styles.eventRow}><span>Time</span>
-                  <strong>{selectedEvent.start_time}{selectedEvent.end_time ? ` – ${selectedEvent.end_time}` : ''}</strong>
-                </div>
-              )}
+              <div className={styles.eventRow}><span>Date</span><strong>{new Date(selectedEvent.scheduled_date).toLocaleDateString('en-NZ')}</strong></div>
+              {selectedEvent.start_time && <div className={styles.eventRow}><span>Time</span><strong>{selectedEvent.start_time}{selectedEvent.end_time ? ` – ${selectedEvent.end_time}` : ''}</strong></div>}
               {selectedEvent.description && <div className={styles.eventRow}><span>Notes</span><strong>{selectedEvent.description}</strong></div>}
-              <div className={styles.eventRow}><span>Status</span>
-                <strong style={{ textTransform: 'capitalize' }}>{selectedEvent.status?.replace('_', ' ')}</strong>
-              </div>
+              <div className={styles.eventRow}><span>Status</span><strong style={{ textTransform:'capitalize' }}>{selectedEvent.status?.replace('_',' ')}</strong></div>
             </div>
             <div className={styles.modalFooter}>
-              <Link to={`/jobs/${selectedEvent.job_id}`} className={styles.btnSecondary} onClick={() => setSelectedEvent(null)}>
-                View Job
-              </Link>
+              <Link to={`/jobs/${selectedEvent.job_id}`} className={styles.btnSecondary} onClick={() => setSelectedEvent(null)}>View Job</Link>
               {canEdit && selectedEvent.schedId && (
                 <button className={styles.btnDanger} onClick={async () => {
                   await api.delete(`/schedules/${selectedEvent.schedId}`);
                   setSelectedEvent(null);
                   loadSchedules();
-                }}>
-                  Remove
-                </button>
+                }}>Remove</button>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Assign modal */}
       {assignTarget && (
         <AssignModal
           date={assignTarget.date}

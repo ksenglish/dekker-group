@@ -327,6 +327,8 @@ export default function ProductList() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [loading, setLoading] = useState(true);
+  const [prodPage, setProdPage] = useState(1);
+  const PROD_PAGE_SIZE = 20;
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -351,7 +353,7 @@ export default function ProductList() {
     } finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); }, [search, category, showInactive]);
+  useEffect(() => { setProdPage(1); load(); }, [search, category, showInactive]);
 
   async function deleteProduct(p) {
     if (!confirm(`Delete "${p.name}"?`)) return;
@@ -396,7 +398,10 @@ export default function ProductList() {
     setEditing(null); setAdding(false);
   }
 
-  const grouped = products.reduce((acc, p) => {
+  const pagedProducts = products.slice((prodPage - 1) * PROD_PAGE_SIZE, prodPage * PROD_PAGE_SIZE);
+  const prodTotalPages = Math.ceil(products.length / PROD_PAGE_SIZE);
+
+  const grouped = pagedProducts.reduce((acc, p) => {
     const cat = p.category || 'Uncategorised';
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(p);
@@ -515,6 +520,14 @@ export default function ProductList() {
             </div>
           </div>
         ))
+      )}
+
+      {prodTotalPages > 1 && (
+        <div className={styles.pagination}>
+          <button className={styles.pageBtn} disabled={prodPage === 1} onClick={() => setProdPage(p => p - 1)}>← Prev</button>
+          <span className={styles.pageInfo}>Page {prodPage} of {prodTotalPages} ({products.length} products)</span>
+          <button className={styles.pageBtn} disabled={prodPage === prodTotalPages} onClick={() => setProdPage(p => p + 1)}>Next →</button>
+        </div>
       )}
 
       {(adding || editing) && (

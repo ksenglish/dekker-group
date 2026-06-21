@@ -3,31 +3,38 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import styles from './Customers.module.css';
 
+const PAGE_SIZE = 20;
+
 export default function CustomerList() {
   const navigate = useNavigate();
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [showImport, setShowImport] = useState(false);
 
-  const load = useCallback(async (q = search) => {
+  const load = useCallback(async (q = search, p = page) => {
     setLoading(true);
     try {
-      const { data } = await api.get('/customers', { params: { search: q, limit: 50 } });
+      const { data } = await api.get('/customers', { params: { search: q, limit: PAGE_SIZE, page: p } });
       setCustomers(data.customers);
       setTotal(data.total);
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, page]);
 
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => load(search), 300);
+    const t = setTimeout(() => { setPage(1); load(search, 1); }, 300);
     return () => clearTimeout(t);
   }, [search]);
+
+  useEffect(() => { load(search, page); }, [page]);
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
     <div className={styles.page}>
@@ -74,6 +81,14 @@ export default function CustomerList() {
               <span>{c.email || <span className={styles.muted}>—</span>}</span>
             </Link>
           ))}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className={styles.pagination}>
+          <button className={styles.pageBtn} disabled={page === 1} onClick={() => setPage(p => p - 1)}>← Prev</button>
+          <span className={styles.pageInfo}>Page {page} of {totalPages}</span>
+          <button className={styles.pageBtn} disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>Next →</button>
         </div>
       )}
 
