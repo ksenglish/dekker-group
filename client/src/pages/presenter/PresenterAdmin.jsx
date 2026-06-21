@@ -64,7 +64,7 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
       name: pl.name,
       description: pl.description || f.description,
       price_from: pl.unit_price ? (pl.unit_price / 100).toFixed(2) : f.price_from,
-      image_base64: pl.image_base64 || f.image_base64,
+      image_base64: pl.media_base64 || f.image_base64,
     }));
   }
 

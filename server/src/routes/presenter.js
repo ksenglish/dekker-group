@@ -171,7 +171,7 @@ router.get('/sections/:id/products', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT pp.*,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
-         pl.description AS pl_description, pl.image_base64 AS pl_image
+         pl.description AS pl_description, pl.media_base64 AS pl_image
        FROM presenter_products pp
        LEFT JOIN products pl ON pl.id = pp.price_list_product_id
        WHERE pp.section_id=$1 ORDER BY pp.sort_order, pp.name`,
@@ -186,7 +186,7 @@ router.get('/subcategories/:id/products', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT pp.*,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
-         pl.description AS pl_description, pl.image_base64 AS pl_image
+         pl.description AS pl_description, pl.media_base64 AS pl_image
        FROM presenter_products pp
        LEFT JOIN products pl ON pl.id = pp.price_list_product_id
        WHERE pp.subcategory_id=$1 ORDER BY pp.sort_order, pp.name`,
