@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/auth/LoginPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
+import SetPasswordPage from './pages/auth/SetPasswordPage';
 import AppShell from './components/layout/AppShell';
 import PublicQuote from './pages/quotes/PublicQuote';
 import Dashboard from './pages/Dashboard';
@@ -25,6 +26,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
           <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
+          <Route path="/set-password/:token" element={<SetPasswordPage />} />
           <Route path="/q/:token" element={<PublicQuote />} />
           <Route path="/*" element={
             <PrivateRoute>

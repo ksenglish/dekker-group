@@ -118,10 +118,23 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
+  const [inviting, setInviting] = useState(null); // userId
 
   useEffect(() => {
     api.get('/users').then(r => setUsers(r.data)).finally(() => setLoading(false));
   }, []);
+
+  async function sendInvite(u) {
+    setInviting(u.id);
+    try {
+      await api.post(`/users/${u.id}/invite`);
+      alert(`Invite sent to ${u.email}`);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to send invite');
+    } finally {
+      setInviting(null);
+    }
+  }
 
   async function deleteUser(u) {
     if (!confirm(`Remove ${u.name}? This cannot be undone.`)) return;
@@ -173,6 +186,10 @@ export default function UsersPage() {
               <div><span className={`${styles.badge} ${u.is_active ? styles.badgeActive : styles.badgeInactive}`}>{u.is_active ? 'Active' : 'Inactive'}</span></div>
               <div className={styles.dateCell}>{new Date(u.created_at).toLocaleDateString('en-NZ')}</div>
               <div className={styles.actions}>
+                <button className={styles.btnIcon} onClick={() => sendInvite(u)} title="Send invite email"
+                  disabled={inviting === u.id} style={{ fontSize: 16 }}>
+                  {inviting === u.id ? '…' : '✉'}
+                </button>
                 <button className={styles.btnIcon} onClick={() => setEditing(u)} title="Edit">✏</button>
                 {u.id !== currentUser.id && (
                   <button className={styles.btnIcon} onClick={() => deleteUser(u)} title="Delete">🗑</button>

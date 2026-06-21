@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { sendResetEmail } = require('../controllers/authController');
 
 // Get all users (admin only)
 router.get('/', authenticate, requireRole('admin'), async (req, res) => {
@@ -60,6 +61,26 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Email already in use' });
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Send invite email (admin only)
+router.post('/:id/invite', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT id, name, email FROM users WHERE id=$1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    const { name, email } = rows[0];
+    await sendResetEmail({
+      userId: rows[0].id, userEmail: email, userName: name,
+      subject: `You've been invited to Dekker App`,
+      bodyHeading: `Welcome to Dekker App, ${name}!`,
+      bodyText: `You've been added as a team member. Click the button below to set your password and get started.`,
+      buttonLabel: 'Set My Password',
+    });
+    res.json({ message: `Invite sent to ${email}` });
+  } catch (err) {
+    console.error('Invite error:', err);
+    res.status(500).json({ error: err.message || 'Failed to send invite' });
   }
 });
 
