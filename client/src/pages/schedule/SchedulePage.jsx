@@ -29,7 +29,8 @@ export default function SchedulePage() {
   const [filterTech, setFilterTech] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null); // { jobId, date } for new assignment
-  const [view, setView] = useState('dayGridMonth');
+  const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
+  const [view, setView] = useState(() => localStorage.getItem(viewKey) || 'dayGridMonth');
 
   // Load techs
   useEffect(() => {
@@ -178,11 +179,16 @@ export default function SchedulePage() {
           events={loadEvents}
           eventDisplay="block"
           dayMaxEvents={4}
+          slotMinTime="07:00:00"
+          slotMaxTime="20:30:00"
           nowIndicator
           firstDay={1}
           locale="en-NZ"
           buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
-          viewDidMount={info => setView(info.view.type)}
+          viewDidMount={info => {
+            setView(info.view.type);
+            localStorage.setItem(viewKey, info.view.type);
+          }}
           eventDidMount={({ el, event }) => {
             el.title = event.title;
           }}
