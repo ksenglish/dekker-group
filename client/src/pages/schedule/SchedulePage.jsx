@@ -25,10 +25,12 @@ export default function SchedulePage() {
   const { user } = useAuth();
   const calRef = useRef(null);
   const [searchParams] = useSearchParams();
+  const [events, setEvents] = useState([]);
   const [techMap, setTechMap] = useState({});   // id -> name
   const [filterTech, setFilterTech] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
-  const [assignTarget, setAssignTarget] = useState(null); // { jobId, date } for new assignment
+  const [assignTarget, setAssignTarget] = useState(null);
+  const [calRange, setCalRange] = useState(null); // { from, to } of current visible range
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
   const [view, setView] = useState(() => localStorage.getItem(viewKey) || 'dayGridMonth');
 
@@ -50,20 +52,14 @@ export default function SchedulePage() {
     }).catch(() => {});
   }, []);
 
-  // Load schedule + unscheduled jobs with due dates
-  const loadEvents = useCallback(async (fetchInfo) => {
-    const from = fetchInfo?.startStr?.split('T')[0];
-    const to = fetchInfo?.endStr?.split('T')[0];
-
+  // Fetch events whenever range, filter or techMap changes
+  const fetchEvents = useCallback(async (from, to) => {
+    if (!from || !to) return;
     try {
-      const [schedRes, jobsRes] = await Promise.all([
+      const [schedRes] = await Promise.all([
         api.get('/schedules', { params: { from, to, ...(filterTech ? { tech: filterTech } : {}) } }),
-        api.get('/jobs', { params: { from, to, limit: 200 } }),
       ]);
 
-      const scheduledJobIds = new Set(schedRes.data.map(s => s.job_id));
-
-      // Scheduled events
       const schedEvents = schedRes.data.map(s => ({
         id: `sched-${s.id}`,
         schedId: s.id,
@@ -77,34 +73,19 @@ export default function SchedulePage() {
         extendedProps: { ...s, type: 'scheduled' },
       }));
 
-      // Unscheduled jobs with due dates shown as grey placeholders
-      const unscheduledEvents = jobsRes.data.jobs
-        .filter(j => !scheduledJobIds.has(j.id) && j.due_date && j.status !== 'complete' && j.status !== 'cancelled')
-        .map(j => ({
-          id: `job-${j.id}`,
-          jobId: j.id,
-          title: `#${j.job_number} ${j.customer_name || ''} (unscheduled)`,
-          start: j.due_date,
-          allDay: true,
-          backgroundColor: '#94a3b8',
-          borderColor: '#94a3b8',
-          extendedProps: { ...j, type: 'unscheduled' },
-        }));
-
-      return [...schedEvents, ...unscheduledEvents];
+      setEvents(schedEvents);
     } catch {
-      return [];
+      // ignore
     }
   }, [filterTech, techMap]);
 
-  // Refetch when filter or techMap changes
   useEffect(() => {
-    const cal = calRef.current?.getApi();
-    if (!cal) return;
-    const info = cal.currentData?.dateProfile;
-    if (!info) { cal.refetchEvents(); return; }
-    cal.refetchEvents();
-  }, [filterTech, techMap]);
+    if (calRange) fetchEvents(calRange.from, calRange.to);
+  }, [filterTech, techMap, fetchEvents]);
+
+  function reloadEvents() {
+    if (calRange) fetchEvents(calRange.from, calRange.to);
+  }
 
   async function handleEventDrop({ event, revert }) {
     const { jobId, type } = event.extendedProps;
@@ -123,13 +104,13 @@ export default function SchedulePage() {
 
   function handleDateClick({ dateStr }) {
     if (user?.role === 'field_tech') return;
-    // Open assign modal for this date
-    setAssignTarget({ date: dateStr });
+    const jobId = searchParams.get('job') || undefined;
+    setAssignTarget({ date: dateStr.split('T')[0], jobId });
   }
 
   function handleAssigned() {
     setAssignTarget(null);
-    calRef.current?.getApi().refetchEvents();
+    reloadEvents();
   }
 
   const canEdit = user?.role !== 'field_tech';
@@ -185,7 +166,7 @@ export default function SchedulePage() {
           eventDrop={handleEventDrop}
           eventClick={handleEventClick}
           dateClick={handleDateClick}
-          events={loadEvents}
+          events={events}
           eventDisplay="block"
           dayMaxEvents={4}
           slotMinTime="07:00:00"
@@ -194,6 +175,12 @@ export default function SchedulePage() {
           firstDay={1}
           locale="en-NZ"
           buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
+          datesSet={info => {
+            const from = info.startStr.split('T')[0];
+            const to = info.endStr.split('T')[0];
+            setCalRange({ from, to });
+            fetchEvents(from, to);
+          }}
           viewDidMount={info => {
             setView(info.view.type);
             localStorage.setItem(viewKey, info.view.type);
@@ -238,7 +225,7 @@ export default function SchedulePage() {
                 <button className={styles.btnDanger} onClick={async () => {
                   await api.delete(`/schedules/${selectedEvent.schedId}`);
                   setSelectedEvent(null);
-                  calRef.current?.getApi().refetchEvents();
+                  reloadEvents();
                 }}>
                   Unschedule
                 </button>

@@ -173,8 +173,21 @@ export default function JobForm({ initial, onSave, onCancel }) {
 
       <div className={styles.formActions}>
         <button type="button" className={styles.btnSecondary} onClick={onCancel}>Cancel</button>
-        <button type="button" className={styles.btnSecondary} onClick={() => navigate('/schedule')}>
-          Schedule
+        <button type="button" className={styles.btnSecondary} disabled={saving} onClick={async () => {
+          if (!form.type) { setError('Job type is required'); return; }
+          setSaving(true); setError('');
+          try {
+            const payload = { ...form, customer_id: form.customer_id || null, site_id: form.site_id || null };
+            const { data } = initial?.id
+              ? await api.put(`/jobs/${initial.id}`, payload)
+              : await api.post('/jobs', payload);
+            navigate(`/schedule?job=${data.id}`);
+          } catch (err) {
+            setError(err.response?.data?.error || 'Save failed');
+            setSaving(false);
+          }
+        }}>
+          Save & Schedule
         </button>
         <button type="submit" className={styles.btnPrimary} disabled={saving}>
           {saving ? 'Saving…' : initial?.id ? 'Save Changes' : 'Create Job'}
