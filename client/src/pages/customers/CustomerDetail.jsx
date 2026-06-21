@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import AddressAutocomplete from '../../components/AddressAutocomplete';
 import styles from './Customers.module.css';
 
 const STATUS_COLOURS = {
@@ -222,7 +223,19 @@ export default function CustomerDetail() {
                   <div className={styles.formGrid}>
                     <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
                       <label>Street Address</label>
-                      <input value={form.address_street} onChange={e => set('address_street', e.target.value)} placeholder="e.g. 40A Montgomery Road" />
+                      <AddressAutocomplete
+                        value={form.address_street}
+                        onChange={v => set('address_street', v)}
+                        onSelect={({ street, city, region, postcode, country }) => setForm(f => ({
+                          ...f,
+                          address_street:   street,
+                          address_city:     city    || f.address_city,
+                          address_region:   region  || f.address_region,
+                          address_postcode: postcode || f.address_postcode,
+                          address_country:  country || f.address_country,
+                        }))}
+                        placeholder="Start typing an address…"
+                      />
                     </div>
                     <div className={styles.field}>
                       <label>City / Suburb</label>
