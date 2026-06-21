@@ -46,13 +46,7 @@ export default function SchedulePage() {
 
   // Fetch all schedules — simple, no date range needed
   function loadSchedules() {
-    console.log('[Schedule] Loading schedules...');
-    api.get('/schedules')
-      .then(r => {
-        console.log('[Schedule] Got schedules:', r.data.length, r.data);
-        setRawSchedules(r.data);
-      })
-      .catch(err => console.error('[Schedule] Load error:', err.response?.status, err.response?.data));
+    api.get('/schedules').then(r => setRawSchedules(r.data)).catch(() => {});
   }
 
   useEffect(() => { loadSchedules(); }, []);
@@ -71,8 +65,8 @@ export default function SchedulePage() {
       schedId: s.id,
       jobId: s.job_id,
       title: `#${s.job_number} ${s.customer_name || ''} — ${s.tech_name || ''}`,
-      start: s.start_time ? `${s.scheduled_date}T${s.start_time}` : s.scheduled_date,
-      end: s.end_time ? `${s.scheduled_date}T${s.end_time}` : undefined,
+      start: s.start_time ? `${s.scheduled_date.split('T')[0]}T${s.start_time}` : s.scheduled_date.split('T')[0],
+      end: s.end_time ? `${s.scheduled_date.split('T')[0]}T${s.end_time}` : undefined,
       allDay: !s.start_time,
       backgroundColor: techColour(s.user_id),
       borderColor: techColour(s.user_id),
@@ -138,11 +132,6 @@ export default function SchedulePage() {
           ))}
         </div>
       )}
-
-      {/* DEBUG — remove once calendar is confirmed working */}
-      <div style={{ fontSize: 12, color: '#64748b', padding: '4px 0 8px', fontFamily: 'monospace' }}>
-        Schedule entries loaded: {rawSchedules.length} | Showing: {events.length}
-      </div>
 
       <div className={styles.calendarWrap}>
         <FullCalendar
