@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -9,28 +9,20 @@ import { useAuth } from '../../context/AuthContext';
 import AssignModal from './AssignModal';
 import styles from './Schedule.module.css';
 
-// Stable palette — one colour per technician
 const TECH_COLOURS = [
   '#1e40af', '#0891b2', '#7c3aed', '#16a34a',
   '#d97706', '#dc2626', '#9333ea', '#0f766e',
 ];
 
-function techColour(techId, techMap) {
-  const keys = Object.keys(techMap);
-  const idx = keys.indexOf(techId);
-  return TECH_COLOURS[idx % TECH_COLOURS.length] || '#1e40af';
-}
-
 export default function SchedulePage() {
   const { user } = useAuth();
   const calRef = useRef(null);
   const [searchParams] = useSearchParams();
-  const [events, setEvents] = useState([]);
-  const [techMap, setTechMap] = useState({});   // id -> name
+  const [rawSchedules, setRawSchedules] = useState([]);
+  const [techMap, setTechMap] = useState({});
   const [filterTech, setFilterTech] = useState('');
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
-  const calRangeRef = useRef(null); // always up-to-date, no stale closure issues
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
   const [view, setView] = useState(() => localStorage.getItem(viewKey) || 'dayGridMonth');
 
@@ -43,7 +35,7 @@ export default function SchedulePage() {
     }
   }, []);
 
-  // Load techs
+  // Load techs once
   useEffect(() => {
     api.get('/users').then(r => {
       const map = {};
@@ -52,47 +44,42 @@ export default function SchedulePage() {
     }).catch(() => {});
   }, []);
 
-  // Fetch events whenever range, filter or techMap changes
-  const fetchEvents = useCallback(async (from, to) => {
-    if (!from || !to) return;
-    try {
-      const [schedRes] = await Promise.all([
-        api.get('/schedules', { params: { from, to, ...(filterTech ? { tech: filterTech } : {}) } }),
-      ]);
-
-      const schedEvents = schedRes.data.map(s => ({
-        id: `sched-${s.id}`,
-        schedId: s.id,
-        jobId: s.job_id,
-        title: `#${s.job_number} ${s.customer_name || ''} — ${s.tech_name}`,
-        start: s.start_time ? `${s.scheduled_date}T${s.start_time}` : s.scheduled_date,
-        end: s.end_time ? `${s.scheduled_date}T${s.end_time}` : undefined,
-        allDay: !s.start_time,
-        backgroundColor: techColour(s.user_id, techMap),
-        borderColor: techColour(s.user_id, techMap),
-        extendedProps: { ...s, type: 'scheduled' },
-      }));
-
-      setEvents(schedEvents);
-    } catch {
-      // ignore
-    }
-  }, [filterTech, techMap]);
-
-  useEffect(() => {
-    if (calRangeRef.current) fetchEvents(calRangeRef.current.from, calRangeRef.current.to);
-  }, [filterTech, techMap, fetchEvents]);
-
-  function reloadEvents() {
-    if (calRangeRef.current) fetchEvents(calRangeRef.current.from, calRangeRef.current.to);
+  // Fetch all schedules — simple, no date range needed
+  function loadSchedules() {
+    api.get('/schedules').then(r => setRawSchedules(r.data)).catch(() => {});
   }
 
+  useEffect(() => { loadSchedules(); }, []);
+
+  // Build FullCalendar event objects from raw schedule rows
+  const techKeys = Object.keys(techMap);
+  function techColour(userId) {
+    const idx = techKeys.indexOf(userId);
+    return TECH_COLOURS[idx >= 0 ? idx % TECH_COLOURS.length : 0];
+  }
+
+  const events = rawSchedules
+    .filter(s => !filterTech || s.user_id === filterTech)
+    .map(s => ({
+      id: `sched-${s.id}`,
+      schedId: s.id,
+      jobId: s.job_id,
+      title: `#${s.job_number} ${s.customer_name || ''} — ${s.tech_name || ''}`,
+      start: s.start_time ? `${s.scheduled_date}T${s.start_time}` : s.scheduled_date,
+      end: s.end_time ? `${s.scheduled_date}T${s.end_time}` : undefined,
+      allDay: !s.start_time,
+      backgroundColor: techColour(s.user_id),
+      borderColor: techColour(s.user_id),
+      extendedProps: { ...s, type: 'scheduled' },
+    }));
+
   async function handleEventDrop({ event, revert }) {
-    const { jobId, type } = event.extendedProps;
+    const { jobId } = event.extendedProps;
     if (!jobId) return;
     const date = event.startStr.split('T')[0];
     try {
       await api.patch(`/schedules/jobs/${jobId}/reschedule`, { date });
+      loadSchedules();
     } catch {
       revert();
     }
@@ -110,7 +97,7 @@ export default function SchedulePage() {
 
   function handleAssigned() {
     setAssignTarget(null);
-    reloadEvents();
+    loadSchedules();
   }
 
   const canEdit = user?.role !== 'field_tech';
@@ -120,12 +107,12 @@ export default function SchedulePage() {
       <div className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>Schedule</h1>
-          <p className={styles.pageSubtitle}>Drag jobs to reschedule · Click a date to assign</p>
+          <p className={styles.pageSubtitle}>Click a date to schedule a job · Drag to reschedule</p>
         </div>
         <div className={styles.headerActions}>
           {Object.keys(techMap).length > 0 && (
             <select className={styles.filterSelect} value={filterTech} onChange={e => setFilterTech(e.target.value)}>
-              <option value="">All technicians</option>
+              <option value="">All team members</option>
               {Object.entries(techMap).map(([id, name]) => (
                 <option key={id} value={id}>{name}</option>
               ))}
@@ -134,19 +121,15 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {/* Technician legend */}
+      {/* Legend */}
       {Object.keys(techMap).length > 0 && (
         <div className={styles.legend}>
           {Object.entries(techMap).map(([id, name]) => (
             <div key={id} className={styles.legendItem}>
-              <span className={styles.legendDot} style={{ background: techColour(id, techMap) }} />
+              <span className={styles.legendDot} style={{ background: techColour(id) }} />
               {name}
             </div>
           ))}
-          <div className={styles.legendItem}>
-            <span className={styles.legendDot} style={{ background: '#94a3b8' }} />
-            Unscheduled (due date)
-          </div>
         </div>
       )}
 
@@ -175,12 +158,6 @@ export default function SchedulePage() {
           firstDay={1}
           locale="en-NZ"
           buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
-          datesSet={info => {
-            const from = info.startStr.split('T')[0];
-            const to = info.endStr.split('T')[0];
-            calRangeRef.current = { from, to };
-            fetchEvents(from, to);
-          }}
           viewDidMount={info => {
             setView(info.view.type);
             localStorage.setItem(viewKey, info.view.type);
@@ -201,33 +178,32 @@ export default function SchedulePage() {
             </div>
             <div className={styles.eventDetails}>
               <div className={styles.eventRow}><span>Customer</span><strong>{selectedEvent.customer_name || '—'}</strong></div>
-              <div className={styles.eventRow}><span>Type</span><strong style={{ textTransform: 'capitalize' }}>{selectedEvent.type?.replace('_', ' ')}</strong></div>
-              {selectedEvent.tech_name && <div className={styles.eventRow}><span>Technician</span><strong>{selectedEvent.tech_name}</strong></div>}
-              <div className={styles.eventRow}><span>Date</span><strong>{new Date(selectedEvent.scheduled_date || selectedEvent.due_date).toLocaleDateString('en-NZ')}</strong></div>
-              {selectedEvent.description && <div className={styles.eventRow}><span>Description</span><strong>{selectedEvent.description}</strong></div>}
+              <div className={styles.eventRow}><span>Type</span><strong style={{ textTransform: 'capitalize' }}>{selectedEvent.job_type?.replace('_', ' ')}</strong></div>
+              {selectedEvent.tech_name && <div className={styles.eventRow}><span>Team Member</span><strong>{selectedEvent.tech_name}</strong></div>}
+              <div className={styles.eventRow}><span>Date</span>
+                <strong>{new Date(selectedEvent.scheduled_date).toLocaleDateString('en-NZ')}</strong>
+              </div>
+              {selectedEvent.start_time && (
+                <div className={styles.eventRow}><span>Time</span>
+                  <strong>{selectedEvent.start_time}{selectedEvent.end_time ? ` – ${selectedEvent.end_time}` : ''}</strong>
+                </div>
+              )}
+              {selectedEvent.description && <div className={styles.eventRow}><span>Notes</span><strong>{selectedEvent.description}</strong></div>}
               <div className={styles.eventRow}><span>Status</span>
                 <strong style={{ textTransform: 'capitalize' }}>{selectedEvent.status?.replace('_', ' ')}</strong>
               </div>
             </div>
             <div className={styles.modalFooter}>
-              <Link to={`/jobs/${selectedEvent.job_id || selectedEvent.id}`} className={styles.btnSecondary} onClick={() => setSelectedEvent(null)}>
+              <Link to={`/jobs/${selectedEvent.job_id}`} className={styles.btnSecondary} onClick={() => setSelectedEvent(null)}>
                 View Job
               </Link>
-              {canEdit && selectedEvent.type === 'unscheduled' && (
-                <button className={styles.btnPrimary} onClick={() => {
-                  setSelectedEvent(null);
-                  setAssignTarget({ date: selectedEvent.due_date, jobId: selectedEvent.job_id || selectedEvent.id });
-                }}>
-                  Assign Tech
-                </button>
-              )}
               {canEdit && selectedEvent.schedId && (
                 <button className={styles.btnDanger} onClick={async () => {
                   await api.delete(`/schedules/${selectedEvent.schedId}`);
                   setSelectedEvent(null);
-                  reloadEvents();
+                  loadSchedules();
                 }}>
-                  Unschedule
+                  Remove
                 </button>
               )}
             </div>

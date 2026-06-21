@@ -10,7 +10,7 @@ async function list(req, res) {
   if (to)   { conditions.push(`s.scheduled_date <= $${p}`); params.push(to);   p++; }
   if (tech) { conditions.push(`s.user_id = $${p}`);         params.push(tech); p++; }
 
-  if (req.user.role === 'field_tech') {
+  if (req.user.role === 'field_tech' || req.user.role === 'subcontractor') {
     conditions.push(`s.user_id = $${p}`);
     params.push(req.user.id); p++;
   }
@@ -18,7 +18,7 @@ async function list(req, res) {
   try {
     const { rows } = await pool.query(
       `SELECT s.*,
-              j.job_number, j.type, j.status, j.description, j.priority,
+              j.job_number, j.type AS job_type, j.status, j.description,
               c.name AS customer_name,
               u.name AS tech_name
        FROM schedules s
