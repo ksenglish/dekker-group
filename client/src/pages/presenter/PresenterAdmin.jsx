@@ -45,30 +45,56 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
     price_list_product_id: product?.price_list_product_id || '',
   });
   const [priceListProducts, setPriceListProducts] = useState([]);
+  const [plSearch, setPlSearch] = useState('');
+  const [plOpen, setPlOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const plRef = useRef();
 
   useEffect(() => {
-    // Load name/price only for dropdown — exclude heavy image data
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
   }, []);
 
-  async function handlePriceListPick(e) {
-    const id = e.target.value;
-    set('price_list_product_id', id);
-    if (!id) return;
-    // Fetch full product to get media_base64 image
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e) { if (plRef.current && !plRef.current.contains(e.target)) setPlOpen(false); }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  // Show the linked product name in the search box when editing an existing product
+  useEffect(() => {
+    if (product?.price_list_product_id && priceListProducts.length > 0) {
+      const pl = priceListProducts.find(p => p.id === product.price_list_product_id);
+      if (pl) setPlSearch(pl.name);
+    }
+  }, [priceListProducts]);
+
+  const plFiltered = plSearch.trim()
+    ? priceListProducts.filter(p => p.name.toLowerCase().includes(plSearch.toLowerCase()) || (p.description || '').toLowerCase().includes(plSearch.toLowerCase()))
+    : priceListProducts;
+
+  async function handlePriceListPick(pl) {
+    setPlSearch(pl.name);
+    setPlOpen(false);
+    set('price_list_product_id', pl.id);
     try {
-      const { data: pl } = await api.get(`/products/${id}`);
+      const { data: full } = await api.get(`/products/${pl.id}`);
       setForm(f => ({
         ...f,
-        price_list_product_id: id,
-        name: pl.name,
-        description: pl.description || f.description,
-        price_from: pl.unit_price ? (pl.unit_price / 100).toFixed(2) : f.price_from,
-        image_base64: pl.media_base64 || f.image_base64,
+        price_list_product_id: pl.id,
+        name: full.name,
+        description: full.description || f.description,
+        price_from: full.unit_price ? (full.unit_price / 100).toFixed(2) : f.price_from,
+        image_base64: full.media_base64 || f.image_base64,
       }));
     } catch { /* leave existing fields unchanged */ }
+  }
+
+  function handlePlClear() {
+    setPlSearch('');
+    set('price_list_product_id', '');
+    setPlOpen(false);
   }
 
   async function handleSave(e) {
@@ -98,17 +124,46 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
   return (
     <form onSubmit={handleSave} className={styles.productForm}>
       <div className={styles.formGrid}>
-        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+        <div className={styles.field} style={{ gridColumn: '1 / -1' }} ref={plRef}>
           <label>Link from Price List <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(optional — auto-fills fields below)</span></label>
-          <select value={form.price_list_product_id} onChange={handlePriceListPick}>
-            <option value="">— Pick a price list product —</option>
-            {priceListProducts.map(p => (
-              <option key={p.id} value={p.id}>{p.name}{p.unit_price ? ` — $${(p.unit_price / 100).toFixed(2)}` : ''}</option>
-            ))}
-          </select>
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                value={plSearch}
+                onChange={e => { setPlSearch(e.target.value); setPlOpen(true); }}
+                onFocus={() => setPlOpen(true)}
+                placeholder="Search price list…"
+                style={{ flex: 1, padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13, outline: 'none' }}
+                autoComplete="off"
+              />
+              {form.price_list_product_id && (
+                <button type="button" onClick={handlePlClear}
+                  style={{ padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', background: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--color-text-muted)' }}>
+                  ✕ Clear
+                </button>
+              )}
+            </div>
+            {plOpen && plFiltered.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'white', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 220, overflowY: 'auto', marginTop: 2 }}>
+                {plFiltered.map(p => (
+                  <div key={p.id} onMouseDown={() => handlePriceListPick(p)}
+                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--color-border)', fontSize: 13 }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                    <div style={{ fontWeight: 500 }}>{p.name}</div>
+                    {(p.unit_price || p.category) && (
+                      <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                        {p.category}{p.category && p.unit_price ? ' · ' : ''}{p.unit_price ? `$${(p.unit_price / 100).toFixed(2)}` : ''}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           {form.price_list_product_id && (
-            <span style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4, display: 'block' }}>
-              Linked — price list pricing will be used when adding to quotes/jobs
+            <span style={{ fontSize: 12, color: '#16a34a', marginTop: 4, display: 'block' }}>
+              ✓ Linked — price list pricing will be used when adding to quotes/jobs
             </span>
           )}
         </div>
