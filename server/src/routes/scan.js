@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const Anthropic = require('@anthropic-ai/sdk');
 const { authenticate } = require('../middleware/auth');
 
 router.use(authenticate);
@@ -60,27 +59,17 @@ router.post('/plan', async (req, res) => {
   const { data_base64, mime_type } = req.body;
   if (!data_base64 || !mime_type) return res.status(400).json({ error: 'Image data required' });
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not configured on this server' });
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured on this server' });
 
   try {
-    const client = new Anthropic({ apiKey });
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
     const base64Data = data_base64.replace(/^data:[^;]+;base64,/, '');
     const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime_type) ? mime_type : 'image/jpeg';
 
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: validMime, data: base64Data },
-          },
-          {
-            type: 'text',
-            text: `You are a building measurement expert. Analyse this floor plan or room plan image and calculate the total floor area in square metres (m²).
+    const prompt = `You are a building measurement expert. Analyse this floor plan or room plan image and calculate the total floor area in square metres (m²).
 
 Instructions:
 1. Find all labelled dimensions on the plan (e.g. 4200, 3.5m, 12'6", etc.)
@@ -89,29 +78,30 @@ Instructions:
 4. If multiple rooms are shown, calculate each room's area and sum them unless the plan clearly shows only one room is intended
 5. Ignore wall thickness unless dimensions are clearly interior measurements
 
-Return ONLY a JSON object, no markdown, no explanation:
+Return ONLY a JSON object, no markdown fences, no explanation:
 {"area_m2": <number>, "dimensions_found": ["list of key dimensions you found"], "notes": "<brief explanation of how you calculated it>", "confidence": "high|medium|low"}
 
-If you cannot determine the area from the image, return: {"area_m2": null, "error": "reason why"}`,
-          },
-        ],
-      }],
-    });
+If you cannot determine the area from the image, return: {"area_m2": null, "error": "reason why"}`;
 
-    const raw = message.content[0].text.trim();
+    const result = await model.generateContent([
+      prompt,
+      { inlineData: { mimeType: validMime, data: base64Data } },
+    ]);
+
+    const raw = result.response.text().trim();
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return res.status(422).json({ error: 'Could not parse AI response' });
 
-    const result = JSON.parse(match[0]);
-    if (result.area_m2 == null) {
-      return res.status(422).json({ error: result.error || 'Could not determine area from image' });
+    const parsed = JSON.parse(match[0]);
+    if (parsed.area_m2 == null) {
+      return res.status(422).json({ error: parsed.error || 'Could not determine area from image' });
     }
 
     res.json({
-      area_m2: Math.round(result.area_m2 * 100) / 100,
-      dimensions_found: result.dimensions_found || [],
-      notes: result.notes || '',
-      confidence: result.confidence || 'medium',
+      area_m2: Math.round(parsed.area_m2 * 100) / 100,
+      dimensions_found: parsed.dimensions_found || [],
+      notes: parsed.notes || '',
+      confidence: parsed.confidence || 'medium',
     });
   } catch (err) {
     console.error('Plan scan error:', err);
