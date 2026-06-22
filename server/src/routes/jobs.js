@@ -88,4 +88,76 @@ router.delete('/:id/attachments/:attId', async (req, res) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// ── Job Costs ─────────────────────────────────────────────────────────────────
+
+router.get('/:id/costs', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.*, s.gst_treatment, s.created_at AS scan_date
+       FROM job_costs c
+       LEFT JOIN job_cost_scans s ON s.id = c.scan_id
+       WHERE c.job_id=$1 ORDER BY c.created_at, c.sort_order`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/:id/costs', async (req, res) => {
+  const { items, document_base64, mime_type, gst_treatment } = req.body;
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
+  try {
+    let scanId = null;
+    if (document_base64) {
+      const { rows: [scan] } = await pool.query(
+        `INSERT INTO job_cost_scans (job_id, document_base64, mime_type, gst_treatment)
+         VALUES ($1,$2,$3,$4) RETURNING id`,
+        [req.params.id, document_base64, mime_type || 'image/jpeg', gst_treatment || 'exclusive']
+      );
+      scanId = scan.id;
+    }
+    const inserted = [];
+    for (let i = 0; i < items.length; i++) {
+      const { description, quantity, unit_price } = items[i];
+      const { rows: [row] } = await pool.query(
+        `INSERT INTO job_costs (job_id, scan_id, description, quantity, unit_price, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [req.params.id, scanId, description, quantity || 1, Math.round((unit_price || 0) * 100), i]
+      );
+      inserted.push(row);
+    }
+    res.status(201).json({ items: inserted, scan_id: scanId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/:id/costs/:costId', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM job_costs WHERE id=$1 AND job_id=$2', [req.params.costId, req.params.id]);
+    res.json({ message: 'Deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/:id/cost-scans', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, job_id, mime_type, gst_treatment, created_at FROM job_cost_scans WHERE job_id=$1 ORDER BY created_at DESC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.get('/:id/cost-scans/:scanId/document', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT document_base64, mime_type FROM job_cost_scans WHERE id=$1 AND job_id=$2',
+      [req.params.scanId, req.params.id]
+    );
+    if (!rows[0] || !rows[0].document_base64) return res.status(404).json({ error: 'Not found' });
+    const buf = Buffer.from(rows[0].document_base64.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    res.set('Content-Type', rows[0].mime_type || 'image/jpeg');
+    res.send(buf);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 module.exports = router;

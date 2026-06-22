@@ -593,16 +593,7 @@ export default function JobDetail() {
 
           {activeTab === 'costs' && (
             <div className={styles.card}>
-              <JobCosts
-                jobId={id}
-                lineItems={job.line_items || []}
-                readonly={user?.role === 'field_tech'}
-                onItemsAdded={async () => {
-                  const { data: updated } = await api.get(`/jobs/${id}`);
-                  setJob(updated);
-                  setEmailFlash('Costs added to job');
-                }}
-              />
+              <JobCosts jobId={id} readonly={user?.role === 'field_tech'} />
             </div>
           )}
 
