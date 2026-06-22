@@ -1,23 +1,26 @@
 const express = require('express');
 const router = express.Router();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 const { authenticate } = require('../middleware/auth');
 
 router.use(authenticate);
 
+function groqClient() {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw { status: 503, message: 'GROQ_API_KEY is not configured on this server' };
+  return new Groq({ apiKey });
+}
+
+const VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+
 router.post('/invoice', async (req, res) => {
-  const { filename, mime_type, data_base64 } = req.body;
+  const { mime_type, data_base64 } = req.body;
   if (!data_base64 || !mime_type) return res.status(400).json({ error: 'file data required' });
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured on this server' });
-
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
-
+    const groq = groqClient();
     const base64Data = data_base64.replace(/^data:[^;]+;base64,/, '');
-    const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'].includes(mime_type)
+    const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime_type)
       ? mime_type : 'image/jpeg';
 
     const prompt = `Extract all line items from this invoice or receipt. Return ONLY a JSON array, no markdown fences, no explanation.
@@ -31,12 +34,19 @@ If you cannot find any line items, return an empty array [].
 
 Example: [{"description":"Filter replacement","quantity":2,"unit_price":18.50},{"description":"Labour","quantity":1,"unit_price":120.00}]`;
 
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { mimeType: validMime, data: base64Data } },
-    ]);
+    const response = await groq.chat.completions.create({
+      model: VISION_MODEL,
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: `data:${validMime};base64,${base64Data}` } },
+          { type: 'text', text: prompt },
+        ],
+      }],
+    });
 
-    const raw = result.response.text().trim();
+    const raw = response.choices[0].message.content.trim();
     const match = raw.match(/\[[\s\S]*\]/);
     const items = match ? JSON.parse(match[0]) : [];
 
@@ -50,7 +60,8 @@ Example: [{"description":"Filter replacement","quantity":2,"unit_price":18.50},{
 
     res.json({ items: clean, raw_count: items.length });
   } catch (err) {
-    console.error('Scan error:', err);
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('Invoice scan error:', err);
     res.status(500).json({ error: err.message || 'AI extraction failed' });
   }
 });
@@ -59,15 +70,11 @@ router.post('/plan', async (req, res) => {
   const { data_base64, mime_type } = req.body;
   if (!data_base64 || !mime_type) return res.status(400).json({ error: 'Image data required' });
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'GEMINI_API_KEY is not configured on this server' });
-
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
-
+    const groq = groqClient();
     const base64Data = data_base64.replace(/^data:[^;]+;base64,/, '');
-    const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime_type) ? mime_type : 'image/jpeg';
+    const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime_type)
+      ? mime_type : 'image/jpeg';
 
     const prompt = `You are a building measurement expert. Analyse this floor plan or room plan image and calculate the total floor area in square metres (m²).
 
@@ -83,12 +90,19 @@ Return ONLY a JSON object, no markdown fences, no explanation:
 
 If you cannot determine the area from the image, return: {"area_m2": null, "error": "reason why"}`;
 
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { mimeType: validMime, data: base64Data } },
-    ]);
+    const response = await groq.chat.completions.create({
+      model: VISION_MODEL,
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: `data:${validMime};base64,${base64Data}` } },
+          { type: 'text', text: prompt },
+        ],
+      }],
+    });
 
-    const raw = result.response.text().trim();
+    const raw = response.choices[0].message.content.trim();
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return res.status(422).json({ error: 'Could not parse AI response' });
 
@@ -104,6 +118,7 @@ If you cannot determine the area from the image, return: {"area_m2": null, "erro
       confidence: parsed.confidence || 'medium',
     });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('Plan scan error:', err);
     res.status(500).json({ error: err.message || 'AI scan failed' });
   }
