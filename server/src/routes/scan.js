@@ -14,7 +14,7 @@ router.post('/invoice', async (req, res) => {
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const base64Data = data_base64.replace(/^data:[^;]+;base64,/, '');
     const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'].includes(mime_type)
@@ -64,7 +64,7 @@ router.post('/plan', async (req, res) => {
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     const base64Data = data_base64.replace(/^data:[^;]+;base64,/, '');
     const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime_type) ? mime_type : 'image/jpeg';
