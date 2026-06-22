@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
+import JobCosts from './JobCosts';
 import SalesPresenter from '../presenter/SalesPresenter';
 import styles from './Jobs.module.css';
 
@@ -535,7 +536,7 @@ export default function JobDetail() {
         <div className={styles.detailMain}>
           {/* Tabs */}
           <div className={styles.tabs}>
-            {['details', 'line_items', 'timesheets', 'photos', 'notes'].map(t => (
+            {['details', 'line_items', 'costs', 'timesheets', 'photos', 'notes'].map(t => (
               <button key={t} className={`${styles.tab} ${activeTab === t ? styles.tabActive : ''}`} onClick={() => setActiveTab(t)}>
                 {t === 'line_items' ? 'Line Items' : t.charAt(0).toUpperCase() + t.slice(1)}
                 {t === 'notes' && job.notes?.length > 0 && <span className={styles.tabCount}>{job.notes.length}</span>}
@@ -587,6 +588,21 @@ export default function JobDetail() {
                   <div className={`${styles.totalRow} ${styles.totalFinal}`}><span>Total</span><span>${(total / 100).toFixed(2)}</span></div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'costs' && (
+            <div className={styles.card}>
+              <JobCosts
+                jobId={id}
+                lineItems={job.line_items || []}
+                readonly={user?.role === 'field_tech'}
+                onItemsAdded={async () => {
+                  const { data: updated } = await api.get(`/jobs/${id}`);
+                  setJob(updated);
+                  setEmailFlash('Costs added to job');
+                }}
+              />
             </div>
           )}
 

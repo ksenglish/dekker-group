@@ -32,26 +32,39 @@ router.post('/invoice', async (req, res) => {
           { type: 'image', source: { type: 'base64', media_type: validMime, data: base64Data } },
           {
             type: 'text',
-            text: `Extract all line items from this invoice or receipt. Return ONLY a JSON array, no markdown fences, no explanation.
-Each item must have these fields:
+            text: `Extract all line items from this invoice or receipt.
+
+STEP 1 — Determine GST treatment by reading the document carefully:
+- If there is a separate "GST", "Tax", or "GST (15%)" line showing an amount, the line item prices are GST-EXCLUSIVE (ex-GST). Use them as-is.
+- If the document says "GST inclusive", "incl. GST", or "inc GST" near the prices, the prices are GST-INCLUSIVE. Divide by 1.15 to get ex-GST.
+- If the subtotal + a GST amount = the total, the line item prices are GST-EXCLUSIVE. Use them as-is.
+- If only a grand total is shown with no breakdown, assume GST-INCLUSIVE and divide by 1.15.
+Set "gst_treatment" to "exclusive" or "inclusive" to record which case applies.
+
+STEP 2 — Extract each line item with these fields:
 - "description": string (item name/description)
 - "quantity": number (default 1 if not specified)
-- "unit_price": number in dollars (exclude GST/tax if shown separately; if only GST-inclusive price shown, divide by 1.15)
+- "unit_price": number — always the GST-EXCLUSIVE (ex-GST) price after applying Step 1
 
 Ignore totals, subtotals, GST lines, freight/delivery charges, and payment terms.
-If you cannot find any line items, return an empty array [].
+If you cannot find any line items, return: {"gst_treatment":"exclusive","items":[]}
 
-Example: [{"description":"Filter replacement","quantity":2,"unit_price":18.50},{"description":"Labour","quantity":1,"unit_price":120.00}]`,
+Return ONLY a JSON object, no markdown fences, no explanation:
+{"gst_treatment":"exclusive","items":[{"description":"Filter replacement","quantity":2,"unit_price":18.50}]}`,
           },
         ],
       }],
     });
 
     const raw = message.content[0].text.trim();
-    const match = raw.match(/\[[\s\S]*\]/);
-    const items = match ? JSON.parse(match[0]) : [];
+    const objMatch = raw.match(/\{[\s\S]*\}/);
+    let parsed = {};
+    try { parsed = objMatch ? JSON.parse(objMatch[0]) : {}; } catch { parsed = {}; }
 
-    const clean = items
+    const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+    const gst_treatment = parsed.gst_treatment === 'inclusive' ? 'inclusive' : 'exclusive';
+
+    const clean = rawItems
       .filter(i => i.description && typeof i.unit_price === 'number')
       .map(i => ({
         description: String(i.description).slice(0, 255),
@@ -59,7 +72,7 @@ Example: [{"description":"Filter replacement","quantity":2,"unit_price":18.50},{
         unit_price: Math.max(0, parseFloat(i.unit_price) || 0),
       }));
 
-    res.json({ items: clean, raw_count: items.length });
+    res.json({ items: clean, gst_treatment, raw_count: rawItems.length });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('Invoice scan error:', err);
