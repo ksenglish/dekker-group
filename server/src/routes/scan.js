@@ -1,29 +1,38 @@
 const express = require('express');
 const router = express.Router();
-const Groq = require('groq-sdk');
+const Anthropic = require('@anthropic-ai/sdk');
 const { authenticate } = require('../middleware/auth');
 
 router.use(authenticate);
 
-function groqClient() {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw { status: 503, message: 'GROQ_API_KEY is not configured on this server' };
-  return new Groq({ apiKey });
+function anthropicClient() {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw { status: 503, message: 'ANTHROPIC_API_KEY is not configured on this server' };
+  return new Anthropic({ apiKey });
 }
 
-const VISION_MODEL = 'meta-llama/llama-4-scout-17b-16e-instruct';
+const MODEL = 'claude-sonnet-4-6';
 
 router.post('/invoice', async (req, res) => {
   const { mime_type, data_base64 } = req.body;
   if (!data_base64 || !mime_type) return res.status(400).json({ error: 'file data required' });
 
   try {
-    const groq = groqClient();
+    const client = anthropicClient();
     const base64Data = data_base64.replace(/^data:[^;]+;base64,/, '');
     const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime_type)
       ? mime_type : 'image/jpeg';
 
-    const prompt = `Extract all line items from this invoice or receipt. Return ONLY a JSON array, no markdown fences, no explanation.
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: validMime, data: base64Data } },
+          {
+            type: 'text',
+            text: `Extract all line items from this invoice or receipt. Return ONLY a JSON array, no markdown fences, no explanation.
 Each item must have these fields:
 - "description": string (item name/description)
 - "quantity": number (default 1 if not specified)
@@ -32,21 +41,13 @@ Each item must have these fields:
 Ignore totals, subtotals, GST lines, freight/delivery charges, and payment terms.
 If you cannot find any line items, return an empty array [].
 
-Example: [{"description":"Filter replacement","quantity":2,"unit_price":18.50},{"description":"Labour","quantity":1,"unit_price":120.00}]`;
-
-    const response = await groq.chat.completions.create({
-      model: VISION_MODEL,
-      max_tokens: 1024,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: `data:${validMime};base64,${base64Data}` } },
-          { type: 'text', text: prompt },
+Example: [{"description":"Filter replacement","quantity":2,"unit_price":18.50},{"description":"Labour","quantity":1,"unit_price":120.00}]`,
+          },
         ],
       }],
     });
 
-    const raw = response.choices[0].message.content.trim();
+    const raw = message.content[0].text.trim();
     const match = raw.match(/\[[\s\S]*\]/);
     const items = match ? JSON.parse(match[0]) : [];
 
@@ -71,12 +72,21 @@ router.post('/plan', async (req, res) => {
   if (!data_base64 || !mime_type) return res.status(400).json({ error: 'Image data required' });
 
   try {
-    const groq = groqClient();
+    const client = anthropicClient();
     const base64Data = data_base64.replace(/^data:[^;]+;base64,/, '');
     const validMime = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mime_type)
       ? mime_type : 'image/jpeg';
 
-    const prompt = `You are a building measurement expert. Analyse this floor plan or room plan image and calculate the total floor area in square metres (m²).
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: validMime, data: base64Data } },
+          {
+            type: 'text',
+            text: `You are a building measurement expert. Analyse this floor plan or room plan image and calculate the total floor area in square metres (m²).
 
 Instructions:
 1. Find all labelled dimensions on the plan (e.g. 4200, 3.5m, 12'6", etc.)
@@ -88,21 +98,13 @@ Instructions:
 Return ONLY a JSON object, no markdown fences, no explanation:
 {"area_m2": <number>, "dimensions_found": ["list of key dimensions you found"], "notes": "<brief explanation of how you calculated it>", "confidence": "high|medium|low"}
 
-If you cannot determine the area from the image, return: {"area_m2": null, "error": "reason why"}`;
-
-    const response = await groq.chat.completions.create({
-      model: VISION_MODEL,
-      max_tokens: 1024,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image_url', image_url: { url: `data:${validMime};base64,${base64Data}` } },
-          { type: 'text', text: prompt },
+If you cannot determine the area from the image, return: {"area_m2": null, "error": "reason why"}`,
+          },
         ],
       }],
     });
 
-    const raw = response.choices[0].message.content.trim();
+    const raw = message.content[0].text.trim();
     const match = raw.match(/\{[\s\S]*\}/);
     if (!match) return res.status(422).json({ error: 'Could not parse AI response' });
 
