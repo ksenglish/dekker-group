@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import styles from './SalesPresenter.module.css';
@@ -9,23 +9,124 @@ function AreaCalculator({ product }) {
   const cfg = product.calculator_config || {};
   const [length, setLength] = useState('');
   const [width, setWidth] = useState('');
+  const [scannedArea, setScannedArea] = useState(null); // m² from AI scan
   const [qty, setQty] = useState(1);
+  const [scanMode, setScanMode] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const [scanError, setScanError] = useState('');
+  const [previewUrl, setPreviewUrl] = useState('');
+  const fileRef = useRef();
   const pricePerM2 = (product.price_from / 100) || cfg.price_per_m2 || 0;
-  const area = (parseFloat(length) || 0) * (parseFloat(width) || 0);
+
+  // Area: use scanned if available, else length × width
+  const manualArea = (parseFloat(length) || 0) * (parseFloat(width) || 0);
+  const area = scannedArea != null ? scannedArea : manualArea;
   const total = area * pricePerM2 * qty;
+
+  function handleFileChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      setPreviewUrl(ev.target.result);
+      setScanResult(null); setScanError('');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleScan() {
+    if (!previewUrl) return;
+    setScanning(true); setScanError(''); setScanResult(null);
+    try {
+      const mimeMatch = previewUrl.match(/^data:([^;]+);base64,/);
+      const mime_type = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const { data } = await api.post('/scan/plan', { data_base64: previewUrl, mime_type });
+      setScanResult(data);
+      setScannedArea(data.area_m2);
+      setScanMode(false);
+      setPreviewUrl('');
+    } catch (err) {
+      setScanError(err.response?.data?.error || 'Scan failed — please try a clearer image');
+    } finally { setScanning(false); }
+  }
+
+  function handleClearScan() {
+    setScannedArea(null); setScanResult(null); setScanError(''); setPreviewUrl('');
+  }
 
   return (
     <div className={styles.calc}>
-      <h3 className={styles.calcTitle}>Area Calculator</h3>
+      <div className={styles.calcTitleRow}>
+        <h3 className={styles.calcTitle}>Area Calculator</h3>
+        {!scanMode && (
+          <button className={styles.scanPlanBtn} onClick={() => { setScanMode(true); setScanError(''); }}>
+            📐 Scan Plan
+          </button>
+        )}
+      </div>
+
+      {/* Scan Plan panel */}
+      {scanMode && (
+        <div className={styles.scanPanel}>
+          <p className={styles.scanHint}>Upload or photograph a floor plan with dimensions marked — AI will calculate the m².</p>
+          <div className={styles.scanUploadRow}>
+            <button className={styles.scanUploadBtn} onClick={() => { fileRef.current.removeAttribute('capture'); fileRef.current.click(); }}>
+              📁 Upload Image
+            </button>
+            <button className={styles.scanUploadBtn} onClick={() => { fileRef.current.setAttribute('capture', 'environment'); fileRef.current.click(); }}>
+              📷 Take Photo
+            </button>
+            <button className={styles.scanCancelBtn} onClick={() => { setScanMode(false); setPreviewUrl(''); setScanError(''); }}>
+              Cancel
+            </button>
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
+
+          {previewUrl && (
+            <div className={styles.scanPreview}>
+              <img src={previewUrl} alt="Plan preview" className={styles.scanPreviewImg} />
+              <button className={styles.scanAnalyseBtn} onClick={handleScan} disabled={scanning}>
+                {scanning ? '🔍 Analysing…' : '🔍 Analyse Plan'}
+              </button>
+            </div>
+          )}
+          {scanError && <div className={styles.scanError}>{scanError}</div>}
+        </div>
+      )}
+
+      {/* Scanned result banner */}
+      {scanResult && (
+        <div className={styles.scanResultBanner}>
+          <div className={styles.scanResultTop}>
+            <span>📐 AI Scan Result: <strong>{scanResult.area_m2} m²</strong></span>
+            <span className={styles.scanConfidence} data-level={scanResult.confidence}>
+              {scanResult.confidence === 'high' ? '✓ High confidence' : scanResult.confidence === 'medium' ? '~ Medium confidence' : '⚠ Low confidence'}
+            </span>
+          </div>
+          {scanResult.notes && <p className={styles.scanNotes}>{scanResult.notes}</p>}
+          {scanResult.dimensions_found?.length > 0 && (
+            <p className={styles.scanDims}>Dimensions found: {scanResult.dimensions_found.join(', ')}</p>
+          )}
+          <button className={styles.scanClearBtn} onClick={handleClearScan}>✕ Clear scan — enter manually</button>
+        </div>
+      )}
+
+      {/* Manual entry (shown when no scan active) */}
+      {scannedArea == null && (
+        <div className={styles.calcGrid}>
+          <div className={styles.calcField}>
+            <label>Length (m)</label>
+            <input type="number" value={length} onChange={e => setLength(e.target.value)} placeholder="0" />
+          </div>
+          <div className={styles.calcField}>
+            <label>Width (m)</label>
+            <input type="number" value={width} onChange={e => setWidth(e.target.value)} placeholder="0" />
+          </div>
+        </div>
+      )}
+
       <div className={styles.calcGrid}>
-        <div className={styles.calcField}>
-          <label>Length (m)</label>
-          <input type="number" value={length} onChange={e => setLength(e.target.value)} placeholder="0" />
-        </div>
-        <div className={styles.calcField}>
-          <label>Width (m)</label>
-          <input type="number" value={width} onChange={e => setWidth(e.target.value)} placeholder="0" />
-        </div>
         <div className={styles.calcField}>
           <label>Quantity</label>
           <input type="number" value={qty} min="1" onChange={e => setQty(parseInt(e.target.value) || 1)} />
@@ -35,9 +136,10 @@ function AreaCalculator({ product }) {
           <input type="number" value={pricePerM2} readOnly style={{ background: '#f8fafc' }} />
         </div>
       </div>
+
       {area > 0 && (
         <div className={styles.calcResult}>
-          <div className={styles.calcResultRow}><span>Area</span><strong>{area.toFixed(1)} m²</strong></div>
+          <div className={styles.calcResultRow}><span>Area</span><strong>{area.toFixed(2)} m²</strong></div>
           {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Estimate (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
           {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
         </div>

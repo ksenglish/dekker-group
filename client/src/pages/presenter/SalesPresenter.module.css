@@ -142,7 +142,51 @@
 
 /* ── Calculator ────────────────────────────────────────────────────────────── */
 .calc { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-top: 8px; }
-.calcTitle { font-size: 14px; font-weight: 700; color: #0f172a; margin: 0 0 16px; text-transform: uppercase; letter-spacing: 0.05em; }
+.calcTitleRow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.calcTitle { font-size: 14px; font-weight: 700; color: #0f172a; margin: 0; text-transform: uppercase; letter-spacing: 0.05em; }
+.scanPlanBtn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 14px; background: #6366f1; color: white;
+  border: none; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: background 0.15s;
+}
+.scanPlanBtn:hover { background: #4f46e5; }
+
+/* Scan Plan panel */
+.scanPanel { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; }
+.scanHint { font-size: 13px; color: #64748b; margin: 0; line-height: 1.5; }
+.scanUploadRow { display: flex; gap: 8px; flex-wrap: wrap; }
+.scanUploadBtn {
+  flex: 1; min-width: 120px; padding: 10px 14px; background: #f1f5f9;
+  border: 1.5px dashed #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 500;
+  cursor: pointer; color: #334155; transition: all 0.15s;
+}
+.scanUploadBtn:hover { background: #e2e8f0; border-color: #6366f1; color: #6366f1; }
+.scanCancelBtn { padding: 10px 14px; background: none; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; color: #94a3b8; cursor: pointer; }
+.scanCancelBtn:hover { color: #dc2626; border-color: #fecaca; }
+.scanPreview { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.scanPreviewImg { max-width: 100%; max-height: 260px; border-radius: 8px; border: 1px solid #e2e8f0; object-fit: contain; }
+.scanAnalyseBtn {
+  width: 100%; padding: 12px; background: #6366f1; color: white;
+  border: none; border-radius: 8px; font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: background 0.15s;
+}
+.scanAnalyseBtn:hover:not(:disabled) { background: #4f46e5; }
+.scanAnalyseBtn:disabled { opacity: 0.7; cursor: not-allowed; }
+.scanError { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+
+/* Scan result banner */
+.scanResultBanner { background: #f0fdf4; border: 1px solid #86efac; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
+.scanResultTop { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; font-size: 14px; }
+.scanResultTop strong { font-size: 18px; color: #15803d; }
+.scanConfidence { font-size: 12px; font-weight: 500; padding: 3px 8px; border-radius: 99px; }
+.scanConfidence[data-level="high"] { background: #dcfce7; color: #15803d; }
+.scanConfidence[data-level="medium"] { background: #fef9c3; color: #a16207; }
+.scanConfidence[data-level="low"] { background: #fef2f2; color: #dc2626; }
+.scanNotes { font-size: 12px; color: #166534; margin: 0; }
+.scanDims { font-size: 12px; color: #64748b; margin: 0; }
+.scanClearBtn { background: none; border: none; color: #94a3b8; font-size: 12px; cursor: pointer; padding: 0; text-align: left; }
+.scanClearBtn:hover { color: #dc2626; }
 .calcGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
 .calcField { display: flex; flex-direction: column; gap: 5px; }
 .calcField label { font-size: 12px; font-weight: 500; color: #64748b; }
