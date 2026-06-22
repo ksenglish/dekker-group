@@ -57,14 +57,12 @@ function AreaCalculator({ product }) {
 
   return (
     <div className={styles.calc}>
-      <div className={styles.calcTitleRow}>
-        <h3 className={styles.calcTitle}>Area Calculator</h3>
-        {!scanMode && (
-          <button className={styles.scanPlanBtn} onClick={() => { setScanMode(true); setScanError(''); }}>
-            📐 Scan Plan
-          </button>
-        )}
-      </div>
+      <h3 className={styles.calcTitle}>Area Calculator</h3>
+      {!scanMode && !scanResult && (
+        <button className={styles.scanPlanBtn} onClick={() => { setScanMode(true); setScanError(''); }}>
+          📐 Scan Plan
+        </button>
+      )}
 
       {/* Scan Plan panel */}
       {scanMode && (
