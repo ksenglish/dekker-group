@@ -49,23 +49,26 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   useEffect(() => {
+    // Load name/price only for dropdown — exclude heavy image data
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
   }, []);
 
-  function handlePriceListPick(e) {
+  async function handlePriceListPick(e) {
     const id = e.target.value;
     set('price_list_product_id', id);
     if (!id) return;
-    const pl = priceListProducts.find(p => p.id === id);
-    if (!pl) return;
-    setForm(f => ({
-      ...f,
-      price_list_product_id: id,
-      name: pl.name,
-      description: pl.description || f.description,
-      price_from: pl.unit_price ? (pl.unit_price / 100).toFixed(2) : f.price_from,
-      image_base64: pl.media_base64 || f.image_base64,
-    }));
+    // Fetch full product to get media_base64 image
+    try {
+      const { data: pl } = await api.get(`/products/${id}`);
+      setForm(f => ({
+        ...f,
+        price_list_product_id: id,
+        name: pl.name,
+        description: pl.description || f.description,
+        price_from: pl.unit_price ? (pl.unit_price / 100).toFixed(2) : f.price_from,
+        image_base64: pl.media_base64 || f.image_base64,
+      }));
+    } catch { /* leave existing fields unchanged */ }
   }
 
   async function handleSave(e) {
