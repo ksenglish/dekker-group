@@ -3,7 +3,8 @@ import {
   DndContext, closestCenter, PointerSensor, TouchSensor,
   useSensor, useSensors, DragOverlay, useDroppable,
 } from '@dnd-kit/core';
-import { useDraggable } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import api from '../../lib/api';
 import styles from './PresenterAdmin.module.css';
 
@@ -204,66 +205,70 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
   );
 }
 
-// ── Draggable subcategory row ─────────────────────────────────────────────────
-function DraggableSubcatRow({ sc, onDrill, onEdit, onDelete, isDragging: externalDragging }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: sc.id, data: { sc } });
+// ── Sortable subcategory row (drag to reorder) + nest zone (drag to reparent) ─
+function SortableSubcatRow({ sc, onDrill, onEdit, onDelete, anyDragging }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: sc.id, data: { type: 'subcat' },
+  });
+  const { setNodeRef: nestRef, isOver: nestOver } = useDroppable({
+    id: `nest-${sc.id}`, data: { action: 'nest', targetId: sc.id },
+  });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 };
+
   return (
-    <div
-      ref={setNodeRef}
-      className={`${styles.listItem} ${isDragging ? styles.listItemDragging : ''}`}
-      style={{ opacity: isDragging ? 0.3 : 1 }}
-    >
-      {/* Drag handle */}
-      <span {...listeners} {...attributes} className={styles.dragHandle} title="Drag to reparent">⠿</span>
-      {sc.image_base64
-        ? <img src={sc.image_base64} alt="" className={styles.listThumb} />
-        : <span style={{ fontSize: 18 }}>📁</span>}
-      <div className={styles.listInfo} onClick={() => onDrill(sc)} style={{ cursor: 'pointer' }}>
-        <span className={styles.listName}>{sc.name}</span>
-        <span className={styles.listMeta}>
-          {sc.child_count > 0 ? `${sc.child_count} sub-categories` : `${sc.product_count} products`}
-        </span>
+    <>
+      <div ref={setNodeRef} style={style}
+        className={`${styles.listItem} ${isDragging ? styles.listItemDragging : ''}`}>
+        <span {...listeners} {...attributes} className={styles.dragHandle} title="Drag to reorder · Drop on ↳ zone to nest">⠿</span>
+        {sc.image_base64
+          ? <img src={sc.image_base64} alt="" className={styles.listThumb} />
+          : <span style={{ fontSize: 18 }}>📁</span>}
+        <div className={styles.listInfo} onClick={() => onDrill(sc)} style={{ cursor: 'pointer' }}>
+          <span className={styles.listName}>{sc.name}</span>
+          <span className={styles.listMeta}>
+            {sc.child_count > 0 ? `${sc.child_count} sub-categories` : `${sc.product_count} products`}
+          </span>
+        </div>
+        <button className={styles.editSmall} onClick={() => onEdit(sc)}>✎</button>
+        <button className={styles.arrowBtn} onClick={() => onDrill(sc)}>›</button>
+        <button className={styles.deleteSmall} onClick={() => onDelete(sc.id)}>✕</button>
       </div>
-      <button className={styles.editSmall} onClick={() => onEdit(sc)}>✎</button>
-      <button className={styles.arrowBtn} onClick={() => onDrill(sc)}>›</button>
-      <button className={styles.deleteSmall} onClick={() => onDelete(sc.id)}>✕</button>
-    </div>
+      {anyDragging && !isDragging && (
+        <div ref={nestRef} className={`${styles.nestZone} ${nestOver ? styles.nestZoneOver : ''}`}>
+          ↳ Nest inside "{sc.name}"
+        </div>
+      )}
+    </>
   );
 }
 
-// ── Drop zone: another subcategory or the "root" zone ────────────────────────
-function DropZoneSubcat({ sc, onDrill, onEdit, onDelete }) {
-  const { setNodeRef, isOver } = useDroppable({ id: `drop-${sc.id}`, data: { targetId: sc.id } });
-  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: sc.id, data: { sc } });
-
-  const combinedRef = (node) => { setNodeRef(node); setDragRef(node); };
-
+// ── Sortable section row ───────────────────────────────────────────────────────
+function SortableSectionRow({ s, isActive, onSelect, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: s.id, data: { type: 'section' },
+  });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 };
   return (
-    <div
-      ref={combinedRef}
-      className={`${styles.listItem} ${isDragging ? styles.listItemDragging : ''} ${isOver ? styles.listItemDropOver : ''}`}
-      style={{ opacity: isDragging ? 0.3 : 1 }}
-    >
-      <span {...listeners} {...attributes} className={styles.dragHandle} title="Drag to reparent">⠿</span>
-      {sc.image_base64
-        ? <img src={sc.image_base64} alt="" className={styles.listThumb} />
-        : <span style={{ fontSize: 18 }}>📁</span>}
-      <div className={styles.listInfo} onClick={() => onDrill(sc)} style={{ cursor: 'pointer' }}>
-        <span className={styles.listName}>{sc.name}</span>
-        <span className={styles.listMeta}>
-          {sc.child_count > 0 ? `${sc.child_count} sub-categories` : `${sc.product_count} products`}
-        </span>
+    <div ref={setNodeRef}
+      style={{ ...style, ...(isActive ? { borderLeftColor: s.color } : {}) }}
+      className={`${styles.listItem} ${isActive ? styles.listItemActive : ''} ${isDragging ? styles.listItemDragging : ''}`}
+      onClick={() => onSelect(s)}>
+      <span {...listeners} {...attributes} className={styles.dragHandle} title="Drag to reorder sections" onClick={e => e.stopPropagation()}>⠿</span>
+      {s.image_base64
+        ? <img src={s.image_base64} alt="" className={styles.listThumb} />
+        : <span style={{ fontSize: 20 }}>{s.icon}</span>}
+      <div className={styles.listInfo}>
+        <span className={styles.listName}>{s.name}</span>
+        <span className={styles.listMeta}>{s.product_count} products</span>
       </div>
-      <button className={styles.editSmall} onClick={() => onEdit(sc)}>✎</button>
-      <button className={styles.arrowBtn} onClick={() => onDrill(sc)}>›</button>
-      <button className={styles.deleteSmall} onClick={() => onDelete(sc.id)}>✕</button>
+      <button className={styles.deleteSmall} onClick={e => { e.stopPropagation(); onDelete(s.id); }}>✕</button>
     </div>
   );
 }
 
 // ── Root drop zone (move to current level) ───────────────────────────────────
 function RootDropZone({ currentNode, activeSection }) {
-  const { setNodeRef, isOver } = useDroppable({ id: 'drop-root', data: { targetId: null } });
+  const { setNodeRef, isOver } = useDroppable({ id: 'drop-root', data: { action: 'root' } });
   return (
     <div ref={setNodeRef} className={`${styles.rootDropZone} ${isOver ? styles.rootDropZoneOver : ''}`}>
       Drop here to move to <strong>{currentNode ? currentNode.name : activeSection?.name}</strong> (current level)
@@ -333,26 +338,52 @@ export default function PresenterAdmin() {
     setShowProductForm(false); setEditingProduct(null);
   }, [subcatStack, activeSection, currentNode, loadSubcats, loadProducts]);
 
+  async function handleSectionDragEnd(event) {
+    setDragging(false);
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = sections.findIndex(s => s.id === active.id);
+    const newIdx = sections.findIndex(s => s.id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const newOrder = arrayMove(sections, oldIdx, newIdx);
+    setSections(newOrder);
+    try {
+      await api.patch('/presenter/sections/reorder', newOrder.map((s, i) => ({ id: s.id, sort_order: i + 1 })));
+    } catch { /* silently keep local order */ }
+  }
+
   async function handleDragEnd(event) {
     setDragging(false);
     const { active, over } = event;
     if (!over || !active) return;
 
-    const draggedId = active.id;
-    const targetDropId = over.data.current?.targetId; // null = current level root, uuid = into that subcat
+    const draggedId = String(active.id);
+    const overId = String(over.id);
+    if (overId === draggedId) return;
 
-    // Don't drop onto itself
-    if (targetDropId === draggedId) return;
-
-    // Don't drop onto its own children (circular check is done server-side too)
-    try {
-      await api.patch(`/presenter/subcategories/${draggedId}/parent`, {
-        parent_id: targetDropId || currentNode?.id || null,
-      });
-      // Reload current level
-      await loadSubcats(activeSection.id, currentNode?.id || null);
-    } catch (err) {
-      alert(err.response?.data?.error || 'Move failed');
+    if (over.data.current?.action === 'nest') {
+      // Reparent: move dragged subcat into another subcat
+      const targetId = over.data.current.targetId;
+      try {
+        await api.patch(`/presenter/subcategories/${draggedId}/parent`, { parent_id: targetId });
+        await loadSubcats(activeSection.id, currentNode?.id || null);
+      } catch (err) { alert(err.response?.data?.error || 'Move failed'); }
+    } else if (over.data.current?.action === 'root') {
+      // Move to current level root
+      try {
+        await api.patch(`/presenter/subcategories/${draggedId}/parent`, { parent_id: currentNode?.id || null });
+        await loadSubcats(activeSection.id, currentNode?.id || null);
+      } catch (err) { alert(err.response?.data?.error || 'Move failed'); }
+    } else {
+      // Reorder within same level
+      const oldIdx = subcats.findIndex(s => s.id === draggedId);
+      const newIdx = subcats.findIndex(s => s.id === over.id);
+      if (oldIdx < 0 || newIdx < 0) return;
+      const newOrder = arrayMove(subcats, oldIdx, newIdx);
+      setSubcats(newOrder);
+      try {
+        await api.patch('/presenter/subcategories/reorder', newOrder.map((s, i) => ({ id: s.id, sort_order: i + 1 })));
+      } catch { /* keep local order */ }
     }
   }
 
@@ -431,13 +462,13 @@ export default function PresenterAdmin() {
       <div className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>Sales Presenter Setup</h1>
-          <p className={styles.pageSubtitle}>Manage sections, categories and products · Drag categories to reparent them</p>
+          <p className={styles.pageSubtitle}>Drag ⠿ to reorder · Drop on "↳ Nest inside" zone to move a category inside another</p>
         </div>
       </div>
 
       <div className={styles.layout3}>
 
-        {/* ── Column 1: Sections ── */}
+        {/* ── Column 1: Sections (sortable) ── */}
         <div className={styles.col1}>
           <div className={styles.colHeader}>
             <span>Sections</span>
@@ -451,21 +482,16 @@ export default function PresenterAdmin() {
               <button type="submit" className={styles.btnPrimary} style={{ padding: '5px 10px' }}>Add</button>
             </form>
           )}
-          {sections.map(s => (
-            <div key={s.id}
-              className={`${styles.listItem} ${activeSection?.id === s.id ? styles.listItemActive : ''}`}
-              style={activeSection?.id === s.id ? { borderLeftColor: s.color } : {}}
-              onClick={() => { setActiveSection(s); setShowProductForm(false); setEditingProduct(null); }}>
-              {s.image_base64
-                ? <img src={s.image_base64} alt="" className={styles.listThumb} />
-                : <span style={{ fontSize: 20 }}>{s.icon}</span>}
-              <div className={styles.listInfo}>
-                <span className={styles.listName}>{s.name}</span>
-                <span className={styles.listMeta}>{s.product_count} products</span>
-              </div>
-              <button className={styles.deleteSmall} onClick={e => { e.stopPropagation(); deleteSection(s.id); }}>✕</button>
-            </div>
-          ))}
+          <DndContext sensors={sensors} collisionDetection={closestCenter}
+            onDragStart={() => setDragging(true)} onDragEnd={handleSectionDragEnd} onDragCancel={() => setDragging(false)}>
+            <SortableContext items={sections.map(s => s.id)} strategy={verticalListSortingStrategy}>
+              {sections.map(s => (
+                <SortableSectionRow key={s.id} s={s} isActive={activeSection?.id === s.id}
+                  onSelect={s => { setActiveSection(s); setShowProductForm(false); setEditingProduct(null); }}
+                  onDelete={deleteSection} />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
 
         {/* ── Column 2: Category drill-down with drag-and-drop ── */}
@@ -494,7 +520,7 @@ export default function PresenterAdmin() {
                     </span>
                   ))}
                 </div>
-                <button className={styles.btnSmall} onClick={() => { setShowSubcatForm(f => !f); setEditingSubcat(null); setSubcatForm({ name: '', image_base64: '' }); }}>
+                <button className={styles.btnSmall} onClick={() => { setShowSubcatForm(f => !f); setEditingSubcat(null); setSubcatForm({ name: '', image_base64: '', hide_label: false }); }}>
                   + Category
                 </button>
               </div>
@@ -559,19 +585,20 @@ export default function PresenterAdmin() {
                   <RootDropZone currentNode={currentNode} activeSection={activeSection} />
                 )}
 
-                {subcats.map(sc => (
-                  <DropZoneSubcat
-                    key={sc.id}
-                    sc={sc}
-                    onDrill={drillInto}
-                    onEdit={s => { setEditingSubcat(s); setSubcatForm({ name: s.name, image_base64: s.image_base64 || '', hide_label: s.hide_label || false }); setShowSubcatForm(true); }}
-                    onDelete={deleteSubcat}
-                  />
-                ))}
+                <SortableContext items={subcats.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                  {subcats.map(sc => (
+                    <SortableSubcatRow
+                      key={sc.id}
+                      sc={sc}
+                      anyDragging={dragging}
+                      onDrill={drillInto}
+                      onEdit={s => { setEditingSubcat(s); setSubcatForm({ name: s.name, image_base64: s.image_base64 || '', hide_label: s.hide_label || false }); setShowSubcatForm(true); }}
+                      onDelete={deleteSubcat}
+                    />
+                  ))}
+                </SortableContext>
 
-                <DragOverlay>
-                  {/* Rendered during drag as floating ghost */}
-                </DragOverlay>
+                <DragOverlay />
               </DndContext>
 
               {subcats.length === 0 && !showSubcatForm && (

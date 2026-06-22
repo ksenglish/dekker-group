@@ -50,6 +50,16 @@ router.put('/sections/:id', requireRole('admin', 'office'), async (req, res) => 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+router.patch('/sections/reorder', requireRole('admin', 'office'), async (req, res) => {
+  const items = req.body; // [{ id, sort_order }]
+  try {
+    await Promise.all(items.map(({ id, sort_order }) =>
+      pool.query('UPDATE presenter_sections SET sort_order=$1 WHERE id=$2', [sort_order, id])
+    ));
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.delete('/sections/:id', requireRole('admin'), async (req, res) => {
   try {
     await pool.query('DELETE FROM presenter_sections WHERE id=$1', [req.params.id]);
@@ -155,6 +165,16 @@ router.put('/subcategories/:id', requireRole('admin', 'office'), async (req, res
       [name, image_base64 !== undefined ? image_base64 : null, sort_order || 0, hide_label || false, req.params.id]
     );
     res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.patch('/subcategories/reorder', requireRole('admin', 'office'), async (req, res) => {
+  const items = req.body; // [{ id, sort_order }]
+  try {
+    await Promise.all(items.map(({ id, sort_order }) =>
+      pool.query('UPDATE presenter_subcategories SET sort_order=$1 WHERE id=$2', [sort_order, id])
+    ));
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
