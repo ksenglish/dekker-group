@@ -304,6 +304,7 @@ function SmartVentLiteCalculator({ onPick }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
   const [priceListProducts, setPriceListProducts] = useState([]);
+  const [showBrochure, setShowBrochure] = useState(false);
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -363,7 +364,15 @@ function SmartVentLiteCalculator({ onPick }) {
               + Add {tableMatch.model} to Job
             </button>
           )}
+          {priceProduct?.brochure_base64 && (
+            <button className={styles.brochureBtn} onClick={() => setShowBrochure(true)}>
+              📄 View Product Brochure
+            </button>
+          )}
         </div>
+      )}
+      {showBrochure && priceProduct?.brochure_base64 && (
+        <BrochureModal src={priceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -385,20 +394,20 @@ const PP_TABLE = [
   { system: 'SmartVent Lite+',             houseMin: 281, houseMax: 560, outlets: 10, model: 'SV06L+ with 4 Extension Kits' },
   { system: 'SmartVent Lite+',             houseMin: 281, houseMax: 560, outlets: 11, model: 'SV06L+ with 5 Extension Kits' },
   { system: 'SmartVent Lite+',             houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06L+ with 6 Extension Kits' },
-  // SmartVent Positive 3
-  { system: 'SmartVent Positive 3',        houseMin: 1,   houseMax: 100, outlets: 1,  model: 'SV01P3' },
-  { system: 'SmartVent Positive 3',        houseMin: 1,   houseMax: 100, outlets: 2,  model: 'SV02P3' },
-  { system: 'SmartVent Positive 3',        houseMin: 1,   houseMax: 100, outlets: 3,  model: 'SV02P3 with 1 Extension Kit' },
-  { system: 'SmartVent Positive 3',        houseMin: 101, houseMax: 280, outlets: 4,  model: 'SV04P3' },
-  { system: 'SmartVent Positive 3',        houseMin: 101, houseMax: 280, outlets: 5,  model: 'SV04P3 with 1 Extension Kit' },
-  { system: 'SmartVent Positive 3',        houseMin: 101, houseMax: 280, outlets: 6,  model: 'SV04P3 with 2 Extension Kits' },
-  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 6,  model: 'SV06P3' },
-  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 7,  model: 'SV06P3 with 1 Extension Kit' },
-  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 8,  model: 'SV06P3 with 2 Extension Kits' },
-  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 9,  model: 'SV06P3 with 3 Extension Kits' },
-  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 10, model: 'SV06P3 with 4 Extension Kits' },
-  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 11, model: 'SV06P3 with 5 Extension Kits' },
-  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06P3 with 6 Extension Kits' },
+  // SmartVent Positive3
+  { system: 'SmartVent Positive3',        houseMin: 1,   houseMax: 100, outlets: 1,  model: 'SV01P3' },
+  { system: 'SmartVent Positive3',        houseMin: 1,   houseMax: 100, outlets: 2,  model: 'SV02P3' },
+  { system: 'SmartVent Positive3',        houseMin: 1,   houseMax: 100, outlets: 3,  model: 'SV02P3 with 1 Extension Kit' },
+  { system: 'SmartVent Positive3',        houseMin: 101, houseMax: 280, outlets: 4,  model: 'SV04P3' },
+  { system: 'SmartVent Positive3',        houseMin: 101, houseMax: 280, outlets: 5,  model: 'SV04P3 with 1 Extension Kit' },
+  { system: 'SmartVent Positive3',        houseMin: 101, houseMax: 280, outlets: 6,  model: 'SV04P3 with 2 Extension Kits' },
+  { system: 'SmartVent Positive3',        houseMin: 281, houseMax: 560, outlets: 6,  model: 'SV06P3' },
+  { system: 'SmartVent Positive3',        houseMin: 281, houseMax: 560, outlets: 7,  model: 'SV06P3 with 1 Extension Kit' },
+  { system: 'SmartVent Positive3',        houseMin: 281, houseMax: 560, outlets: 8,  model: 'SV06P3 with 2 Extension Kits' },
+  { system: 'SmartVent Positive3',        houseMin: 281, houseMax: 560, outlets: 9,  model: 'SV06P3 with 3 Extension Kits' },
+  { system: 'SmartVent Positive3',        houseMin: 281, houseMax: 560, outlets: 10, model: 'SV06P3 with 4 Extension Kits' },
+  { system: 'SmartVent Positive3',        houseMin: 281, houseMax: 560, outlets: 11, model: 'SV06P3 with 5 Extension Kits' },
+  { system: 'SmartVent Positive3',        houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06P3 with 6 Extension Kits' },
   // SmartVent Positive Advance (starts at 2 outlets)
   { system: 'SmartVent Positive Advance',  houseMin: 1,   houseMax: 100, outlets: 2,  model: 'SV02AD' },
   { system: 'SmartVent Positive Advance',  houseMin: 1,   houseMax: 100, outlets: 3,  model: 'SV02AD with 1 Extension Kit' },
@@ -418,6 +427,7 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
   const [priceListProducts, setPriceListProducts] = useState([]);
+  const [showBrochure, setShowBrochure] = useState(false);
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -483,7 +493,15 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
               + Add {tableMatch.model} to Job
             </button>
           )}
+          {priceProduct?.brochure_base64 && (
+            <button className={styles.brochureBtn} onClick={() => setShowBrochure(true)}>
+              📄 View Product Brochure
+            </button>
+          )}
         </div>
+      )}
+      {showBrochure && priceProduct?.brochure_base64 && (
+        <BrochureModal src={priceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -500,7 +518,28 @@ function Calculator({ product, onPick }) {
 }
 
 // ── Product Detail Panel ──────────────────────────────────────────────────────
+function BrochureModal({ src, name, onClose }) {
+  const isPdf = src?.startsWith('data:application/pdf');
+  return (
+    <div className={styles.brochureOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.brochureModal}>
+        <div className={styles.brochureHeader}>
+          <span className={styles.brochureTitle}>{name} — Brochure</span>
+          <button className={styles.brochureClose} onClick={onClose}>✕ Minimise</button>
+        </div>
+        <div className={styles.brochureContent}>
+          {isPdf
+            ? <iframe src={src} title="Product Brochure" className={styles.brochureFrame} />
+            : <img src={src} alt="Product Brochure" className={styles.brochureImg} />
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProductPanel({ product, section, onClose, onPick }) {
+  const [showBrochure, setShowBrochure] = useState(false);
   return (
     <div className={styles.panelOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.panel}>
@@ -527,13 +566,21 @@ function ProductPanel({ product, section, onClose, onPick }) {
             </div>
           )}
           <Calculator product={product} onPick={onPick} />
-          {onPick && product.calculator_type !== 'smartvent_lite' && (
+          {onPick && product.calculator_type !== 'smartvent_lite' && product.calculator_type !== 'smartvent_positive_pressure' && (
             <button className={styles.addToJobBtn} onClick={() => onPick(product.price_list_product || product)}>
               + Add to Quote
             </button>
           )}
+          {product.brochure_base64 && (
+            <button className={styles.brochureBtn} onClick={() => setShowBrochure(true)}>
+              📄 View Product Brochure
+            </button>
+          )}
         </div>
       </div>
+      {showBrochure && (
+        <BrochureModal src={product.brochure_base64} name={product.name} onClose={() => setShowBrochure(false)} />
+      )}
     </div>
   );
 }

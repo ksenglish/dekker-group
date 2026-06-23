@@ -258,3 +258,36 @@
   cursor: pointer; width: 100%; transition: background 0.15s; font-family: inherit;
 }
 .addToJobBtn:hover { background: #15803d; }
+
+/* Brochure button */
+.brochureBtn {
+  margin-top: 8px; padding: 9px 16px; background: white; color: #0891b2;
+  border: 1.5px solid #0891b2; border-radius: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; width: 100%; transition: all 0.15s; font-family: inherit;
+}
+.brochureBtn:hover { background: #ecfeff; }
+
+/* Brochure fullscreen modal */
+.brochureOverlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+  z-index: 1200; display: flex; align-items: stretch; justify-content: center;
+  padding: 24px;
+}
+.brochureModal {
+  background: white; border-radius: 12px; display: flex; flex-direction: column;
+  width: 100%; max-width: 960px; overflow: hidden;
+}
+.brochureHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px; background: #1e293b; flex-shrink: 0;
+}
+.brochureTitle { font-size: 14px; font-weight: 700; color: white; }
+.brochureClose {
+  padding: 6px 14px; background: rgba(255,255,255,0.15); color: white;
+  border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; font-size: 13px;
+  font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.15s;
+}
+.brochureClose:hover { background: rgba(255,255,255,0.25); }
+.brochureContent { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: center; background: #f1f5f9; }
+.brochureFrame { width: 100%; height: 100%; min-height: 600px; border: none; }
+.brochureImg { max-width: 100%; height: auto; display: block; }

@@ -35,6 +35,33 @@ function ImgUpload({ value, onChange, label = '📷 Upload Image', maxMb = 3 }) 
   );
 }
 
+function BrochureUpload({ value, onChange, maxMb = 10 }) {
+  const ref = useRef();
+  function handle(e) {
+    const f = e.target.files[0]; if (!f) return;
+    if (f.size > maxMb * 1024 * 1024) { alert(`Max ${maxMb}MB`); return; }
+    const r = new FileReader(); r.onload = ev => onChange(ev.target.result); r.readAsDataURL(f);
+  }
+  const isPdf = value?.startsWith('data:application/pdf');
+  return (
+    <div className={styles.imgUpload}>
+      {value
+        ? (
+          <div className={styles.imgWrap} style={{ alignItems: 'center', gap: 10 }}>
+            {isPdf
+              ? <span style={{ fontSize: 13, color: '#16a34a', fontWeight: 600 }}>📄 PDF uploaded</span>
+              : <img src={value} alt="" className={styles.imgPreview} />
+            }
+            <button type="button" onClick={() => onChange('')}>✕ Remove</button>
+          </div>
+        )
+        : <button type="button" className={styles.imgBtn} onClick={() => ref.current.click()}>📄 Upload Brochure (PDF or image)</button>
+      }
+      <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" style={{ display: 'none' }} onChange={handle} />
+    </div>
+  );
+}
+
 function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
   const [form, setForm] = useState({
     name: product?.name || '',
@@ -43,6 +70,7 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
     features: product?.features?.join('\n') || '',
     calculator_type: product?.calculator_type || 'unit',
     image_base64: product?.image_base64 || '',
+    brochure_base64: product?.brochure_base64 || '',
     sort_order: product?.sort_order || 0,
     price_list_product_id: product?.price_list_product_id || '',
   });
@@ -194,6 +222,13 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
           <label>Product Photo</label>
           <ImgUpload value={form.image_base64} onChange={v => set('image_base64', v)} />
+        </div>
+        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+          <label>Product Brochure <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(PDF or image — shown as fullscreen preview in Sales Presenter)</span></label>
+          <BrochureUpload value={form.brochure_base64} onChange={v => set('brochure_base64', v)} />
+          {form.brochure_base64 && (
+            <span style={{ fontSize: 12, color: '#16a34a', marginTop: 4, display: 'block' }}>✓ Brochure uploaded</span>
+          )}
         </div>
       </div>
       <div className={styles.formActions}>
