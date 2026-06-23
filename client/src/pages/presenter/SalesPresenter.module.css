@@ -271,23 +271,48 @@
 .brochureOverlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.85);
   z-index: 1200; display: flex; align-items: stretch; justify-content: center;
-  padding: 24px;
+  padding: 16px;
 }
 .brochureModal {
   background: white; border-radius: 12px; display: flex; flex-direction: column;
   width: 100%; max-width: 960px; overflow: hidden;
 }
 .brochureHeader {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 20px; background: #1e293b; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; background: #1e293b; flex-shrink: 0; flex-wrap: wrap;
 }
-.brochureTitle { font-size: 14px; font-weight: 700; color: white; }
+.brochureTitle { font-size: 13px; font-weight: 700; color: white; min-width: 0; flex: 1; }
+.brochureControls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.brochureNav { display: flex; align-items: center; gap: 4px; }
+.brochureZoom { display: flex; align-items: center; gap: 4px; }
+.brochureNavBtn {
+  width: 28px; height: 28px; background: rgba(255,255,255,0.15); color: white;
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; font-size: 16px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-family: inherit; transition: background 0.15s; padding: 0;
+}
+.brochureNavBtn:hover:not(:disabled) { background: rgba(255,255,255,0.28); }
+.brochureNavBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+.brochureNavLabel { font-size: 12px; color: white; min-width: 40px; text-align: center; white-space: nowrap; }
 .brochureClose {
-  padding: 6px 14px; background: rgba(255,255,255,0.15); color: white;
-  border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; font-size: 13px;
-  font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.15s;
+  padding: 5px 12px; background: rgba(255,255,255,0.15); color: white;
+  border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; font-size: 12px;
+  font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.15s; white-space: nowrap;
 }
-.brochureClose:hover { background: rgba(255,255,255,0.25); }
-.brochureContent { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: center; background: #f1f5f9; }
-.brochureFrame { width: 100%; height: 100%; min-height: 600px; border: none; }
-.brochureImg { max-width: 100%; height: auto; display: block; }
+.brochureClose:hover { background: rgba(255,255,255,0.28); }
+.brochureContent {
+  flex: 1; overflow: auto; display: flex; flex-direction: column;
+  align-items: center; background: #f1f5f9; padding: 16px;
+}
+.brochurePdfLoading { color: #64748b; font-size: 14px; padding: 32px; }
+.brochureImg { max-width: 100%; height: auto; display: block; border-radius: 4px; }
+
+/* react-pdf canvas styling */
+.brochureContent :global(.react-pdf__Page) { box-shadow: 0 2px 12px rgba(0,0,0,0.15); border-radius: 4px; }
+.brochureContent :global(.react-pdf__Page__canvas) { border-radius: 4px; max-width: 100%; height: auto !important; }
+
+@media (max-width: 600px) {
+  .brochureOverlay { padding: 8px; }
+  .brochureHeader { padding: 10px 12px; }
+  .brochureContent { padding: 10px; }
+}

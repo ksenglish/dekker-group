@@ -1,7 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
 import api from '../../lib/api';
 import styles from './SalesPresenter.module.css';
+
+// Use CDN worker so Vite doesn't need to bundle it
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 // ── Calculators ───────────────────────────────────────────────────────────────
 
@@ -541,18 +547,71 @@ function Calculator({ product, onPick }) {
 // ── Product Detail Panel ──────────────────────────────────────────────────────
 function BrochureModal({ src, name, onClose }) {
   const isPdf = src?.startsWith('data:application/pdf');
+  const [numPages, setNumPages] = useState(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const [scale, setScale] = useState(1.0);
+  const contentRef = useRef(null);
+  const [pageWidth, setPageWidth] = useState(null);
+
+  // Measure container width so pages fill it on any screen size
+  const measureWidth = useCallback(() => {
+    if (contentRef.current) setPageWidth(contentRef.current.clientWidth - 32);
+  }, []);
+  useEffect(() => {
+    measureWidth();
+    window.addEventListener('resize', measureWidth);
+    return () => window.removeEventListener('resize', measureWidth);
+  }, [measureWidth]);
+
+  const effectiveWidth = pageWidth ? pageWidth * scale : undefined;
+
   return (
     <div className={styles.brochureOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.brochureModal}>
         <div className={styles.brochureHeader}>
-          <span className={styles.brochureTitle}>{name} — Brochure</span>
-          <button className={styles.brochureClose} onClick={onClose}>✕ Minimise</button>
+          <span className={styles.brochureTitle}>{name}</span>
+          <div className={styles.brochureControls}>
+            {isPdf && numPages > 1 && (
+              <div className={styles.brochureNav}>
+                <button className={styles.brochureNavBtn}
+                  onClick={() => setPageNumber(p => Math.max(1, p - 1))}
+                  disabled={pageNumber <= 1}>‹</button>
+                <span className={styles.brochureNavLabel}>{pageNumber} / {numPages}</span>
+                <button className={styles.brochureNavBtn}
+                  onClick={() => setPageNumber(p => Math.min(numPages, p + 1))}
+                  disabled={pageNumber >= numPages}>›</button>
+              </div>
+            )}
+            {isPdf && (
+              <div className={styles.brochureZoom}>
+                <button className={styles.brochureNavBtn}
+                  onClick={() => setScale(s => Math.max(0.5, +(s - 0.25).toFixed(2)))}>−</button>
+                <span className={styles.brochureNavLabel}>{Math.round(scale * 100)}%</span>
+                <button className={styles.brochureNavBtn}
+                  onClick={() => setScale(s => Math.min(3, +(s + 0.25).toFixed(2)))}>+</button>
+              </div>
+            )}
+            <button className={styles.brochureClose} onClick={onClose}>✕ Close</button>
+          </div>
         </div>
-        <div className={styles.brochureContent}>
-          {isPdf
-            ? <iframe src={src} title="Product Brochure" className={styles.brochureFrame} />
-            : <img src={src} alt="Product Brochure" className={styles.brochureImg} />
-          }
+        <div className={styles.brochureContent} ref={contentRef}>
+          {isPdf ? (
+            <Document
+              file={src}
+              onLoadSuccess={({ numPages }) => { setNumPages(numPages); setPageNumber(1); }}
+              loading={<div className={styles.brochurePdfLoading}>Loading PDF…</div>}
+              error={<div className={styles.brochurePdfLoading}>Failed to load PDF.</div>}
+            >
+              <Page
+                pageNumber={pageNumber}
+                width={effectiveWidth}
+                renderAnnotationLayer={true}
+                renderTextLayer={true}
+              />
+            </Document>
+          ) : (
+            <img src={src} alt="Product Brochure" className={styles.brochureImg} />
+          )}
         </div>
       </div>
     </div>
