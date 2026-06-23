@@ -538,57 +538,17 @@ function BillingRatesTab() {
 }
 
 function IntegrationsTab() {
-  const [form, setForm] = useState({ google_maps_key: '' });
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api.get('/settings/integrations').then(r => setForm(r.data)).catch(() => {});
-  }, []);
-
-  async function save() {
-    setSaving(true);
-    try {
-      await api.put('/settings/integrations', form);
-      setSaved(true); setTimeout(() => setSaved(false), 3000);
-    } catch { alert('Save failed'); }
-    finally { setSaving(false); }
-  }
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600 }}>Google Maps</h2>
-        </div>
-        <div style={{ padding: 20 }}>
-          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20, maxWidth: 560 }}>
-            Required for the Map view and address geocoding. Get a key from the{' '}
-            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" style={{ color: 'var(--color-primary)' }}>
-              Google Cloud Console
-            </a>{' '}
-            — enable the <strong>Maps JavaScript API</strong> and <strong>Geocoding API</strong>.
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 420 }}>
-            <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-muted)' }}>API Key</label>
-            <input
-              type="text"
-              value={form.google_maps_key || ''}
-              onChange={e => setForm(f => ({ ...f, google_maps_key: e.target.value }))}
-              placeholder="AIzaSy…"
-              style={{ padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 14, outline: 'none', fontFamily: 'monospace' }}
-            />
-            <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-              Key is stored securely and never exposed to the browser directly.
-            </p>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24, maxWidth: 420 }}>
-            <button onClick={save} disabled={saving} style={{
-              padding: '9px 20px', background: 'var(--color-primary)', color: 'white',
-              border: 'none', borderRadius: 'var(--radius)', fontSize: 14, fontWeight: 500, cursor: 'pointer'
-            }}>
-              {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
-            </button>
+    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+        <h2 style={{ fontSize: 15, fontWeight: 600 }}>Integrations</h2>
+      </div>
+      <div style={{ padding: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+          <span style={{ fontSize: 20 }}>🗺</span>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>Map — OpenStreetMap (Free)</div>
+            <div style={{ fontSize: 13, color: '#16a34a' }}>No API key required. Powered by Leaflet + OpenStreetMap.</div>
           </div>
         </div>
       </div>
