@@ -303,7 +303,60 @@
 .brochureContent {
   flex: 1; overflow: auto; display: flex; flex-direction: column;
   align-items: center; background: #f1f5f9; padding: 16px;
+  position: relative;
 }
+
+/* ── Markup annotation canvas ──────────────────────────────────────────────── */
+.markupCanvas {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  touch-action: none;
+  z-index: 10;
+}
+
+/* Pencil toggle button */
+.markupToggle {
+  width: 32px; height: 28px;
+  background: rgba(255,255,255,0.12); color: white;
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 6px;
+  font-size: 15px; cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s;
+}
+.markupToggle:hover { background: rgba(255,255,255,0.24); }
+.markupToggleActive { background: #e11d48 !important; border-color: #be123c !important; }
+
+/* Toolbar row (visible when markup mode is active) */
+.markupToolbar {
+  width: 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.15);
+}
+.markupColorPicker {
+  width: 34px; height: 28px; padding: 2px; box-sizing: border-box;
+  border-radius: 6px; border: 1.5px solid rgba(255,255,255,0.3);
+  cursor: pointer; background: transparent; flex-shrink: 0;
+}
+.markupSizeBtn {
+  width: 32px; height: 28px;
+  background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px; cursor: pointer; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s;
+}
+.markupSizeBtn:hover { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5); }
+.markupSizeBtnActive { background: rgba(255,255,255,0.3) !important; border-color: white !important; }
+.markupDivider { width: 1px; height: 20px; background: rgba(255,255,255,0.2); margin: 0 2px; flex-shrink: 0; }
+.markupBtn {
+  height: 28px; padding: 0 10px;
+  background: rgba(255,255,255,0.12); color: white;
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 6px;
+  font-size: 13px; cursor: pointer; font-family: inherit; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  gap: 4px; white-space: nowrap; transition: background 0.15s;
+}
+.markupBtn:hover:not(:disabled) { background: rgba(255,255,255,0.24); }
+.markupBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.markupBtnActive { background: rgba(255,255,255,0.3) !important; border-color: white !important; }
 .brochurePdfLoading { color: #64748b; font-size: 14px; padding: 32px; }
 .brochureImg { max-width: 100%; height: auto; display: block; border-radius: 4px; }
 

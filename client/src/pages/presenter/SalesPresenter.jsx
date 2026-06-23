@@ -553,7 +553,16 @@ function BrochureModal({ src, name, onClose }) {
   const contentRef = useRef(null);
   const [pageWidth, setPageWidth] = useState(null);
 
-  // Measure container width so pages fill it on any screen size
+  // Markup / annotation
+  const [markupMode, setMarkupMode] = useState(false);
+  const [penColor, setPenColor] = useState('#e11d48');
+  const [penSize, setPenSize] = useState(4);
+  const [isEraser, setIsEraser] = useState(false);
+  const [history, setHistory] = useState([]);
+  const canvasRef = useRef(null);
+  const drawing = useRef(false);
+  const lastPt = useRef(null);
+
   const measureWidth = useCallback(() => {
     if (contentRef.current) setPageWidth(contentRef.current.clientWidth - 32);
   }, []);
@@ -564,6 +573,104 @@ function BrochureModal({ src, name, onClose }) {
   }, [measureWidth]);
 
   const effectiveWidth = pageWidth ? pageWidth * scale : undefined;
+
+  // Keep canvas sized to the visible content area
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const content = contentRef.current;
+    if (!canvas || !content) return;
+    const w = content.clientWidth;
+    const h = content.clientHeight;
+    if (canvas.width === w && canvas.height === h) return;
+    const saved = canvas.width > 0 && canvas.height > 0 ? canvas.toDataURL() : null;
+    canvas.width = w;
+    canvas.height = h;
+    if (saved) {
+      const img = new Image();
+      img.onload = () => canvas.getContext('2d').drawImage(img, 0, 0);
+      img.src = saved;
+    }
+  }, [pageWidth, scale]);
+
+  // Clear annotations when navigating to a different PDF page
+  const prevPageRef = useRef(pageNumber);
+  useEffect(() => {
+    if (prevPageRef.current === pageNumber) return;
+    prevPageRef.current = pageNumber;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+      setHistory([]);
+    }
+  }, [pageNumber]);
+
+  function getPos(e) {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  }
+
+  function startDraw(e) {
+    if (!markupMode) return;
+    e.preventDefault();
+    canvasRef.current.setPointerCapture(e.pointerId);
+    drawing.current = true;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (canvas.width > 0 && canvas.height > 0) {
+      setHistory(h => [...h.slice(-19), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
+    }
+    lastPt.current = getPos(e);
+  }
+
+  function onDraw(e) {
+    if (!drawing.current) return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const pt = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(lastPt.current.x, lastPt.current.y);
+    ctx.lineTo(pt.x, pt.y);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (isEraser) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+      ctx.lineWidth = penSize * 5;
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = penSize;
+      ctx.stroke();
+    }
+    lastPt.current = pt;
+  }
+
+  function endDraw() {
+    drawing.current = false;
+    lastPt.current = null;
+  }
+
+  function handleUndo() {
+    if (!history.length) return;
+    canvasRef.current.getContext('2d').putImageData(history[history.length - 1], 0, 0);
+    setHistory(h => h.slice(0, -1));
+  }
+
+  function handleClear() {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (canvas.width > 0 && canvas.height > 0) {
+      setHistory(h => [...h.slice(-19), ctx.getImageData(0, 0, canvas.width, canvas.height)]);
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
 
   return (
     <div className={styles.brochureOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -591,10 +698,53 @@ function BrochureModal({ src, name, onClose }) {
                   onClick={() => setScale(s => Math.min(3, +(s + 0.25).toFixed(2)))}>+</button>
               </div>
             )}
+            <button
+              className={`${styles.markupToggle} ${markupMode ? styles.markupToggleActive : ''}`}
+              onClick={() => setMarkupMode(m => !m)}
+              title={markupMode ? 'Exit drawing mode' : 'Annotate / draw'}
+            >✏️</button>
             <button className={styles.brochureClose} onClick={onClose}>✕ Close</button>
           </div>
+
+          {markupMode && (
+            <div className={styles.markupToolbar}>
+              <input
+                type="color"
+                value={penColor}
+                onChange={e => { setPenColor(e.target.value); setIsEraser(false); }}
+                className={styles.markupColorPicker}
+                title="Pen colour"
+              />
+              {[2, 4, 8, 16].map(s => (
+                <button
+                  key={s}
+                  className={`${styles.markupSizeBtn} ${!isEraser && penSize === s ? styles.markupSizeBtnActive : ''}`}
+                  onClick={() => { setPenSize(s); setIsEraser(false); }}
+                  title={`Pen size ${s}`}
+                >
+                  <span style={{ width: s + 2, height: s + 2, borderRadius: '50%', background: 'white', display: 'block', flexShrink: 0 }} />
+                </button>
+              ))}
+              <div className={styles.markupDivider} />
+              <button
+                className={`${styles.markupBtn} ${isEraser ? styles.markupBtnActive : ''}`}
+                onClick={() => setIsEraser(e => !e)}
+              >⌫ Erase</button>
+              <button
+                className={styles.markupBtn}
+                onClick={handleUndo}
+                disabled={!history.length}
+              >↩ Undo</button>
+              <button className={styles.markupBtn} onClick={handleClear}>🗑 Clear</button>
+            </div>
+          )}
         </div>
-        <div className={styles.brochureContent} ref={contentRef}>
+
+        <div
+          className={styles.brochureContent}
+          ref={contentRef}
+          style={markupMode ? { overflow: 'hidden' } : undefined}
+        >
           {isPdf ? (
             <Document
               file={src}
@@ -612,6 +762,19 @@ function BrochureModal({ src, name, onClose }) {
           ) : (
             <img src={src} alt="Product Brochure" className={styles.brochureImg} />
           )}
+          <canvas
+            ref={canvasRef}
+            className={styles.markupCanvas}
+            style={{
+              pointerEvents: markupMode ? 'all' : 'none',
+              cursor: markupMode ? (isEraser ? 'cell' : 'crosshair') : 'default',
+            }}
+            onPointerDown={startDraw}
+            onPointerMove={onDraw}
+            onPointerUp={endDraw}
+            onPointerLeave={endDraw}
+            onPointerCancel={endDraw}
+          />
         </div>
       </div>
     </div>
