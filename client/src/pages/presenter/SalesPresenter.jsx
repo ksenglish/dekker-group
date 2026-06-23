@@ -436,18 +436,23 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
   const houseSize = parseInt(m2) || 0;
   const numOutlets = parseInt(outlets) || 0;
 
-  // Filter table to only rows whose system name is contained in the presenter product name
-  // e.g. product "SmartVent Positive Advance" matches system "SmartVent Positive Advance"
-  const productName = (presenterProduct?.name || '').toLowerCase();
+  // Normalise: lowercase + strip spaces/+ so "SmartVent Positive 3" == "SmartVent Positive3"
+  const norm = s => s.toLowerCase().replace(/[\s+]/g, '');
+  const productName = norm(presenterProduct?.name || '');
   const systemRows = productName
-    ? PP_TABLE.filter(r => productName.includes(r.system.toLowerCase()) || r.system.toLowerCase().includes(productName))
+    ? PP_TABLE.filter(r => {
+        const sys = norm(r.system);
+        return productName.includes(sys) || sys.includes(productName);
+      })
     : PP_TABLE;
+  // If nothing matched (e.g. product not named after a system), show all rows
+  const searchRows = systemRows.length > 0 ? systemRows : PP_TABLE;
 
   const exactMatch = houseSize > 0 && numOutlets > 0
-    ? systemRows.find(r => houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets)
+    ? searchRows.find(r => houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets)
     : null;
   const outletOnlyMatch = !exactMatch && numOutlets > 0
-    ? systemRows.find(r => numOutlets === r.outlets)
+    ? searchRows.find(r => numOutlets === r.outlets)
     : null;
   const tableMatch = exactMatch || outletOnlyMatch;
 
