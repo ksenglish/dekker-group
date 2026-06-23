@@ -550,7 +550,19 @@ export default function JobDetail() {
                 <div className={styles.detailItem}><span>Customer</span>
                   <strong>{job.customer_id ? <Link to={`/customers/${job.customer_id}`}>{job.customer_name}</Link> : '—'}</strong>
                 </div>
-                <div className={styles.detailItem}><span>Site</span><strong>{job.site_address || '—'}{job.site_label ? ` (${job.site_label})` : ''}</strong></div>
+                <div className={styles.detailItem}>
+                  <span>Site</span>
+                  <strong>
+                    {job.site_address || '—'}{job.site_label ? ` (${job.site_label})` : ''}
+                    {job.site_address && (
+                      <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.site_address)}`}
+                        target="_blank" rel="noreferrer"
+                        style={{ marginLeft: 8, fontSize: 12, color: 'var(--color-primary)' }}>
+                        📍 Map
+                      </a>
+                    )}
+                  </strong>
+                </div>
                 <div className={styles.detailItem}><span>Type</span><strong style={{ textTransform: 'capitalize' }}>{job.type.replace('_', ' ')}</strong></div>
                 <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
                   <span>Team Members</span>

@@ -3,8 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import styles from '../quotes/Quotes.module.css';
 
-const STATUSES = ['draft', 'sent', 'paid', 'overdue'];
-const STATUS_COLOURS = { draft:'#6b7280', sent:'#0891b2', paid:'#16a34a', overdue:'#dc2626' };
+const STATUSES = ['draft', 'sent', 'paid', 'overdue', 'cancelled'];
+const STATUS_COLOURS = { draft:'#6b7280', sent:'#0891b2', paid:'#16a34a', overdue:'#dc2626', cancelled:'#6b7280' };
 
 export default function InvoiceDetail() {
   const { id } = useParams();
@@ -97,7 +97,7 @@ export default function InvoiceDetail() {
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumb}>
           <Link to="/invoices">Invoices</Link><span>›</span>
-          <span>INV-{id.slice(0,8).toUpperCase()}</span>
+          <span>{invoice?.invoice_number ? `INV-${String(invoice.invoice_number).padStart(4,'0')}` : `INV-${id.slice(0,8).toUpperCase()}`}</span>
         </div>
         <div className={styles.headerActions}>
           <button className={styles.btnSecondary} onClick={handleDownload}>⬇ Download PDF</button>
@@ -224,7 +224,7 @@ export default function InvoiceDetail() {
           <div className={styles.card}>
             <div className={styles.cardHeader}><h2>Summary</h2></div>
             <div className={styles.summaryList}>
-              <div className={styles.summaryRow}><span>Invoice #</span><strong>INV-{id.slice(0,8).toUpperCase()}</strong></div>
+              <div className={styles.summaryRow}><span>Invoice #</span><strong>{invoice?.invoice_number ? `INV-${String(invoice.invoice_number).padStart(4,'0')}` : `INV-${id.slice(0,8).toUpperCase()}`}</strong></div>
               <div className={styles.summaryRow}><span>Status</span>
                 <span className={styles.badge} style={{ background: STATUS_COLOURS[invoice.status]+'18', color: STATUS_COLOURS[invoice.status] }}>{invoice.status}</span>
               </div>

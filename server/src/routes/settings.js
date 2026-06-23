@@ -150,4 +150,69 @@ router.delete('/job-templates/:id', authenticate, requireRole('admin', 'office')
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// Billing rates
+const DEFAULT_BILLING_RATES = [
+  { id: 'standard',     label: 'Standard',        rate: 0 },
+  { id: 'overtime',     label: 'Overtime',         rate: 0 },
+  { id: 'after_hours',  label: 'After Hours',      rate: 0 },
+  { id: 'public_hol',   label: 'Public Holiday',   rate: 0 },
+  { id: 'subcontractor',label: 'Subcontractor',    rate: 0 },
+];
+
+router.get('/billing-rates', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='billing_rates'`);
+    res.json(rows[0]?.value || DEFAULT_BILLING_RATES);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/billing-rates', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  try {
+    const rates = req.body;
+    if (!Array.isArray(rates)) return res.status(400).json({ error: 'Array required' });
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('billing_rates', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
+      [JSON.stringify(rates)]
+    );
+    res.json(rates);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Integrations (Google Maps API key etc.)
+router.get('/integrations', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='integrations'`);
+    const s = rows[0]?.value || {};
+    // Mask the key in the response
+    res.json({ google_maps_key: s.google_maps_key ? '••••' + s.google_maps_key.slice(-4) : '' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/integrations', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const incoming = req.body;
+    // If masked value sent back, keep existing
+    if (incoming.google_maps_key?.startsWith('••••')) {
+      const { rows } = await pool.query(`SELECT value FROM settings WHERE key='integrations'`);
+      incoming.google_maps_key = rows[0]?.value?.google_maps_key || '';
+    }
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('integrations', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
+      [JSON.stringify(incoming)]
+    );
+    res.json({ google_maps_key: incoming.google_maps_key ? '••••' + incoming.google_maps_key.slice(-4) : '' });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Public endpoint for Google Maps key (needed by frontend map page)
+router.get('/maps-key', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='integrations'`);
+    const key = rows[0]?.value?.google_maps_key || '';
+    res.json({ key });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 module.exports = router;

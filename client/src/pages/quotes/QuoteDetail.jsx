@@ -3,8 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import styles from './Quotes.module.css';
 
-const STATUSES = ['draft', 'sent', 'accepted', 'declined'];
-const STATUS_COLOURS = { draft:'#6b7280', sent:'#0891b2', accepted:'#16a34a', declined:'#dc2626' };
+const STATUSES = ['draft', 'sent', 'accepted', 'declined', 'cancelled'];
+const STATUS_COLOURS = { draft:'#6b7280', sent:'#0891b2', accepted:'#16a34a', declined:'#dc2626', cancelled:'#6b7280' };
 
 export default function QuoteDetail() {
   const { id } = useParams();
@@ -79,7 +79,7 @@ export default function QuoteDetail() {
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumb}>
           <Link to="/quotes">Quotes</Link><span>›</span>
-          <span>Q-{id.slice(0,8).toUpperCase()}</span>
+          <span>{quote?.quote_number ? `QT-${String(quote.quote_number).padStart(4,'0')}` : `Q-${id.slice(0,8).toUpperCase()}`}</span>
         </div>
         <div className={styles.headerActions}>
           <button className={styles.btnSecondary} onClick={handleDownload}>⬇ Download PDF</button>
@@ -158,7 +158,7 @@ export default function QuoteDetail() {
           <div className={styles.card}>
             <div className={styles.cardHeader}><h2>Summary</h2></div>
             <div className={styles.summaryList}>
-              <div className={styles.summaryRow}><span>Quote #</span><strong>Q-{id.slice(0,8).toUpperCase()}</strong></div>
+              <div className={styles.summaryRow}><span>Quote #</span><strong>{quote?.quote_number ? `QT-${String(quote.quote_number).padStart(4,'0')}` : `Q-${id.slice(0,8).toUpperCase()}`}</strong></div>
               <div className={styles.summaryRow}><span>Status</span>
                 <span className={styles.badge} style={{ background: STATUS_COLOURS[quote.status]+'18', color: STATUS_COLOURS[quote.status] }}>{quote.status}</span>
               </div>

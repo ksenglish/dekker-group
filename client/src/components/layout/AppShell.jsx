@@ -15,6 +15,7 @@ import ProductList from '../../pages/products/ProductList';
 import UsersPage from '../../pages/users/UsersPage';
 import TimesheetsPage from '../../pages/timesheets/TimesheetsPage';
 import ReportsPage from '../../pages/reports/ReportsPage';
+import MapPage from '../../pages/map/MapPage';
 import SalesPresenter from '../../pages/presenter/SalesPresenter';
 import PresenterAdmin from '../../pages/presenter/PresenterAdmin';
 import styles from './AppShell.module.css';
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { to: '/quotes', label: 'Quotes', icon: '📋' },
   { to: '/invoices', label: 'Invoices', icon: '💰' },
   { to: '/products', label: 'Price List', icon: '🏷' },
+  { to: '/map', label: 'Map', icon: '🗺' },
   { to: '/timesheets', label: 'Timesheets', icon: '⏱' },
   { to: '/reports', label: 'Reports', icon: '📊' },
   { to: '/presenter', label: 'Sales Presenter', icon: '🎯' },
@@ -131,6 +133,7 @@ export default function AppShell() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/products" element={<ProductList />} />
           <Route path="/users" element={<UsersPage />} />
+          <Route path="/map" element={<MapPage />} />
           <Route path="/timesheets" element={<TimesheetsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/presenter" element={<SalesPresenter />} />

@@ -3,7 +3,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Settings.module.css';
 
-const TABS = ['My Account', 'Quote Theme', 'Terms & Conditions', 'Email', 'Job Types & Templates'];
+const TABS = ['My Account', 'Quote Theme', 'Terms & Conditions', 'Email', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('My Account');
@@ -352,6 +352,10 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {activeTab === 'Billing Rates' && <BillingRatesTab />}
+
+          {activeTab === 'Integrations' && <IntegrationsTab />}
+
           {activeTab === 'Job Types & Templates' && (
             <JobTypesTab />
           )}
@@ -456,6 +460,136 @@ function MyAccountTab() {
               {status === 'saving' ? 'Updating…' : 'Update Password'}
             </button>
           </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BillingRatesTab() {
+  const [rates, setRates] = useState([]);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/billing-rates').then(r => setRates(r.data));
+  }, []);
+
+  function setRate(id, val) {
+    setRates(rs => rs.map(r => r.id === id ? { ...r, rate: parseFloat(val) || 0 } : r));
+    setSaved(false);
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.put('/settings/billing-rates', rates);
+      setSaved(true); setTimeout(() => setSaved(false), 3000);
+    } catch { alert('Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600 }}>Billing Rates</h2>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Hourly rates (NZD, excl. GST)</p>
+        </div>
+        <div style={{ padding: '20px' }}>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20 }}>
+            Set hourly charge-out rates for each billing category. These are used to calculate job costs in timesheets and reports.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {rates.map(r => (
+              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 160px 1fr', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#f8fafc', borderRadius: 8 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{r.label}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>$</span>
+                  <input
+                    type="number" min="0" step="0.50"
+                    value={r.rate || ''}
+                    onChange={e => setRate(r.id, e.target.value)}
+                    placeholder="0.00"
+                    style={{ width: 100, padding: '7px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
+                  />
+                  <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>/hr</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                  {r.rate > 0 ? `$${(r.rate * 1.15).toFixed(2)}/hr incl. GST` : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
+            <button onClick={save} disabled={saving} style={{
+              padding: '9px 20px', background: 'var(--color-primary)', color: 'white',
+              border: 'none', borderRadius: 'var(--radius)', fontSize: 14, fontWeight: 500, cursor: 'pointer'
+            }}>
+              {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Rates'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IntegrationsTab() {
+  const [form, setForm] = useState({ google_maps_key: '' });
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/integrations').then(r => setForm(r.data)).catch(() => {});
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.put('/settings/integrations', form);
+      setSaved(true); setTimeout(() => setSaved(false), 3000);
+    } catch { alert('Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600 }}>Google Maps</h2>
+        </div>
+        <div style={{ padding: 20 }}>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20, maxWidth: 560 }}>
+            Required for the Map view and address geocoding. Get a key from the{' '}
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" style={{ color: 'var(--color-primary)' }}>
+              Google Cloud Console
+            </a>{' '}
+            — enable the <strong>Maps JavaScript API</strong> and <strong>Geocoding API</strong>.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 420 }}>
+            <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-muted)' }}>API Key</label>
+            <input
+              type="text"
+              value={form.google_maps_key || ''}
+              onChange={e => setForm(f => ({ ...f, google_maps_key: e.target.value }))}
+              placeholder="AIzaSy…"
+              style={{ padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 14, outline: 'none', fontFamily: 'monospace' }}
+            />
+            <p style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+              Key is stored securely and never exposed to the browser directly.
+            </p>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24, maxWidth: 420 }}>
+            <button onClick={save} disabled={saving} style={{
+              padding: '9px 20px', background: 'var(--color-primary)', color: 'white',
+              border: 'none', borderRadius: 'var(--radius)', fontSize: 14, fontWeight: 500, cursor: 'pointer'
+            }}>
+              {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

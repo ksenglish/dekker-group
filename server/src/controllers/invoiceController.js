@@ -20,7 +20,7 @@ async function list(req, res) {
   if (status === 'overdue') {
     conditions.push(`i.status NOT IN ('paid','cancelled') AND i.due_date < CURRENT_DATE`);
   } else if (status === 'unpaid') {
-    conditions.push(`i.status NOT IN ('paid','cancelled')`);
+    conditions.push(`i.status NOT IN ('paid','cancelled') AND (i.due_date IS NULL OR i.due_date >= CURRENT_DATE)`);
   } else if (status) {
     conditions.push(`i.status = $${p}`); params.push(status); p++;
   }
@@ -30,7 +30,8 @@ async function list(req, res) {
   try {
     const { rows } = await pool.query(
       `SELECT i.*, c.name AS customer_name, j.job_number,
-              (i.status NOT IN ('paid','cancelled') AND i.due_date < CURRENT_DATE) AS is_overdue
+              (i.status NOT IN ('paid','cancelled') AND i.due_date < CURRENT_DATE) AS is_overdue,
+              COALESCE((SELECT SUM(amount) FROM invoice_payments WHERE invoice_id=i.id), 0) AS paid_amount
        FROM invoices i
        LEFT JOIN customers c ON c.id = i.customer_id
        LEFT JOIN jobs j ON j.id = i.job_id
@@ -70,7 +71,7 @@ async function update(req, res) {
     if (status === 'paid') {
       await pool.query(`UPDATE jobs SET status='complete', updated_at=NOW() WHERE id=$1`, [rows[0].job_id]);
       await logActivity({ type: 'invoice_paid', entity_type: 'invoice', entity_id: rows[0].id, user_id: req.user?.id,
-        message: `Invoice INV-${rows[0].id.slice(0,8).toUpperCase()} marked as paid ($${(rows[0].total/100).toFixed(2)})` });
+        message: `Invoice ${rows[0].invoice_number ? `INV-${String(rows[0].invoice_number).padStart(4,'0')}` : `INV-${rows[0].id.slice(0,8).toUpperCase()}`} marked as paid ($${(rows[0].total/100).toFixed(2)})` });
     }
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
@@ -100,7 +101,7 @@ async function downloadPdf(req, res) {
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     const pdf = await buildPDF({
-      type: 'Invoice', number: `INV-${inv.id.slice(0,8).toUpperCase()}`,
+      type: 'Invoice', number: inv.invoice_number ? `INV-${String(inv.invoice_number).padStart(4,'0')}` : `INV-${inv.id.slice(0,8).toUpperCase()}`,
       customer: { name: inv.customer_name, company: inv.customer_company, email: inv.customer_email, phone: inv.customer_phone },
       items: enrichedItems, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
       status: inv.status, dueDate: inv.due_date, notes: inv.notes, terms: theme.invoiceTerms || '', issuedAt: inv.created_at, theme,
@@ -124,7 +125,7 @@ async function sendEmail(req, res) {
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     const pdf = await buildPDF({
-      type: 'Invoice', number: `INV-${inv.id.slice(0,8).toUpperCase()}`,
+      type: 'Invoice', number: inv.invoice_number ? `INV-${String(inv.invoice_number).padStart(4,'0')}` : `INV-${inv.id.slice(0,8).toUpperCase()}`,
       customer: { name: inv.customer_name, company: inv.customer_company, email: inv.customer_email, phone: inv.customer_phone },
       items: enrichedItems, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
       status: inv.status, dueDate: inv.due_date, notes: inv.notes, terms: theme.invoiceTerms || '', issuedAt: inv.created_at, theme,
@@ -141,7 +142,7 @@ async function sendEmail(req, res) {
 <p>Kind regards,<br>${theme.companyName}</p>`,
       attachments: [{ filename: `invoice-${inv.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }],
     });
-    await pool.query(`UPDATE invoices SET status='sent', updated_at=NOW() WHERE id=$1`, [req.params.id]);
+    await pool.query(`UPDATE invoices SET status='sent', delivery_status='sent', updated_at=NOW() WHERE id=$1`, [req.params.id]);
     await logActivity({ type: 'invoice_sent', entity_type: 'invoice', entity_id: req.params.id, user_id: req.user?.id,
       message: `Invoice emailed to ${inv.customer_email} ($${(inv.total/100).toFixed(2)})` });
     await pool.query(

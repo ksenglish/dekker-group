@@ -5,6 +5,34 @@ const { authenticate, requireRole } = require('../middleware/auth');
 
 router.use(authenticate);
 
+// Geocode an address using Google Maps Geocoding API and save lat/lng to the site
+router.post('/geocode', requireRole('admin', 'office'), async (req, res) => {
+  const { address, site_id } = req.body;
+  if (!address) return res.status(400).json({ error: 'address required' });
+  try {
+    const pool = require('../db/pool');
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='integrations'`);
+    const apiKey = rows[0]?.value?.google_maps_key;
+    if (!apiKey) return res.status(400).json({ error: 'Google Maps API key not configured' });
+
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
+    const https = require('https');
+    const data = await new Promise((resolve, reject) => {
+      https.get(url, r => {
+        let body = '';
+        r.on('data', d => body += d);
+        r.on('end', () => resolve(JSON.parse(body)));
+      }).on('error', reject);
+    });
+    if (data.status !== 'OK' || !data.results[0]) return res.status(404).json({ error: 'Address not found', gmaps_status: data.status });
+    const { lat, lng } = data.results[0].geometry.location;
+    if (site_id) {
+      await pool.query('UPDATE customer_sites SET lat=$1, lng=$2 WHERE id=$3', [lat, lng, site_id]);
+    }
+    res.json({ lat, lng, formatted: data.results[0].formatted_address });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Geocode failed' }); }
+});
+
 router.get('/', c.list);
 router.post('/', requireRole('admin', 'office'), c.create);
 router.get('/:id', c.get);

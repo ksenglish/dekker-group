@@ -21,7 +21,8 @@ async function list(req, res) {
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   try {
     const { rows } = await pool.query(
-      `SELECT q.*, c.name AS customer_name, j.job_number
+      `SELECT q.*, c.name AS customer_name, j.job_number,
+              (q.expires_at IS NOT NULL AND q.expires_at < CURRENT_DATE AND q.status NOT IN ('accepted','declined','cancelled')) AS is_expired
        FROM quotes q
        LEFT JOIN customers c ON c.id = q.customer_id
        LEFT JOIN jobs j ON j.id = q.job_id
@@ -155,7 +156,7 @@ async function downloadPdf(req, res) {
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     const pdf = await buildPDF({
-      type: 'Quote', number: `Q-${q.id.slice(0,8).toUpperCase()}`,
+      type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, theme,
@@ -179,7 +180,7 @@ async function sendEmail(req, res) {
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     const pdf = await buildPDF({
-      type: 'Quote', number: `Q-${q.id.slice(0,8).toUpperCase()}`,
+      type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, theme,
@@ -199,7 +200,7 @@ async function sendEmail(req, res) {
 <p>Kind regards,<br>${theme.companyName}<br>${theme.email}</p>`,
       attachments: [{ filename: `quote-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }],
     });
-    await pool.query('UPDATE quotes SET status=\'sent\', sent_at=NOW(), updated_at=NOW() WHERE id=$1', [req.params.id]);
+    await pool.query('UPDATE quotes SET status=\'sent\', delivery_status=\'sent\', sent_at=NOW(), updated_at=NOW() WHERE id=$1', [req.params.id]);
     await logActivity({ type: 'quote_sent', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id,
       message: `Quote emailed to ${q.customer_email} ($${(q.total/100).toFixed(2)})` });
     await pool.query(
@@ -222,12 +223,16 @@ async function publicGet(req, res) {
     );
     if (!rows[0]) return res.status(404).json({ error: 'Quote not found' });
     const q = rows[0];
+    // Mark as viewed if it was only sent before
+    if (q.delivery_status === 'sent') {
+      await pool.query('UPDATE quotes SET delivery_status=\'viewed\' WHERE public_token=$1', [req.params.token]);
+    }
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const theme = await getTheme();
     res.json({
       id: q.id,
-      number: `Q-${q.id.slice(0,8).toUpperCase()}`,
+      number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       status: q.status,
       customer_name: q.customer_name,
       customer_company: q.customer_company,
