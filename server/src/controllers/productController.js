@@ -15,8 +15,10 @@ async function list(req, res) {
   }
 
   try {
+    // Exclude large binary columns from list — fetched on demand via GET /products/:id
     const { rows } = await pool.query(
-      `SELECT * FROM products p WHERE ${conditions.join(' AND ')} ORDER BY p.category, p.name`,
+      `SELECT id, name, description, category, unit, unit_price, cost_price, supplier, is_active, created_at, updated_at
+       FROM products p WHERE ${conditions.join(' AND ')} ORDER BY p.category, p.name`,
       params
     );
     res.json(rows);

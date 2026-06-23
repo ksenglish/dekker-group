@@ -305,6 +305,7 @@ function SmartVentLiteCalculator({ onPick }) {
   const [outlets, setOutlets] = useState('');
   const [priceListProducts, setPriceListProducts] = useState([]);
   const [showBrochure, setShowBrochure] = useState(false);
+  const [fullPriceProduct, setFullPriceProduct] = useState(null);
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -364,15 +365,22 @@ function SmartVentLiteCalculator({ onPick }) {
               + Add {tableMatch.model} to Job
             </button>
           )}
-          {priceProduct?.brochure_base64 && (
-            <button className={styles.brochureBtn} onClick={() => setShowBrochure(true)}>
+          {priceProduct && (
+            <button className={styles.brochureBtn} onClick={() => {
+              if (fullPriceProduct) { setShowBrochure(true); return; }
+              api.get(`/products/${priceProduct.id}`).then(r => {
+                setFullPriceProduct(r.data);
+                if (r.data.brochure_base64) setShowBrochure(true);
+                else alert('No brochure uploaded for this product.');
+              }).catch(() => {});
+            }}>
               📄 View Product Brochure
             </button>
           )}
         </div>
       )}
-      {showBrochure && priceProduct?.brochure_base64 && (
-        <BrochureModal src={priceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
+      {showBrochure && fullPriceProduct?.brochure_base64 && (
+        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -428,6 +436,7 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
   const [outlets, setOutlets] = useState('');
   const [priceListProducts, setPriceListProducts] = useState([]);
   const [showBrochure, setShowBrochure] = useState(false);
+  const [fullPriceProduct, setFullPriceProduct] = useState(null);
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -498,15 +507,22 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
               + Add {tableMatch.model} to Job
             </button>
           )}
-          {priceProduct?.brochure_base64 && (
-            <button className={styles.brochureBtn} onClick={() => setShowBrochure(true)}>
+          {priceProduct && (
+            <button className={styles.brochureBtn} onClick={() => {
+              if (fullPriceProduct) { setShowBrochure(true); return; }
+              api.get(`/products/${priceProduct.id}`).then(r => {
+                setFullPriceProduct(r.data);
+                if (r.data.brochure_base64) setShowBrochure(true);
+                else alert('No brochure uploaded for this product.');
+              }).catch(() => {});
+            }}>
               📄 View Product Brochure
             </button>
           )}
         </div>
       )}
-      {showBrochure && priceProduct?.brochure_base64 && (
-        <BrochureModal src={priceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
+      {showBrochure && fullPriceProduct?.brochure_base64 && (
+        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -625,6 +641,7 @@ export default function SalesPresenter({ onPick }) {
   const [subcatStack, setSubcatStack] = useState([]);
   const [products, setProducts] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedProductFull, setSelectedProductFull] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const currentNode = subcatStack[subcatStack.length - 1] || null;
@@ -754,7 +771,11 @@ export default function SalesPresenter({ onPick }) {
             <p className={styles.emptyHint}>Go to <strong>Settings → Sales Presenter</strong> to add products.</p>
           </div>
         ) : products.map(p => (
-          <button key={p.id} className={styles.productCard} onClick={() => setSelectedProduct(p)}>
+          <button key={p.id} className={styles.productCard} onClick={() => {
+          setSelectedProduct(p);
+          setSelectedProductFull(null);
+          api.get(`/presenter/products/${p.id}`).then(r => setSelectedProductFull(r.data)).catch(() => {});
+        }}>
             {p.image_base64 ? (
               <img src={p.image_base64} alt={p.name} className={styles.productImage} />
             ) : (
@@ -782,9 +803,9 @@ export default function SalesPresenter({ onPick }) {
       {/* Product detail panel */}
       {selectedProduct && (
         <ProductPanel
-          product={selectedProduct}
+          product={selectedProductFull || selectedProduct}
           section={activeSection}
-          onClose={() => setSelectedProduct(null)}
+          onClose={() => { setSelectedProduct(null); setSelectedProductFull(null); }}
           onPick={onPick}
         />
       )}

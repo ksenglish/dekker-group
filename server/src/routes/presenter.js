@@ -7,12 +7,10 @@ router.use(authenticate);
 
 // Merge price-list product fields into presenter product row
 function enrichProduct(r) {
-  const { pl_id, pl_name, pl_unit_price, pl_description, pl_image, pl_brochure, ...rest } = r;
-  // Presenter product brochure takes priority; fall back to price-list product brochure
+  const { pl_id, pl_name, pl_unit_price, pl_description, ...rest } = r;
   return {
     ...rest,
-    brochure_base64: rest.brochure_base64 || pl_brochure || null,
-    price_list_product: pl_id ? { id: pl_id, name: pl_name, unit_price: pl_unit_price, description: pl_description, image_base64: pl_image, brochure_base64: pl_brochure } : null,
+    price_list_product: pl_id ? { id: pl_id, name: pl_name, unit_price: pl_unit_price, description: pl_description } : null,
   };
 }
 
@@ -188,13 +186,15 @@ router.delete('/subcategories/:id', requireRole('admin', 'office'), async (req, 
 });
 
 // ── Products ──────────────────────────────────────────────────────────────────
+// List queries: omit large binary fields (brochures, price-list media) — loaded on demand via /products/:id
 router.get('/sections/:id/products', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT pp.*,
+      `SELECT pp.id, pp.section_id, pp.subcategory_id, pp.name, pp.description,
+              pp.image_base64, pp.price_from, pp.features, pp.calculator_type,
+              pp.calculator_config, pp.sort_order, pp.price_list_product_id,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
-         pl.description AS pl_description, pl.media_base64 AS pl_image,
-         pl.brochure_base64 AS pl_brochure
+         pl.description AS pl_description
        FROM presenter_products pp
        LEFT JOIN products pl ON pl.id = pp.price_list_product_id
        WHERE pp.section_id=$1 ORDER BY pp.sort_order, pp.name`,
@@ -207,16 +207,41 @@ router.get('/sections/:id/products', async (req, res) => {
 router.get('/subcategories/:id/products', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT pp.*,
+      `SELECT pp.id, pp.section_id, pp.subcategory_id, pp.name, pp.description,
+              pp.image_base64, pp.price_from, pp.features, pp.calculator_type,
+              pp.calculator_config, pp.sort_order, pp.price_list_product_id,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
-         pl.description AS pl_description, pl.media_base64 AS pl_image,
-         pl.brochure_base64 AS pl_brochure
+         pl.description AS pl_description
        FROM presenter_products pp
        LEFT JOIN products pl ON pl.id = pp.price_list_product_id
        WHERE pp.subcategory_id=$1 ORDER BY pp.sort_order, pp.name`,
       [req.params.id]
     );
     res.json(rows.map(r => enrichProduct(r)));
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Single product — full data including images and brochures (loaded on demand)
+router.get('/products/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT pp.*,
+         pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
+         pl.description AS pl_description, pl.media_base64 AS pl_image,
+         pl.brochure_base64 AS pl_brochure
+       FROM presenter_products pp
+       LEFT JOIN products pl ON pl.id = pp.price_list_product_id
+       WHERE pp.id=$1`,
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    const r = rows[0];
+    const { pl_id, pl_name, pl_unit_price, pl_description, pl_image, pl_brochure, ...rest } = r;
+    res.json({
+      ...rest,
+      brochure_base64: rest.brochure_base64 || pl_brochure || null,
+      price_list_product: pl_id ? { id: pl_id, name: pl_name, unit_price: pl_unit_price, description: pl_description, image_base64: pl_image, brochure_base64: pl_brochure } : null,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
