@@ -385,20 +385,20 @@ const PP_TABLE = [
   { system: 'SmartVent Lite+',             houseMin: 281, houseMax: 560, outlets: 10, model: 'SV06L+ with 4 Extension Kits' },
   { system: 'SmartVent Lite+',             houseMin: 281, houseMax: 560, outlets: 11, model: 'SV06L+ with 5 Extension Kits' },
   { system: 'SmartVent Lite+',             houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06L+ with 6 Extension Kits' },
-  // SmartVent Positive 3+
-  { system: 'SmartVent Positive 3+',       houseMin: 1,   houseMax: 100, outlets: 1,  model: 'SV01P3' },
-  { system: 'SmartVent Positive 3+',       houseMin: 1,   houseMax: 100, outlets: 2,  model: 'SV02P3' },
-  { system: 'SmartVent Positive 3+',       houseMin: 1,   houseMax: 100, outlets: 3,  model: 'SV02P3 with 1 Extension Kit' },
-  { system: 'SmartVent Positive 3+',       houseMin: 101, houseMax: 280, outlets: 4,  model: 'SV04P3' },
-  { system: 'SmartVent Positive 3+',       houseMin: 101, houseMax: 280, outlets: 5,  model: 'SV04P3 with 1 Extension Kit' },
-  { system: 'SmartVent Positive 3+',       houseMin: 101, houseMax: 280, outlets: 6,  model: 'SV04P3 with 2 Extension Kits' },
-  { system: 'SmartVent Positive 3+',       houseMin: 281, houseMax: 560, outlets: 6,  model: 'SV06P3' },
-  { system: 'SmartVent Positive 3+',       houseMin: 281, houseMax: 560, outlets: 7,  model: 'SV06P3 with 1 Extension Kit' },
-  { system: 'SmartVent Positive 3+',       houseMin: 281, houseMax: 560, outlets: 8,  model: 'SV06P3 with 2 Extension Kits' },
-  { system: 'SmartVent Positive 3+',       houseMin: 281, houseMax: 560, outlets: 9,  model: 'SV06P3 with 3 Extension Kits' },
-  { system: 'SmartVent Positive 3+',       houseMin: 281, houseMax: 560, outlets: 10, model: 'SV06P3 with 4 Extension Kits' },
-  { system: 'SmartVent Positive 3+',       houseMin: 281, houseMax: 560, outlets: 11, model: 'SV06P3 with 5 Extension Kits' },
-  { system: 'SmartVent Positive 3+',       houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06P3 with 6 Extension Kits' },
+  // SmartVent Positive 3
+  { system: 'SmartVent Positive 3',        houseMin: 1,   houseMax: 100, outlets: 1,  model: 'SV01P3' },
+  { system: 'SmartVent Positive 3',        houseMin: 1,   houseMax: 100, outlets: 2,  model: 'SV02P3' },
+  { system: 'SmartVent Positive 3',        houseMin: 1,   houseMax: 100, outlets: 3,  model: 'SV02P3 with 1 Extension Kit' },
+  { system: 'SmartVent Positive 3',        houseMin: 101, houseMax: 280, outlets: 4,  model: 'SV04P3' },
+  { system: 'SmartVent Positive 3',        houseMin: 101, houseMax: 280, outlets: 5,  model: 'SV04P3 with 1 Extension Kit' },
+  { system: 'SmartVent Positive 3',        houseMin: 101, houseMax: 280, outlets: 6,  model: 'SV04P3 with 2 Extension Kits' },
+  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 6,  model: 'SV06P3' },
+  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 7,  model: 'SV06P3 with 1 Extension Kit' },
+  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 8,  model: 'SV06P3 with 2 Extension Kits' },
+  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 9,  model: 'SV06P3 with 3 Extension Kits' },
+  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 10, model: 'SV06P3 with 4 Extension Kits' },
+  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 11, model: 'SV06P3 with 5 Extension Kits' },
+  { system: 'SmartVent Positive 3',        houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06P3 with 6 Extension Kits' },
   // SmartVent Positive Advance (starts at 2 outlets)
   { system: 'SmartVent Positive Advance',  houseMin: 1,   houseMax: 100, outlets: 2,  model: 'SV02AD' },
   { system: 'SmartVent Positive Advance',  houseMin: 1,   houseMax: 100, outlets: 3,  model: 'SV02AD with 1 Extension Kit' },
@@ -414,7 +414,7 @@ const PP_TABLE = [
   { system: 'SmartVent Positive Advance',  houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06AD with 6 Extension Kits' },
 ];
 
-function SmartVentPositivePressureCalculator({ onPick }) {
+function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
   const [priceListProducts, setPriceListProducts] = useState([]);
@@ -426,12 +426,18 @@ function SmartVentPositivePressureCalculator({ onPick }) {
   const houseSize = parseInt(m2) || 0;
   const numOutlets = parseInt(outlets) || 0;
 
+  // Filter table to only rows whose system name is contained in the presenter product name
+  // e.g. product "SmartVent Positive Advance" matches system "SmartVent Positive Advance"
+  const productName = (presenterProduct?.name || '').toLowerCase();
+  const systemRows = productName
+    ? PP_TABLE.filter(r => productName.includes(r.system.toLowerCase()) || r.system.toLowerCase().includes(productName))
+    : PP_TABLE;
+
   const exactMatch = houseSize > 0 && numOutlets > 0
-    ? PP_TABLE.find(r =>
-        houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets)
+    ? systemRows.find(r => houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets)
     : null;
   const outletOnlyMatch = !exactMatch && numOutlets > 0
-    ? PP_TABLE.find(r => numOutlets === r.outlets)
+    ? systemRows.find(r => numOutlets === r.outlets)
     : null;
   const tableMatch = exactMatch || outletOnlyMatch;
 
@@ -442,7 +448,6 @@ function SmartVentPositivePressureCalculator({ onPick }) {
       )
     : null;
 
-  const systemType = priceProduct?.name || tableMatch?.system || null;
   const exGst  = priceProduct ? priceProduct.unit_price / 100 : null;
   const incGst = priceProduct ? Math.round((priceProduct.unit_price / 100) * 1.15 * 100) / 100 : null;
 
@@ -466,7 +471,7 @@ function SmartVentPositivePressureCalculator({ onPick }) {
       )}
       {tableMatch && (
         <div className={styles.calcResult}>
-          {systemType && <div className={styles.calcResultRow}><span>System Type</span><strong>{systemType}</strong></div>}
+          <div className={styles.calcResultRow}><span>System Type</span><strong>{tableMatch.system}</strong></div>
           <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
           {exGst != null && <>
             <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
@@ -490,7 +495,7 @@ function Calculator({ product, onPick }) {
   if (type === 'linear') return <LinearCalculator product={product} />;
   if (type === 'heatpump') return <HeatpumpCalculator product={product} />;
   if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
-  if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} />;
+  if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} />;
   return <UnitCalculator product={product} />;
 }
 
