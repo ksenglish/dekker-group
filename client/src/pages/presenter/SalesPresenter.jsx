@@ -370,8 +370,6 @@ function SmartVentLiteCalculator({ onPick }) {
 }
 
 // ── SmartVent Positive Pressure lookup table ──────────────────────────────────
-const PP_SYSTEMS = ['SmartVent Lite+', 'SmartVent Positive 3+', 'SmartVent Positive Advance'];
-
 const PP_TABLE = [
   // SmartVent Lite+
   { system: 'SmartVent Lite+',             houseMin: 1,   houseMax: 100, outlets: 1,  model: 'SV01L+' },
@@ -416,55 +414,37 @@ const PP_TABLE = [
   { system: 'SmartVent Positive Advance',  houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06AD with 6 Extension Kits' },
 ];
 
-function ppLookup(system, houseSize, outlets) {
-  // Exact match first
-  let match = PP_TABLE.find(r =>
-    r.system === system &&
-    houseSize >= r.houseMin && houseSize <= r.houseMax &&
-    outlets === r.outlets
-  );
-  // Fall back: correct size band, closest outlet count
-  if (!match && houseSize > 0) {
-    const band = PP_TABLE.filter(r =>
-      r.system === system && houseSize >= r.houseMin && houseSize <= r.houseMax
-    );
-    if (band.length) {
-      match = band.reduce((prev, cur) =>
-        Math.abs(cur.outlets - outlets) < Math.abs(prev.outlets - outlets) ? cur : prev
-      );
-    }
-  }
-  return match || null;
-}
-
-function findProduct(products, modelName) {
-  const norm = s => s.trim().toLowerCase();
-  // Exact match
-  let p = products.find(p => norm(p.name) === norm(modelName) || norm(p.description || '') === norm(modelName));
-  if (p) return p;
-  // Match on base model code only (before " with")
-  const baseCode = modelName.split(' with ')[0].trim();
-  return products.find(p => norm(p.name) === norm(baseCode) || norm(p.description || '') === norm(baseCode)) || null;
-}
-
 function SmartVentPositivePressureCalculator({ onPick }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
-  const [products, setProducts] = useState([]);
+  const [priceListProducts, setPriceListProducts] = useState([]);
 
   useEffect(() => {
-    api.get('/products').then(r => setProducts(r.data)).catch(() => {});
+    api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
   }, []);
 
   const houseSize = parseInt(m2) || 0;
   const numOutlets = parseInt(outlets) || 0;
-  const hasInput = houseSize > 0 && numOutlets > 0;
 
-  const recommendations = PP_SYSTEMS.map(system => {
-    const row = hasInput ? ppLookup(system, houseSize, numOutlets) : null;
-    const product = row ? findProduct(products, row.model) : null;
-    return { system, row, product };
-  });
+  const exactMatch = houseSize > 0 && numOutlets > 0
+    ? PP_TABLE.find(r =>
+        houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets)
+    : null;
+  const outletOnlyMatch = !exactMatch && numOutlets > 0
+    ? PP_TABLE.find(r => numOutlets === r.outlets)
+    : null;
+  const tableMatch = exactMatch || outletOnlyMatch;
+
+  const priceProduct = tableMatch
+    ? priceListProducts.find(p =>
+        (p.description || '').trim().toLowerCase() === tableMatch.model.trim().toLowerCase() ||
+        p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase()
+      )
+    : null;
+
+  const systemType = priceProduct?.name || tableMatch?.system || null;
+  const exGst  = priceProduct ? priceProduct.unit_price / 100 : null;
+  const incGst = priceProduct ? Math.round((priceProduct.unit_price / 100) * 1.15 * 100) / 100 : null;
 
   return (
     <div className={styles.calc}>
@@ -473,7 +453,7 @@ function SmartVentPositivePressureCalculator({ onPick }) {
         <div className={styles.calcField}>
           <label>House Size (m²)</label>
           <input type="number" value={m2} onChange={e => setM2(e.target.value)}
-            placeholder="e.g. 150" min="1" max="560" />
+            placeholder="e.g. 150" min="0" max="560" />
         </div>
         <div className={styles.calcField}>
           <label>Number of Outlets</label>
@@ -484,50 +464,20 @@ function SmartVentPositivePressureCalculator({ onPick }) {
       {houseSize > 560 && (
         <div className={styles.calcNote}>House size exceeds the supported range (max 560 m²). Please contact us for a custom solution.</div>
       )}
-      {hasInput && houseSize <= 560 && (
-        <div className={styles.ppGrid}>
-          {recommendations.map(({ system, row, product }) => (
-            <div key={system} className={`${styles.ppCard} ${product ? styles.ppCardMatched : ''}`}>
-              <div className={styles.ppCardHeader}>{system}</div>
-              {product?.image_base64 && (
-                <div className={styles.ppCardImage}>
-                  <img src={product.image_base64} alt={product.name} />
-                </div>
-              )}
-              {row ? (
-                <div className={styles.ppCardBody}>
-                  <div className={styles.ppModel}>{row.model}</div>
-                  {product ? (
-                    <>
-                      <div className={styles.ppPrice}>
-                        <span className={styles.ppPriceLabel}>ex GST</span>
-                        <span className={styles.ppPriceValue}>${(product.unit_price / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      <div className={styles.ppPrice}>
-                        <span className={styles.ppPriceLabel}>inc GST</span>
-                        <span className={`${styles.ppPriceValue} ${styles.ppPriceTotal}`}>
-                          ${(product.unit_price / 100 * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      {onPick && (
-                        <button className={styles.ppAddBtn} onClick={() => onPick(product)}>
-                          + Add to Job
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <div className={styles.calcNote} style={{ fontSize: 11, marginTop: 8 }}>
-                      Add "{row.model.split(' with ')[0]}" to Price List for live pricing.
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className={styles.ppCardBody}>
-                  <div className={styles.calcNote} style={{ fontSize: 12 }}>Not available for 1 outlet.</div>
-                </div>
-              )}
-            </div>
-          ))}
+      {tableMatch && (
+        <div className={styles.calcResult}>
+          {systemType && <div className={styles.calcResultRow}><span>System Type</span><strong>{systemType}</strong></div>}
+          <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
+          {exGst != null && <>
+            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          </>}
+          {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
+          {priceProduct && onPick && (
+            <button className={styles.addToJobBtn} onClick={() => onPick(priceProduct)}>
+              + Add {tableMatch.model} to Job
+            </button>
+          )}
         </div>
       )}
     </div>
