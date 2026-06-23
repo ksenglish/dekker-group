@@ -14,6 +14,7 @@ const CALC_TYPES = [
   { value: 'linear',         label: 'Linear (m × price/m)' },
   { value: 'heatpump',       label: 'Heat Pump Sizing' },
   { value: 'smartvent_lite', label: 'SmartVent Lite+ (lookup table)' },
+  { value: 'smartvent_positive_pressure', label: 'SmartVent Positive Pressure (all 3 systems)' },
 ];
 
 function ImgUpload({ value, onChange, label = '📷 Upload Image', maxMb = 3 }) {
