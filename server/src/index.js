@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const pool = require('./db/pool');
@@ -23,6 +24,7 @@ const presenterRoutes = require('./routes/presenter');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+app.use(compression()); // gzip all responses — cuts bandwidth 60-80%
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true,
@@ -56,7 +58,12 @@ app.get('/api/health', async (req, res) => {
 // Serve built React app in production
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../../client/dist');
-  app.use(express.static(clientDist));
+  // Hashed assets (JS/CSS/images) are safe to cache for 1 year
+  app.use('/assets', express.static(path.join(clientDist, 'assets'), {
+    maxAge: '1y', immutable: true,
+  }));
+  // Everything else (index.html, sw.js) must revalidate
+  app.use(express.static(clientDist, { maxAge: 0 }));
   app.get('*', (req, res) => {
     res.sendFile(path.join(clientDist, 'index.html'));
   });
