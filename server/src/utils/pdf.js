@@ -16,6 +16,9 @@ const DEFAULT_THEME = {
   footerLine1: 'Thank you for your business.',
   footerLine2: 'Dekker Group · New Zealand · GST registered',
   logoBase64: '',
+  logoSize: 'medium',
+  logoPosition: 'left',
+  contactPosition: 'right',
 };
 
 function formatNZD(cents) {
@@ -27,9 +30,14 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-async function buildPDF({ type, number, customer, items, subtotal, gst, total, status, dueDate, notes, terms, issuedAt, theme = {} }) {
+const LOGO_SIZES = { small: 36, medium: 58, large: 78 };
+
+async function buildPDF({ type, number, customer, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, issuedAt, theme = {} }) {
   const t = { ...DEFAULT_THEME, ...theme };
   const BRAND = t.brandColour || '#1e40af';
+  const logoH = LOGO_SIZES[t.logoSize] || 58;
+  const logoOnLeft  = (t.logoPosition  || 'left')  === 'left';
+  const contactOnLeft = (t.contactPosition || 'right') === 'left';
 
   // Determine if any item has a product image
   const hasImages = (items || []).some(i => i.media_base64);
@@ -46,8 +54,7 @@ async function buildPDF({ type, number, customer, items, subtotal, gst, total, s
     const W = doc.page.width - 100;
 
     // ── Header bar ──────────────────────────────────────────────
-    const headerTextColour = t.transparentHeader ? TEXT : 'white';
-    const headerSubColour  = t.transparentHeader ? MID_GREY : 'rgba(255,255,255,0.85)';
+    const headerSubColour = t.transparentHeader ? MID_GREY : 'rgba(255,255,255,0.85)';
 
     if (!t.transparentHeader) {
       doc.rect(50, 50, W, 70).fill(BRAND);
@@ -56,25 +63,35 @@ async function buildPDF({ type, number, customer, items, subtotal, gst, total, s
       doc.moveTo(50, 120).lineTo(50 + W, 120).strokeColor('#e2e8f0').lineWidth(1).stroke();
     }
 
+    // Logo / company name block
+    const logoFit  = [Math.round(logoH * 2.8), logoH]; // max width proportional to height
+    const logoTopY = 50 + Math.round((70 - logoH) / 2);
+    const logoX    = logoOnLeft ? 60 : 50 + W - logoFit[0] - 10;
+    const textX    = logoOnLeft ? 66 : 50 + W - 220;
+
     if (t.logoBase64) {
       try {
         const buf = Buffer.from(t.logoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-        doc.image(buf, 60, 55, { height: 58, fit: [160, 58] });
+        doc.image(buf, logoX, logoTopY, { height: logoH, fit: logoFit });
       } catch {
-        doc.fillColor(t.transparentHeader ? BRAND : 'white').fontSize(22).font('Helvetica-Bold').text(t.companyName, 66, 65);
-        doc.fillColor(headerSubColour).fontSize(9).font('Helvetica').text(t.tagline, 66, 92);
+        doc.fillColor(t.transparentHeader ? BRAND : 'white').fontSize(22).font('Helvetica-Bold').text(t.companyName, textX, 65);
+        doc.fillColor(headerSubColour).fontSize(9).font('Helvetica').text(t.tagline, textX, 92);
       }
     } else {
-      doc.fillColor(t.transparentHeader ? BRAND : 'white').fontSize(22).font('Helvetica-Bold').text(t.companyName, 66, 65);
-      doc.fillColor(headerSubColour).fontSize(9).font('Helvetica').text(t.tagline, 66, 92);
+      doc.fillColor(t.transparentHeader ? BRAND : 'white').fontSize(22).font('Helvetica-Bold').text(t.companyName, textX, 65);
+      doc.fillColor(headerSubColour).fontSize(9).font('Helvetica').text(t.tagline, textX, 92);
     }
 
-    // Contact details (right side of header)
+    // Contact details block
     const contactLines = [t.website, t.email, t.phone, t.location].filter(Boolean);
     doc.fillColor(headerSubColour).fontSize(8).font('Helvetica');
-    contactLines.forEach((line, i) => {
-      doc.text(line, 50, 63 + i * 13, { width: W - 16, align: 'right' });
-    });
+    if (contactOnLeft) {
+      contactLines.forEach((line, i) => doc.text(line, 60, 63 + i * 13, { width: W / 2 }));
+    } else {
+      contactLines.forEach((line, i) => {
+        doc.text(line, 50, 63 + i * 13, { width: W - 16, align: 'right' });
+      });
+    }
 
     doc.fillColor(TEXT);
 
@@ -98,11 +115,19 @@ async function buildPDF({ type, number, customer, items, subtotal, gst, total, s
     // ── Dates block (right) ──────────────────────────────────────
     doc.fillColor(TEXT).fontSize(9).font('Helvetica');
     const dateX = 380;
-    doc.text('Issue Date:', dateX, docY);
-    doc.font('Helvetica-Bold').text(formatDate(issuedAt || new Date()), dateX + 70, docY);
+    let dateRowY = docY;
+    doc.text('Issue Date:', dateX, dateRowY);
+    doc.font('Helvetica-Bold').text(formatDate(issuedAt || new Date()), dateX + 70, dateRowY);
+    dateRowY += 16;
     if (dueDate) {
-      doc.font('Helvetica').text('Due Date:', dateX, docY + 16);
-      doc.font('Helvetica-Bold').text(formatDate(dueDate), dateX + 70, docY + 16);
+      doc.font('Helvetica').text('Due Date:', dateX, dateRowY);
+      doc.font('Helvetica-Bold').text(formatDate(dueDate), dateX + 70, dateRowY);
+      dateRowY += 16;
+    }
+    if (expiresAt && type === 'Quote') {
+      doc.font('Helvetica').fillColor(MID_GREY).text('Valid Until:', dateX, dateRowY);
+      doc.font('Helvetica-Bold').fillColor('#dc2626').text(formatDate(expiresAt), dateX + 70, dateRowY);
+      doc.fillColor(TEXT);
     }
 
     // ── Bill To ──────────────────────────────────────────────────

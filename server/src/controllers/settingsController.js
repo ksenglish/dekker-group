@@ -12,6 +12,10 @@ const DEFAULT_THEME = {
   footerLine2: 'Dekker Group · New Zealand · GST registered',
   logoBase64: '',
   transparentHeader: false,
+  logoSize: 'medium',       // 'small' | 'medium' | 'large'
+  logoPosition: 'left',     // 'left' | 'right'
+  contactPosition: 'right', // 'left' | 'right'
+  quoteExpiryDays: 30,      // default expiry in days (0 = no expiry)
 };
 
 async function getTheme() {

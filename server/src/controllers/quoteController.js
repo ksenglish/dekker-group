@@ -71,11 +71,13 @@ async function create(req, res) {
     // Pull line items from the job to calculate totals
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1', [job_id]);
     const { subtotal, gst, total } = calcTotals(items.rows);
-    const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + 30);
+    const theme = await getTheme();
+    const expiryDays = theme.quoteExpiryDays ?? 30;
+    const expiresAt = expiryDays > 0 ? (() => { const d = new Date(); d.setDate(d.getDate() + expiryDays); return d; })() : null;
     const { rows } = await pool.query(
       `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at)
        VALUES ($1,$2,'draft',$3,$4,$5,$6,$7) RETURNING *`,
-      [job_id, customer_id || null, subtotal, gst, total, notes || null, expiresAt.toISOString().split('T')[0]]
+      [job_id, customer_id || null, subtotal, gst, total, notes || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null]
     );
     // Move job to quoted status
     await pool.query(
@@ -159,7 +161,7 @@ async function downloadPdf(req, res) {
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, theme,
+      status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="quote-${q.id.slice(0,8)}.pdf"` });
     res.send(pdf);
@@ -183,7 +185,7 @@ async function sendEmail(req, res) {
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, theme,
+      status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme,
     });
     const totalNZD = `$${(q.total / 100).toFixed(2)}`;
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -245,7 +247,8 @@ async function publicGet(req, res) {
       expires_at: q.expires_at,
       is_expired: q.expires_at ? new Date(q.expires_at) < new Date() : false,
       line_items: enrichedItems,
-      company: { name: theme.companyName, email: theme.email, phone: theme.phone, logo: theme.logoBase64 },
+      company: { name: theme.companyName, email: theme.email, phone: theme.phone, logo: theme.logoBase64,
+        logoSize: theme.logoSize, logoPosition: theme.logoPosition, contactPosition: theme.contactPosition },
     });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }

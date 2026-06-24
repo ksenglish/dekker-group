@@ -102,6 +102,17 @@
 .previewTagline { font-size: 10px; color: rgba(255,255,255,0.8); margin-top: 2px; }
 .previewContact { text-align: right; font-size: 10px; color: rgba(255,255,255,0.85); line-height: 1.6; }
 
+/* Segmented control */
+.segmentedControl { display: inline-flex; border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden; }
+.segmentBtn {
+  padding: 7px 16px; font-size: 13px; font-weight: 500; background: white;
+  border: none; border-right: 1px solid var(--color-border); cursor: pointer;
+  color: var(--color-text-muted); transition: background 0.12s, color 0.12s; font-family: inherit;
+}
+.segmentBtn:last-child { border-right: none; }
+.segmentBtn:hover:not(.segmentBtnActive) { background: #f8fafc; color: var(--color-text); }
+.segmentBtnActive { background: var(--color-primary); color: white; font-weight: 600; }
+
 /* Buttons */
 .btnPrimary {
   padding: 9px 18px; background: var(--color-primary); color: white; border: none;

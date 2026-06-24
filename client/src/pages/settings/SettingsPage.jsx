@@ -142,6 +142,49 @@ export default function SettingsPage() {
                       <p className={styles.hint}>PNG or JPG, max 500KB. Appears in the PDF header.</p>
                     </div>
                   </div>
+
+                  {/* Logo size */}
+                  <div className={styles.field} style={{ marginTop: 20 }}>
+                    <label>Logo Size</label>
+                    <div className={styles.segmentedControl}>
+                      {['small', 'medium', 'large'].map(sz => (
+                        <button key={sz} type="button"
+                          className={`${styles.segmentBtn} ${(theme.logoSize || 'medium') === sz ? styles.segmentBtnActive : ''}`}
+                          onClick={() => set('logoSize', sz)}>
+                          {sz.charAt(0).toUpperCase() + sz.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Logo position */}
+                  <div className={styles.field} style={{ marginTop: 16 }}>
+                    <label>Logo Position</label>
+                    <div className={styles.segmentedControl}>
+                      {[['left', 'Left'], ['right', 'Right']].map(([val, lbl]) => (
+                        <button key={val} type="button"
+                          className={`${styles.segmentBtn} ${(theme.logoPosition || 'left') === val ? styles.segmentBtnActive : ''}`}
+                          onClick={() => set('logoPosition', val)}>
+                          {lbl}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Company details position */}
+                  <div className={styles.field} style={{ marginTop: 16 }}>
+                    <label>Company Details Position</label>
+                    <div className={styles.segmentedControl}>
+                      {[['left', 'Left'], ['right', 'Right']].map(([val, lbl]) => (
+                        <button key={val} type="button"
+                          className={`${styles.segmentBtn} ${(theme.contactPosition || 'right') === val ? styles.segmentBtnActive : ''}`}
+                          onClick={() => set('contactPosition', val)}>
+                          {lbl}
+                        </button>
+                      ))}
+                    </div>
+                    <span className={styles.hint}>Where website, email, phone, and location appear in the header</span>
+                  </div>
                 </div>
               </div>
 
@@ -233,6 +276,28 @@ export default function SettingsPage() {
                 </div>
               </div>
 
+              {/* Quote Expiry */}
+              <div className={styles.card}>
+                <div className={styles.cardHeader}><h2>Quote Expiry</h2></div>
+                <div className={styles.cardBody}>
+                  <div className={styles.field}>
+                    <label>Default Expiry (days)</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type="number" min="0" max="365" step="1"
+                        value={theme.quoteExpiryDays ?? 30}
+                        onChange={e => set('quoteExpiryDays', Math.max(0, parseInt(e.target.value) || 0))}
+                        style={{ width: 90 }} />
+                      <span style={{ fontSize: 13, color: '#64748b' }}>
+                        {(theme.quoteExpiryDays ?? 30) === 0
+                          ? 'No expiry date will be set'
+                          : `Quotes expire ${theme.quoteExpiryDays ?? 30} days after creation`}
+                      </span>
+                    </div>
+                    <span className={styles.hint}>Set to 0 to create quotes with no expiry date. The expiry date is shown on the PDF and the customer's quote link.</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Footer */}
               <div className={styles.card}>
                 <div className={styles.cardHeader}><h2>Footer Text</h2></div>
@@ -256,28 +321,40 @@ export default function SettingsPage() {
               <div className={styles.card}>
                 <div className={styles.cardHeader}><h2>Header Preview</h2></div>
                 <div className={styles.cardBody}>
-                  <div className={styles.pdfPreview} style={{
-                    background: theme.transparentHeader ? 'transparent' : theme.brandColour,
-                    border: theme.transparentHeader ? '1px dashed #d1d5db' : 'none',
-                  }}>
-                    {theme.logoBase64 ? (
-                      <img src={theme.logoBase64} alt="logo" className={styles.previewLogo} />
-                    ) : (
-                      <div>
-                        <div className={styles.previewName} style={{ color: theme.transparentHeader ? theme.brandColour : 'white' }}>
-                          {theme.companyName || 'COMPANY NAME'}
-                        </div>
-                        <div className={styles.previewTagline} style={{ color: theme.transparentHeader ? '#64748b' : 'rgba(255,255,255,0.8)' }}>
-                          {theme.tagline}
-                        </div>
+                  {(() => {
+                    const subCol = theme.transparentHeader ? '#64748b' : 'rgba(255,255,255,0.85)';
+                    const logoSizePx = { small: 28, medium: 42, large: 56 }[theme.logoSize || 'medium'] || 42;
+                    const logoOnLeft = (theme.logoPosition || 'left') === 'left';
+                    const contactOnLeft = (theme.contactPosition || 'right') === 'left';
+                    const logoBlock = (
+                      <div style={{ order: logoOnLeft ? 1 : 3 }}>
+                        {theme.logoBase64
+                          ? <img src={theme.logoBase64} alt="logo" style={{ height: logoSizePx, maxWidth: logoSizePx * 2.8, objectFit: 'contain', display: 'block' }} />
+                          : <div>
+                              <div className={styles.previewName} style={{ color: theme.transparentHeader ? theme.brandColour : 'white' }}>{theme.companyName || 'COMPANY NAME'}</div>
+                              <div className={styles.previewTagline} style={{ color: subCol }}>{theme.tagline}</div>
+                            </div>
+                        }
                       </div>
-                    )}
-                    <div className={styles.previewContact} style={{ color: theme.transparentHeader ? '#64748b' : 'rgba(255,255,255,0.85)' }}>
-                      {[theme.website, theme.email, theme.phone, theme.location].filter(Boolean).map((l, i) => (
-                        <div key={i}>{l}</div>
-                      ))}
-                    </div>
-                  </div>
+                    );
+                    const contactBlock = (
+                      <div style={{ order: contactOnLeft ? 1 : 3, textAlign: contactOnLeft ? 'left' : 'right', fontSize: 10, color: subCol, lineHeight: 1.6 }}>
+                        {[theme.website, theme.email, theme.phone, theme.location].filter(Boolean).map((l, i) => <div key={i}>{l}</div>)}
+                      </div>
+                    );
+                    return (
+                      <div className={styles.pdfPreview} style={{
+                        background: theme.transparentHeader ? 'transparent' : theme.brandColour,
+                        border: theme.transparentHeader ? '1px dashed #d1d5db' : 'none',
+                        justifyContent: 'space-between', gap: 12,
+                      }}>
+                        {logoOnLeft === contactOnLeft
+                          ? <>{logoBlock}<div style={{ flex: 1 }} />{contactBlock}</>
+                          : <>{logoBlock}{contactBlock}</>
+                        }
+                      </div>
+                    );
+                  })()}
                   <p className={styles.hint} style={{ marginTop: 8 }}>
                     Click <strong>Preview PDF</strong> above to download a full sample document.
                   </p>

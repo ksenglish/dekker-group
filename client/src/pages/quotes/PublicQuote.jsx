@@ -58,20 +58,44 @@ export default function PublicQuote() {
       <div style={s.container}>
 
         {/* Header */}
-        <div style={s.header}>
-          <div style={s.companyBlock}>
-            {quote.company?.logo
-              ? <img src={quote.company.logo} alt="Logo" style={s.logo} />
-              : <div style={s.companyName}>{quote.company?.name}</div>
-            }
-            {quote.company?.email && <div style={s.companyContact}>{quote.company.email}</div>}
-            {quote.company?.phone && <div style={s.companyContact}>{quote.company.phone}</div>}
-          </div>
-          <div style={s.quoteRef}>
-            <div style={s.quoteNumber}>{quote.number}</div>
-            <div style={s.quoteDate}>{new Date(quote.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-          </div>
-        </div>
+        {(() => {
+          const logoSize = { small: 36, medium: 52, large: 72 }[quote.company?.logoSize || 'medium'] || 52;
+          const logoOnLeft    = (quote.company?.logoPosition    || 'left')  === 'left';
+          const contactOnLeft = (quote.company?.contactPosition || 'right') === 'left';
+          const companyBlock = (
+            <div style={{ ...s.companyBlock, order: logoOnLeft ? 1 : 2 }}>
+              {quote.company?.logo
+                ? <img src={quote.company.logo} alt="Logo" style={{ ...s.logo, height: logoSize, maxWidth: logoSize * 2.8 }} />
+                : <div style={s.companyName}>{quote.company?.name}</div>
+              }
+            </div>
+          );
+          const contactBlock = (
+            <div style={{ textAlign: contactOnLeft ? 'left' : 'right', order: contactOnLeft ? 1 : 2 }}>
+              {quote.company?.email && <div style={s.companyContact}>{quote.company.email}</div>}
+              {quote.company?.phone && <div style={s.companyContact}>{quote.company.phone}</div>}
+            </div>
+          );
+          return (
+            <div style={s.header}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flex: 1, minWidth: 0, gap: 16, flexWrap: 'wrap' }}>
+                  {companyBlock}
+                  {contactBlock}
+                </div>
+                <div style={{ ...s.quoteRef, flexShrink: 0 }}>
+                  <div style={s.quoteNumber}>{quote.number}</div>
+                  <div style={s.quoteDate}>{new Date(quote.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                  {quote.expires_at && (
+                    <div style={{ fontSize: 12, color: quote.is_expired ? '#dc2626' : '#64748b', marginTop: 4 }}>
+                      Valid until: {new Date(quote.expires_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Customer */}
         <div style={s.customerBlock}>
