@@ -26,7 +26,14 @@ const PORT = process.env.PORT || 3001;
 
 app.use(compression()); // gzip all responses — cuts bandwidth 60-80%
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    // Allow local dev, the configured CLIENT_URL, and any Cloudflare Pages preview domain
+    const allowed = process.env.CLIENT_URL || 'http://localhost:5173';
+    if (!origin || origin === allowed || origin === 'http://localhost:5173' || origin.endsWith('.pages.dev')) {
+      return callback(null, true);
+    }
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '15mb' }));

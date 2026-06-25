@@ -1,7 +1,13 @@
 import axios from 'axios';
 
+// In production on Cloudflare Pages, VITE_API_BASE_URL points directly to Render.
+// In local dev (no env var), use relative /api which the Vite proxy handles.
+const API_BASE = import.meta.env.VITE_API_BASE_URL
+  ? `${import.meta.env.VITE_API_BASE_URL}/api`
+  : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   withCredentials: true,
 });
 
@@ -26,7 +32,7 @@ api.interceptors.response.use(
     if (err.response?.status === 401 && !original._retry && !isAuthEndpoint) {
       original._retry = true;
       try {
-        const { data } = await axios.post('/api/auth/refresh', {}, { withCredentials: true });
+        const { data } = await axios.post(`${API_BASE}/auth/refresh`, {}, { withCredentials: true });
         setAccessToken(data.accessToken);
         original.headers.Authorization = `Bearer ${data.accessToken}`;
         return api(original);
