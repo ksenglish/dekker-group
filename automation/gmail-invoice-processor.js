@@ -42,7 +42,7 @@ function processSupplierInvoices() {
 
   // Search for emails with PDF attachments not yet processed
   const threads = GmailApp.search(
-    `has:attachment filename:pdf -label:${PROCESSED_LABEL} -label:${FAILED_LABEL}`,
+    `has:attachment filename:pdf -label:${PROCESSED_LABEL} -label:${FAILED_LABEL} after:2026/06/27`,
     0, 20
   );
 
