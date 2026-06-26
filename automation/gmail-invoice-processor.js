@@ -43,7 +43,7 @@ function processSupplierInvoices() {
   // Search for emails with PDF attachments not yet processed
   const threads = GmailApp.search(
     `has:attachment filename:pdf -label:${PROCESSED_LABEL} -label:${FAILED_LABEL} after:2026/06/27`,
-    0, 20
+    0, 5  // small batch — OCR is slow, keep well under the 6-min Apps Script limit
   );
 
   console.log(`Found ${threads.length} unprocessed threads`);
