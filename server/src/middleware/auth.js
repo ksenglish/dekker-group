@@ -33,4 +33,14 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { authenticate, requireRole, normaliseRole };
+// Accepts either a user JWT or the AUTOMATION_API_KEY env var in X-API-Key header
+function authenticateAutomation(req, res, next) {
+  const apiKey = req.headers['x-api-key'];
+  if (apiKey && apiKey === process.env.AUTOMATION_API_KEY) {
+    req.user = { id: 'automation', role: 'admin', name: 'Automation' };
+    return next();
+  }
+  return authenticate(req, res, next);
+}
+
+module.exports = { authenticate, requireRole, normaliseRole, authenticateAutomation };

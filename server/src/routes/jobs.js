@@ -1,7 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const c = require('../controllers/jobController');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireRole, authenticateAutomation } = require('../middleware/auth');
+
+// Automation endpoint — accepts X-API-Key or user JWT
+router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
+  try {
+    const pool = require('../db/pool');
+    // Strip optional "JB" prefix and leading zeros to get the integer
+    const num = parseInt(req.params.number.replace(/^[A-Za-z]+0*/,''), 10);
+    if (isNaN(num)) return res.status(400).json({ error: 'Invalid job number' });
+    const { rows } = await pool.query(
+      `SELECT j.id, j.job_number, j.title, j.status,
+              c.name AS customer_name
+       FROM jobs j LEFT JOIN customers c ON c.id = j.customer_id
+       WHERE j.job_number = $1`,
+      [num]
+    );
+    if (!rows[0]) return res.status(404).json({ error: `No job found with number ${req.params.number}` });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 router.use(authenticate);
 
@@ -130,7 +149,7 @@ router.get('/:id/costs', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/:id/costs', async (req, res) => {
+router.post('/:id/costs', authenticateAutomation, async (req, res) => {
   const { items, document_base64, mime_type, gst_treatment } = req.body;
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
   try {
