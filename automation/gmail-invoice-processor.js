@@ -270,6 +270,27 @@ function setupTrigger() {
   console.log('Trigger created — processSupplierInvoices will run every 5 minutes');
 }
 
+// Run this ONCE to label all old emails (before 27 Jun 2026) as processed so they are skipped
+function labelOldEmailsAsProcessed() {
+  ensureLabel(PROCESSED_LABEL);
+  const label = GmailApp.getUserLabelByName(PROCESSED_LABEL);
+  let start = 0;
+  let total = 0;
+  while (true) {
+    const threads = GmailApp.search(
+      `has:attachment filename:pdf -label:${PROCESSED_LABEL} before:2026/06/27`,
+      start, 50
+    );
+    if (threads.length === 0) break;
+    threads.forEach(t => t.addLabel(label));
+    total += threads.length;
+    console.log(`Labelled ${total} threads so far…`);
+    start += 50;
+    Utilities.sleep(1000); // avoid hitting rate limits
+  }
+  console.log(`Done — ${total} old threads labelled as ${PROCESSED_LABEL}`);
+}
+
 // Run this manually to test on a single thread by Gmail thread ID
 function testWithThread(threadId) {
   const props = PropertiesService.getScriptProperties();
