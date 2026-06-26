@@ -76,14 +76,16 @@ function processSupplierInvoices() {
           console.log(`Job: ${jobNumber}, Supplier: ${supplier}, Items: ${items.length}`);
 
           if (!jobNumber) {
-            console.warn(`No job number found in ${filename}`);
+            console.log(`No job number found in ${filename} — skipping`);
+            threadHandled = true; // still label so we don't retry
             continue;
           }
 
           // 3. Look up job in Dekker App
           const job = findJob(jobNumber, apiKey);
           if (!job) {
-            console.warn(`Job ${jobNumber} not found in app`);
+            console.warn(`Job ${jobNumber} not found in app — skipping`);
+            threadHandled = true; // still label so we don't retry
             continue;
           }
 
@@ -114,14 +116,14 @@ function processSupplierInvoices() {
 function extractTextFromPdf(attachment) {
   const blob = attachment.copyBlob().setContentType('application/pdf');
 
-  // Upload to Drive with OCR conversion to Google Doc
-  const file = Drive.Files.insert(
+  // Drive API v3: Files.create() with ocrLanguage triggers automatic OCR
+  const file = Drive.Files.create(
     {
-      title: `_ocr_temp_${Date.now()}`,
+      name: `_ocr_temp_${Date.now()}`,
       mimeType: 'application/vnd.google-apps.document',
     },
     blob,
-    { ocr: true, ocrLanguage: 'en' }
+    { ocrLanguage: 'en' }
   );
 
   try {
@@ -129,7 +131,6 @@ function extractTextFromPdf(attachment) {
     const text = doc.getBody().getText();
     return text;
   } finally {
-    // Always clean up the temp file
     DriveApp.getFileById(file.id).setTrashed(true);
   }
 }
