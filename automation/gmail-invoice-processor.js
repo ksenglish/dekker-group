@@ -261,13 +261,14 @@ function setupTrigger() {
     .filter(t => t.getHandlerFunction() === 'processSupplierInvoices')
     .forEach(t => ScriptApp.deleteTrigger(t));
 
-  // Run every 5 minutes
+  // Run once daily at 2am
   ScriptApp.newTrigger('processSupplierInvoices')
     .timeBased()
-    .everyMinutes(5)
+    .everyDays(1)
+    .atHour(2)
     .create();
 
-  console.log('Trigger created — processSupplierInvoices will run every 5 minutes');
+  console.log('Trigger created — processSupplierInvoices will run daily at 2am');
 }
 
 // Run this ONCE to label all old emails (before 27 Jun 2026) as processed so they are skipped
