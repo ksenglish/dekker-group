@@ -5,45 +5,59 @@ const pool = require('../db/pool');
 router.use(authenticate);
 router.use(requireRole('admin', 'office'));
 
-// Monthly revenue (last 12 months)
+// Monthly revenue (last 12 months) — filtered to user's jobs for non-admin
 router.get('/revenue', async (req, res) => {
   try {
+    const isAdmin = req.user.role === 'admin';
+    const params = [];
+    let userFilter = '';
+    if (!isAdmin) {
+      userFilter = `AND EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = i.job_id AND jt.user_id = $1)`;
+      params.push(req.user.id);
+    }
     const { rows } = await pool.query(`
       SELECT
-        DATE_TRUNC('month', created_at) AS month,
+        DATE_TRUNC('month', i.created_at) AS month,
         COUNT(*) AS invoice_count,
-        SUM(total) AS total_cents,
-        SUM(CASE WHEN status = 'paid' THEN total ELSE 0 END) AS paid_cents,
-        SUM(CASE WHEN status != 'paid' AND status != 'cancelled' THEN total ELSE 0 END) AS outstanding_cents
-      FROM invoices
-      WHERE created_at >= NOW() - INTERVAL '12 months'
+        SUM(i.total) AS total_cents,
+        SUM(CASE WHEN i.status = 'paid' THEN i.total ELSE 0 END) AS paid_cents,
+        SUM(CASE WHEN i.status != 'paid' AND i.status != 'cancelled' THEN i.total ELSE 0 END) AS outstanding_cents
+      FROM invoices i
+      WHERE i.created_at >= NOW() - INTERVAL '12 months'
+      ${userFilter}
       GROUP BY month
       ORDER BY month ASC
-    `);
+    `, params);
     res.json(rows);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
-// Job stats by status
+// Job stats by status — filtered to user's jobs for non-admin
 router.get('/jobs', async (req, res) => {
   try {
+    const isAdmin = req.user.role === 'admin';
     const { from, to } = req.query;
     const conditions = [];
     const params = [];
     let p = 1;
-    if (from) { conditions.push(`created_at >= $${p}`); params.push(from); p++; }
-    if (to) { conditions.push(`created_at <= $${p}`); params.push(to); p++; }
+    if (from) { conditions.push(`j.created_at >= $${p}`); params.push(from); p++; }
+    if (to)   { conditions.push(`j.created_at <= $${p}`); params.push(to);   p++; }
+    if (!isAdmin) {
+      conditions.push(`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = j.id AND jt.user_id = $${p})`);
+      params.push(req.user.id); p++;
+    }
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const { rows } = await pool.query(
-      `SELECT status, COUNT(*) AS count FROM jobs ${where} GROUP BY status ORDER BY count DESC`,
+      `SELECT j.status, COUNT(*) AS count FROM jobs j ${where} GROUP BY j.status ORDER BY count DESC`,
       params
     );
     res.json(rows);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// Top customers by revenue
+// Top customers by revenue — admin only
 router.get('/customers', async (req, res) => {
+  if (req.user.role !== 'admin') return res.json([]);
   try {
     const { rows } = await pool.query(`
       SELECT c.id, c.name, c.company,
@@ -60,15 +74,17 @@ router.get('/customers', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// Tech hours summary (for pay period)
+// Tech hours summary — non-admin sees only their own
 router.get('/timesheets', async (req, res) => {
   try {
+    const isAdmin = req.user.role === 'admin';
     const { from, to } = req.query;
     const params = [];
     let p = 1;
     const conds = [];
     if (from) { conds.push(`t.date >= $${p}`); params.push(from); p++; }
-    if (to) { conds.push(`t.date <= $${p}`); params.push(to); p++; }
+    if (to)   { conds.push(`t.date <= $${p}`); params.push(to);   p++; }
+    if (!isAdmin) { conds.push(`t.user_id = $${p}`); params.push(req.user.id); p++; }
     const where = conds.length ? 'WHERE ' + conds.join(' AND ') : '';
     const { rows } = await pool.query(
       `SELECT u.id, u.name, SUM(t.hours) AS total_hours, COUNT(DISTINCT t.job_id) AS job_count
@@ -81,8 +97,9 @@ router.get('/timesheets', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
-// Recent activity log
+// Recent activity log — admin only
 router.get('/activity', async (req, res) => {
+  if (req.user.role !== 'admin') return res.json([]);
   try {
     const { rows } = await pool.query(
       `SELECT a.*, u.name AS user_name FROM activity_log a

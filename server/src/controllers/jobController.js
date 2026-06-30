@@ -1,4 +1,5 @@
 const pool = require('../db/pool');
+const { normaliseRole } = require('../middleware/auth');
 
 async function list(req, res) {
   const { search = '', status, tech, customer, from, to, page = 1, limit = 100 } = req.query;
@@ -17,9 +18,8 @@ async function list(req, res) {
   if (from) { conditions.push(`(SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) >= $${p}`); params.push(from); p++; }
   if (to) { conditions.push(`(SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) <= $${p}`); params.push(to); p++; }
 
-  // Subcontractors/field_tech only see their own jobs
-  const normalised = req.user.role === 'subcontractor' ? 'field_tech' : req.user.role;
-  if (normalised === 'field_tech') {
+  // Non-admin users only see jobs they're assigned to
+  if (normaliseRole(req.user.role) !== 'admin') {
     conditions.push(`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id=j.id AND jt.user_id=$${p})`);
     params.push(req.user.id); p++;
   }
@@ -124,9 +124,13 @@ async function create(req, res) {
        (tech_ids?.[0]) || null,
        !!is_recurring, recurrence_interval || null, nextDate, parent_job_id || null]
     );
-    await saveTechnicians(client, rows[0].id, tech_ids);
+    // Non-admin creators are auto-assigned so they can see the job they created
+    const finalTechIds = normaliseRole(req.user.role) !== 'admin'
+      ? [...new Set([...(tech_ids || []), req.user.id])]
+      : (tech_ids || []);
+    await saveTechnicians(client, rows[0].id, finalTechIds);
     await client.query('COMMIT');
-    res.status(201).json({ ...rows[0], technicians: (tech_ids || []).map(id => ({ id })) });
+    res.status(201).json({ ...rows[0], technicians: finalTechIds.map(id => ({ id })) });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);

@@ -1,4 +1,5 @@
 const pool = require('../db/pool');
+const { normaliseRole } = require('../middleware/auth');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getTheme } = require('./settingsController');
@@ -18,6 +19,10 @@ async function list(req, res) {
   if (status)   { conditions.push(`q.status = $${p}`);      params.push(status);   p++; }
   if (customer) { conditions.push(`q.customer_id = $${p}`); params.push(customer); p++; }
   if (job)      { conditions.push(`q.job_id = $${p}`);      params.push(job);      p++; }
+  // Non-admin users only see quotes they created
+  if (normaliseRole(req.user.role) !== 'admin') {
+    conditions.push(`q.created_by = $${p}`); params.push(req.user.id); p++;
+  }
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   try {
     const { rows } = await pool.query(
@@ -75,9 +80,9 @@ async function create(req, res) {
     const expiryDays = theme.quoteExpiryDays ?? 30;
     const expiresAt = expiryDays > 0 ? (() => { const d = new Date(); d.setDate(d.getDate() + expiryDays); return d; })() : null;
     const { rows } = await pool.query(
-      `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at)
-       VALUES ($1,$2,'draft',$3,$4,$5,$6,$7) RETURNING *`,
-      [job_id, customer_id || null, subtotal, gst, total, notes || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null]
+      `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by)
+       VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [job_id, customer_id || null, subtotal, gst, total, notes || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id]
     );
     // Move job to quoted status
     await pool.query(

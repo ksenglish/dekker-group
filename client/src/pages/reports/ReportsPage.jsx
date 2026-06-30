@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 import styles from './Reports.module.css';
 
 function fmt(cents) {
@@ -17,6 +18,8 @@ function monthName(dateStr) {
 }
 
 export default function ReportsPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [revenue, setRevenue] = useState([]);
   const [jobStats, setJobStats] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -29,14 +32,13 @@ export default function ReportsPage() {
   const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
-    Promise.all([
-      api.get('/reports/revenue'),
-      api.get('/reports/customers'),
-    ]).then(([r, c]) => {
+    const calls = [api.get('/reports/revenue')];
+    if (isAdmin) calls.push(api.get('/reports/customers'));
+    Promise.all(calls).then(([r, c]) => {
       setRevenue(r.data);
-      setCustomers(c.data);
+      if (c) setCustomers(c.data);
     });
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     Promise.all([
@@ -166,8 +168,8 @@ export default function ReportsPage() {
           })}
         </div>
 
-        {/* Top customers */}
-        <div className={styles.card} style={{ gridColumn: '1 / -1' }}>
+        {/* Top customers — admin only */}
+        {isAdmin && <div className={styles.card} style={{ gridColumn: '1 / -1' }}>
           <div className={styles.cardHeader}><h2>Top 10 Customers by Revenue</h2></div>
           {customers.length === 0 ? <div className={styles.emptySmall}>No invoice data yet.</div> : (
             <div className={styles.custTable}>
@@ -187,7 +189,7 @@ export default function ReportsPage() {
               ))}
             </div>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );

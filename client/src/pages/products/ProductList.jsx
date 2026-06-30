@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 import styles from './Products.module.css';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -75,7 +76,7 @@ function BrochureUpload({ value, onChange }) {
   );
 }
 
-function ProductModal({ product, onSave, onClose }) {
+function ProductModal({ product, onSave, onClose, isAdmin }) {
   const [form, setForm] = useState({
     name: product?.name || '',
     description: product?.description || '',
@@ -154,18 +155,22 @@ function ProductModal({ product, onSave, onClose }) {
               <input type="number" min="0" step="0.01" value={form.unit_price}
                 onChange={e => set('unit_price', e.target.value)} placeholder="0.00" />
             </div>
-            <div className={styles.formGroup}>
-              <label>Cost Price excl. GST</label>
-              <input type="number" min="0" step="0.01" value={form.cost_price}
-                onChange={e => set('cost_price', e.target.value)} placeholder="0.00" />
-            </div>
-            <div className={styles.formGroup} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', paddingBottom: 2 }}>
-              {margin !== null && (
-                <div className={styles.marginBadge}>
-                  Margin: <strong>{margin}%</strong>
-                </div>
-              )}
-            </div>
+            {isAdmin && (
+              <div className={styles.formGroup}>
+                <label>Cost Price excl. GST</label>
+                <input type="number" min="0" step="0.01" value={form.cost_price}
+                  onChange={e => set('cost_price', e.target.value)} placeholder="0.00" />
+              </div>
+            )}
+            {isAdmin && (
+              <div className={styles.formGroup} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', paddingBottom: 2 }}>
+                {margin !== null && (
+                  <div className={styles.marginBadge}>
+                    Margin: <strong>{margin}%</strong>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className={styles.formGroup}>
@@ -322,6 +327,8 @@ function exportCsv(products) {
 }
 
 export default function ProductList() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
@@ -476,9 +483,9 @@ export default function ProductList() {
                 <span>Product</span>
                 <span>Supplier</span>
                 <span>Unit</span>
-                <span style={{ textAlign: 'right' }}>Cost</span>
+                {isAdmin && <span style={{ textAlign: 'right' }}>Cost</span>}
                 <span style={{ textAlign: 'right' }}>Sell (ex GST)</span>
-                <span style={{ textAlign: 'right' }}>Margin</span>
+                {isAdmin && <span style={{ textAlign: 'right' }}>Margin</span>}
                 <span></span>
               </div>
               {items.map(p => {
@@ -500,16 +507,20 @@ export default function ProductList() {
                     </div>
                     <div className={styles.supplierCol}>{p.supplier || <span className={styles.muted}>—</span>}</div>
                     <div>{p.unit}</div>
-                    <div style={{ textAlign: 'right', color: 'var(--color-text-muted)' }}>
-                      {p.cost_price ? fmt(p.cost_price) : <span className={styles.muted}>—</span>}
-                    </div>
+                    {isAdmin && (
+                      <div style={{ textAlign: 'right', color: 'var(--color-text-muted)' }}>
+                        {p.cost_price ? fmt(p.cost_price) : <span className={styles.muted}>—</span>}
+                      </div>
+                    )}
                     <div style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(p.unit_price)}</div>
-                    <div style={{ textAlign: 'right' }}>
-                      {margin !== null
-                        ? <span className={parseFloat(margin) >= 30 ? styles.marginGood : styles.marginLow}>{margin}%</span>
-                        : <span className={styles.muted}>—</span>
-                      }
-                    </div>
+                    {isAdmin && (
+                      <div style={{ textAlign: 'right' }}>
+                        {margin !== null
+                          ? <span className={parseFloat(margin) >= 30 ? styles.marginGood : styles.marginLow}>{margin}%</span>
+                          : <span className={styles.muted}>—</span>
+                        }
+                      </div>
+                    )}
                     <div className={styles.rowActions}>
                       <button className={styles.btnIcon} onClick={() => setEditing(p)} title="Edit">✏</button>
                       <button className={styles.btnIcon} onClick={() => deleteProduct(p)} title="Delete">🗑</button>
@@ -531,7 +542,7 @@ export default function ProductList() {
       )}
 
       {(adding || editing) && (
-        <ProductModal product={editing} onSave={onSaved} onClose={() => { setAdding(false); setEditing(null); }} />
+        <ProductModal product={editing} onSave={onSaved} onClose={() => { setAdding(false); setEditing(null); }} isAdmin={isAdmin} />
       )}
       {importing && <ImportModal onDone={load} onClose={() => setImporting(false)} />}
 

@@ -21,7 +21,8 @@ async function list(req, res) {
        FROM products p WHERE ${conditions.join(' AND ')} ORDER BY p.category, p.name`,
       params
     );
-    res.json(rows);
+    const isAdmin = req.user.role === 'admin';
+    res.json(isAdmin ? rows : rows.map(({ cost_price, ...rest }) => rest));
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
@@ -29,6 +30,10 @@ async function get(req, res) {
   try {
     const { rows } = await pool.query('SELECT * FROM products WHERE id=$1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    if (req.user.role !== 'admin') {
+      const { cost_price, ...rest } = rows[0];
+      return res.json(rest);
+    }
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
