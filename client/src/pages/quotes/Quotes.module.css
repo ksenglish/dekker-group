@@ -203,6 +203,11 @@
 }
 .btnSecondary:hover:not(:disabled) { background: #f1f5f9; }
 .btnSecondary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btnDanger {
+  padding: 9px 16px; background: #dc2626; color: white; border: none;
+  border-radius: var(--radius); font-size: 14px; font-weight: 500; transition: background 0.15s; cursor: pointer;
+}
+.btnDanger:hover { background: #b91c1c; }
 
 @media (max-width: 768px) {
   .page { padding: 12px; }

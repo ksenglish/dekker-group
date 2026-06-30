@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 import styles from './Quotes.module.css';
 
 const STATUSES = ['draft', 'sent', 'accepted', 'declined', 'cancelled'];
@@ -9,6 +10,7 @@ const STATUS_COLOURS = { draft:'#6b7280', sent:'#0891b2', accepted:'#16a34a', de
 export default function QuoteDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -54,6 +56,16 @@ export default function QuoteDetail() {
       flash('success', `Quote emailed to ${quote.customer_email}`);
     } catch (err) { flash('error', err.response?.data?.error || 'Email failed'); }
     finally { setEmailing(false); }
+  }
+
+  async function handleDelete() {
+    if (!confirm('Delete this quote? This cannot be undone.')) return;
+    try {
+      await api.delete(`/quotes/${id}`);
+      navigate('/quotes');
+    } catch (err) {
+      flash('error', err.response?.data?.error || 'Failed to delete quote.');
+    }
   }
 
   async function handleConvert() {
@@ -103,6 +115,9 @@ export default function QuoteDetail() {
             <button className={styles.btnPrimary} onClick={handleConvert} disabled={converting}>
               {converting ? 'Converting…' : '→ Convert to Invoice'}
             </button>
+          )}
+          {user?.role === 'admin' && (
+            <button className={styles.btnDanger} onClick={handleDelete}>Delete</button>
           )}
         </div>
       </div>

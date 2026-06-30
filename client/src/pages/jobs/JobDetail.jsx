@@ -383,8 +383,12 @@ export default function JobDetail() {
 
   async function handleDelete() {
     if (!confirm(`Delete job #${job.job_number}? This cannot be undone.`)) return;
-    await api.delete(`/jobs/${id}`);
-    navigate('/jobs');
+    try {
+      await api.delete(`/jobs/${id}`);
+      navigate('/jobs');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete job. Please try again.');
+    }
   }
 
   function handleSaved(savedJob) {
