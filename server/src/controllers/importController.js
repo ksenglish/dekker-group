@@ -264,7 +264,7 @@ async function importTradify(req, res) {
               $6,$7,$8,$9,$10,$11,
               $12,$13,'tradify',$14,$15,NOW(),
               $16,$17,$18, COALESCE($15, NOW()))
-           ON CONFLICT (external_ref) DO NOTHING
+           ON CONFLICT (external_ref) WHERE external_ref IS NOT NULL DO NOTHING
            RETURNING id`,
           [
             customerId, siteId, deriveType(get(idx.status)), get(idx.description) || null, status,
