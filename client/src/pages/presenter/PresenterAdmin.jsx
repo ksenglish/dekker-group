@@ -15,6 +15,7 @@ const CALC_TYPES = [
   { value: 'heatpump',       label: 'Heat Pump Sizing' },
   { value: 'smartvent_lite', label: 'SmartVent Lite+ (lookup table)' },
   { value: 'smartvent_positive_pressure', label: 'SmartVent Positive Pressure (all 3 systems)' },
+  { value: 'smartvent_balanced_pressure', label: 'SmartVent Balanced Pressure (Synergy 3 / Balance)' },
 ];
 
 function ImgUpload({ value, onChange, label = '📷 Upload Image', maxMb = 3 }) {

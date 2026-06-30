@@ -534,6 +534,120 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
   );
 }
 
+// ── SmartVent Balanced Pressure lookup table ──────────────────────────────────
+// Source: "SmartVent Balanced Pressure Table.xlsx" (System Type / House Size / Outlets / Model)
+const BP_TABLE = [
+  { system: 'SmartVent Synergy 3', houseMin: 1,   houseMax: 150, outlets: 3, model: 'SYN1015AD' },
+  { system: 'SmartVent Synergy 3', houseMin: 1,   houseMax: 150, outlets: 4, model: 'SYN1015AD with 1 Extension Kit' },
+  { system: 'SmartVent Synergy 3', houseMin: 151, houseMax: 250, outlets: 3, model: 'SYN2025AD' },
+  { system: 'SmartVent Synergy 3', houseMin: 151, houseMax: 250, outlets: 4, model: 'SYN2025AD with 1 Extension Kit' },
+  { system: 'SmartVent Synergy 3', houseMin: 151, houseMax: 250, outlets: 5, model: 'SYN2025AD with 2 Extension Kits' },
+  { system: 'SmartVent Synergy 3', houseMin: 251, houseMax: 350, outlets: 3, model: 'SYN3035AD' },
+  { system: 'SmartVent Synergy 3', houseMin: 251, houseMax: 350, outlets: 4, model: 'SYN3035AD with 1 Extension Kit' },
+  { system: 'SmartVent Synergy 3', houseMin: 251, houseMax: 350, outlets: 5, model: 'SYN3035AD with 2 Extension Kits' },
+  { system: 'SmartVent Synergy 3', houseMin: 251, houseMax: 350, outlets: 6, model: 'SYN3035AD with 3 Extension Kits' },
+  { system: 'SmartVent Balance',   houseMin: 1,   houseMax: 150, outlets: 3, model: 'BAL205' },
+  { system: 'SmartVent Balance',   houseMin: 1,   houseMax: 150, outlets: 4, model: 'BAL205 with 1 Extension Kit' },
+  { system: 'SmartVent Balance',   houseMin: 1,   houseMax: 150, outlets: 5, model: 'BAL205 with 2 Extension Kit' },
+  { system: 'SmartVent Balance',   houseMin: 151, houseMax: 250, outlets: 5, model: 'BAL405' },
+  { system: 'SmartVent Balance',   houseMin: 151, houseMax: 250, outlets: 6, model: 'BAL405 with 1 Extension Kit' },
+];
+const BP_SYSTEMS = [...new Set(BP_TABLE.map(r => r.system))];
+const BP_MAX_HOUSE = Math.max(...BP_TABLE.map(r => r.houseMax));
+
+function SmartVentBalancedPressureCalculator({ onPick }) {
+  const [system, setSystem] = useState(BP_SYSTEMS[0]);
+  const [m2, setM2] = useState('');
+  const [outlets, setOutlets] = useState('');
+  const [priceListProducts, setPriceListProducts] = useState([]);
+  const [showBrochure, setShowBrochure] = useState(false);
+  const [fullPriceProduct, setFullPriceProduct] = useState(null);
+
+  useEffect(() => {
+    api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
+  }, []);
+
+  const houseSize = parseInt(m2) || 0;
+  const numOutlets = parseInt(outlets) || 0;
+  const systemRows = BP_TABLE.filter(r => r.system === system);
+
+  const exactMatch = houseSize > 0 && numOutlets > 0
+    ? systemRows.find(r => houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets)
+    : null;
+  const outletOnlyMatch = !exactMatch && numOutlets > 0
+    ? systemRows.find(r => numOutlets === r.outlets)
+    : null;
+  const tableMatch = exactMatch || outletOnlyMatch;
+
+  const priceProduct = tableMatch
+    ? priceListProducts.find(p =>
+        (p.description || '').trim().toLowerCase() === tableMatch.model.trim().toLowerCase() ||
+        p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase()
+      )
+    : null;
+
+  const exGst  = priceProduct ? priceProduct.unit_price / 100 : null;
+  const incGst = priceProduct ? Math.round((priceProduct.unit_price / 100) * 1.15 * 100) / 100 : null;
+
+  return (
+    <div className={styles.calc}>
+      <h3 className={styles.calcTitle}>SmartVent Balanced Pressure Calculator</h3>
+      <div className={styles.calcGrid}>
+        <div className={styles.calcField} style={{ gridColumn: '1 / -1' }}>
+          <label>System Type</label>
+          <select value={system} onChange={e => setSystem(e.target.value)}>
+            {BP_SYSTEMS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className={styles.calcField}>
+          <label>House Size (m²)</label>
+          <input type="number" value={m2} onChange={e => setM2(e.target.value)}
+            placeholder="e.g. 150" min="0" max={BP_MAX_HOUSE} />
+        </div>
+        <div className={styles.calcField}>
+          <label>Number of Outlets</label>
+          <input type="number" value={outlets} onChange={e => setOutlets(e.target.value)}
+            placeholder="e.g. 4" min="1" max="6" />
+        </div>
+      </div>
+      {houseSize > BP_MAX_HOUSE && (
+        <div className={styles.calcNote}>House size exceeds the supported range (max {BP_MAX_HOUSE} m²). Please contact us for a custom solution.</div>
+      )}
+      {tableMatch && (
+        <div className={styles.calcResult}>
+          <div className={styles.calcResultRow}><span>System Type</span><strong>{tableMatch.system}</strong></div>
+          <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
+          {exGst != null && <>
+            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          </>}
+          {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
+          {priceProduct && onPick && (
+            <button className={styles.addToJobBtn} onClick={() => onPick(priceProduct)}>
+              + Add {tableMatch.model} to Job
+            </button>
+          )}
+          {priceProduct && (
+            <button className={styles.brochureBtn} onClick={() => {
+              if (fullPriceProduct) { setShowBrochure(true); return; }
+              api.get(`/products/${priceProduct.id}`).then(r => {
+                setFullPriceProduct(r.data);
+                if (r.data.brochure_base64) setShowBrochure(true);
+                else alert('No brochure uploaded for this product.');
+              }).catch(() => {});
+            }}>
+              📄 View Product Brochure
+            </button>
+          )}
+        </div>
+      )}
+      {showBrochure && fullPriceProduct?.brochure_base64 && (
+        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
+      )}
+    </div>
+  );
+}
+
 function Calculator({ product, onPick }) {
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} />;
@@ -541,6 +655,7 @@ function Calculator({ product, onPick }) {
   if (type === 'heatpump') return <HeatpumpCalculator product={product} />;
   if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
   if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} />;
+  if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onPick={onPick} />;
   return <UnitCalculator product={product} />;
 }
 
@@ -809,7 +924,7 @@ function ProductPanel({ product, section, onClose, onPick }) {
             </div>
           )}
           <Calculator product={product} onPick={onPick} />
-          {onPick && product.calculator_type !== 'smartvent_lite' && product.calculator_type !== 'smartvent_positive_pressure' && (
+          {onPick && product.calculator_type !== 'smartvent_lite' && product.calculator_type !== 'smartvent_positive_pressure' && product.calculator_type !== 'smartvent_balanced_pressure' && (
             <button className={styles.addToJobBtn} onClick={() => onPick(product.price_list_product || product)}>
               + Add to Quote
             </button>
