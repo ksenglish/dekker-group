@@ -27,9 +27,17 @@ const PORT = process.env.PORT || 3001;
 app.use(compression()); // gzip all responses — cuts bandwidth 60-80%
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow local dev, the configured CLIENT_URL, and any Cloudflare Pages preview domain
-    const allowed = process.env.CLIENT_URL || 'http://localhost:5173';
-    if (!origin || origin === allowed || origin === 'http://localhost:5173' || origin.endsWith('.pages.dev')) {
+    if (!origin) return callback(null, true); // same-origin / non-browser requests
+    const raw = process.env.CLIENT_URL || '';
+    // CLIENT_URL from Render's fromService may come without protocol — normalise
+    const allowed = raw.startsWith('http') ? raw : raw ? `https://${raw}` : null;
+    if (
+      origin === 'http://localhost:5173' ||
+      origin === 'http://localhost:3001' ||
+      (allowed && origin === allowed) ||
+      origin.endsWith('.pages.dev') ||
+      origin.endsWith('.onrender.com')
+    ) {
       return callback(null, true);
     }
     callback(new Error('Not allowed by CORS'));
