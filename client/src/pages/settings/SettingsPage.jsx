@@ -3,7 +3,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Settings.module.css';
 
-const TABS = ['My Account', 'Quote Theme', 'Terms & Conditions', 'Email', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
+const TABS = ['My Account', 'Security', 'Quote Theme', 'Terms & Conditions', 'Email', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('My Account');
@@ -117,6 +117,8 @@ export default function SettingsPage() {
         {/* Content */}
         <div className={styles.content}>
           {activeTab === 'My Account' && <MyAccountTab />}
+
+          {activeTab === 'Security' && <SecurityTab />}
 
           {activeTab === 'Quote Theme' && (
             <div className={styles.section}>
@@ -537,6 +539,104 @@ function MyAccountTab() {
               {status === 'saving' ? 'Updating…' : 'Update Password'}
             </button>
           </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function parseDevice(ua = '') {
+  if (!ua) return 'Unknown device';
+  if (/iPad/.test(ua)) return 'iPad';
+  if (/iPhone/.test(ua)) return 'iPhone';
+  if (/Android/.test(ua)) return 'Android';
+  if (/Windows/.test(ua)) return 'Windows';
+  if (/Macintosh|Mac OS/.test(ua)) return 'Mac';
+  if (/Linux/.test(ua)) return 'Linux';
+  return 'Browser';
+}
+
+const STATUS_STYLES = {
+  success:          { bg: '#f0fdf4', color: '#166534', label: 'Signed in' },
+  failed_password:  { bg: '#fef2f2', color: '#991b1b', label: 'Wrong password' },
+  failed_otp:       { bg: '#fef2f2', color: '#991b1b', label: 'Wrong code' },
+  locked:           { bg: '#fff7ed', color: '#92400e', label: 'Account locked' },
+};
+
+function SecurityTab() {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/auth/login-history')
+      .then(r => setHistory(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  function fmt(ts) {
+    const d = new Date(ts);
+    return d.toLocaleString('en-NZ', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  return (
+    <div className={styles.section}>
+      <div className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2>Two-Factor Authentication</h2>
+        </div>
+        <div className={styles.cardBody}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '14px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>🔒</span>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>Email OTP is enabled for all accounts</div>
+              <div style={{ fontSize: 13, color: '#166534', marginTop: 2, lineHeight: 1.5 }}>
+                Every sign-in requires a 6-digit code sent to your email address after your password is verified.
+                Codes expire after 10 minutes and accounts lock after {5} failed attempts.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2>Recent Sign-in Activity</h2>
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Your last 20 login events</span>
+        </div>
+        <div className={styles.cardBody} style={{ padding: 0 }}>
+          {loading && <div style={{ padding: 24, color: 'var(--color-text-muted)', fontSize: 14 }}>Loading…</div>}
+          {!loading && history.length === 0 && (
+            <div style={{ padding: 24, color: 'var(--color-text-muted)', fontSize: 14 }}>No login history yet.</div>
+          )}
+          {!loading && history.length > 0 && (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--color-border)', background: '#f8fafc' }}>
+                  {['Date & Time', 'Status', 'Device', 'IP Address'].map(h => (
+                    <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: 'var(--color-text-muted)', fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((row, i) => {
+                  const s = STATUS_STYLES[row.status] || STATUS_STYLES.success;
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                      <td style={{ padding: '10px 16px', whiteSpace: 'nowrap', color: 'var(--color-text)' }}>{fmt(row.created_at)}</td>
+                      <td style={{ padding: '10px 16px' }}>
+                        <span style={{ background: s.bg, color: s.color, padding: '2px 8px', borderRadius: 99, fontSize: 12, fontWeight: 600 }}>
+                          {s.label}
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 16px', color: 'var(--color-text-muted)' }}>{parseDevice(row.user_agent)}</td>
+                      <td style={{ padding: '10px 16px', color: 'var(--color-text-muted)', fontFamily: 'monospace', fontSize: 12 }}>{row.ip_address || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

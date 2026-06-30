@@ -20,4 +20,14 @@ function verifyRefreshToken(token) {
   return jwt.verify(token, process.env.JWT_REFRESH_SECRET);
 }
 
-module.exports = { signAccessToken, signRefreshToken, verifyAccessToken, verifyRefreshToken };
+function signOtpToken(userId, email) {
+  return jwt.sign({ id: userId, email, purpose: 'otp' }, process.env.JWT_SECRET, { expiresIn: '10m' });
+}
+
+function verifyOtpToken(token) {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  if (decoded.purpose !== 'otp') throw new Error('Invalid token purpose');
+  return decoded;
+}
+
+module.exports = { signAccessToken, signRefreshToken, verifyAccessToken, verifyRefreshToken, signOtpToken, verifyOtpToken };

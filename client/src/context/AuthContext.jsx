@@ -21,11 +21,27 @@ export function AuthProvider({ children }) {
 
   useEffect(() => { bootstrap(); }, [bootstrap]);
 
+  // Returns { requires_otp, otp_token } if 2FA is needed, or sets user on success
   async function login(email, password) {
     const { data } = await api.post('/auth/login', { email, password });
+    if (data.requires_otp) {
+      return { requires_otp: true, otp_token: data.otp_token };
+    }
     setAccessToken(data.accessToken);
     setUser(data.user);
     return data.user;
+  }
+
+  async function verifyOtp(otpToken, code) {
+    const { data } = await api.post('/auth/verify-otp', { otp_token: otpToken, code });
+    setAccessToken(data.accessToken);
+    setUser(data.user);
+    return data.user;
+  }
+
+  async function resendOtp(otpToken) {
+    const { data } = await api.post('/auth/resend-otp', { otp_token: otpToken });
+    return data.otp_token;
   }
 
   async function logout() {
@@ -35,7 +51,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, verifyOtp, resendOtp, logout }}>
       {children}
     </AuthContext.Provider>
   );

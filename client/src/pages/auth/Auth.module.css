@@ -139,3 +139,69 @@
 .backLink a:hover {
   text-decoration: underline;
 }
+
+/* ── OTP step ───────────────────────────────────────────────────────────────── */
+.otpHeader {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.otpIcon {
+  font-size: 36px;
+  margin-bottom: 12px;
+  display: block;
+}
+
+.otpSubtitle {
+  font-size: 14px;
+  color: var(--color-text-muted, #64748b);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.otpInput {
+  font-size: 28px;
+  letter-spacing: 12px;
+  text-align: center;
+  font-family: monospace;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.otpFooter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.otpFooterText {
+  font-size: 13px;
+  color: var(--color-text-muted, #64748b);
+}
+
+.otpFooterDot {
+  font-size: 13px;
+  color: var(--color-text-muted, #64748b);
+}
+
+.otpResendBtn {
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.otpResendBtn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.otpResendBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
