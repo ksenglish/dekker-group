@@ -283,7 +283,8 @@ async function refresh(req, res) {
     if (!user) return res.status(401).json({ error: 'User not found' });
     const accessToken = signAccessToken({ id: user.id, email: user.email, role: user.role, name: user.name });
     res.json({ accessToken, user });
-  } catch {
+  } catch (err) {
+    console.error('refresh error:', err.message);
     res.status(401).json({ error: 'Invalid refresh token' });
   }
 }
@@ -379,11 +380,14 @@ async function setPassword(req, res) {
     if (!rows[0]) return res.status(400).json({ error: 'This link has expired or is invalid.' });
     const hash = await bcrypt.hash(password, 12);
     await pool.query(
-      'UPDATE users SET password_hash=$1, invite_token=NULL, invite_token_expires=NULL, is_active=true WHERE id=$2',
+      'UPDATE users SET password_hash=$1, invite_token=NULL, invite_token_expires=NULL WHERE id=$2',
       [hash, rows[0].id]
     );
     res.json({ message: 'Password set. You can now log in.' });
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) {
+    console.error('setPassword error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
 }
 
 async function changePassword(req, res) {

@@ -86,4 +86,11 @@ async function start() {
   });
 }
 
+// Catch unhandled async errors in route handlers (Express 4 doesn't catch these automatically)
+app.use((err, req, res, next) => {
+  console.error('Unhandled route error:', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: err.message || 'Server error' });
+});
+
 start().catch(err => { console.error('Startup failed:', err); process.exit(1); });
