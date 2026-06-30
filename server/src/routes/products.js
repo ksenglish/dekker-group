@@ -10,10 +10,10 @@ router.use(authenticate);
 router.get('/', c.list);
 router.get('/categories', c.categories);
 router.get('/:id', c.get);
-router.post('/', requireRole('admin', 'office'), c.create);
-router.put('/:id', requireRole('admin', 'office'), c.update);
-router.delete('/:id', requireRole('admin', 'office'), c.remove);
-router.post('/import', requireRole('admin', 'office'), c.importCsv);
-router.post('/import-zip', requireRole('admin', 'office'), upload.single('file'), c.importZip);
+router.post('/', requireRole('admin'), c.create);
+router.put('/:id', requireRole('admin'), c.update);
+router.delete('/:id', requireRole('admin'), c.remove);
+router.post('/import', requireRole('admin'), c.importCsv);
+router.post('/import-zip', requireRole('admin'), upload.single('file'), c.importZip);
 
 module.exports = router;

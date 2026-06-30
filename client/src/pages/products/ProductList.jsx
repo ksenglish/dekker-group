@@ -426,9 +426,9 @@ export default function ProductList() {
           <p className={styles.pageSubtitle}>{products.length} product{products.length !== 1 ? 's' : ''}</p>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.btnSecondary} onClick={() => exportCsv(products)}>⬇ Export CSV</button>
-          <button className={styles.btnSecondary} onClick={() => setImporting(true)}>⬆ Import</button>
-          <button className={styles.btnPrimary} onClick={() => setAdding(true)}>+ Add Product</button>
+          {isAdmin && <button className={styles.btnSecondary} onClick={() => exportCsv(products)}>⬇ Export CSV</button>}
+          {isAdmin && <button className={styles.btnSecondary} onClick={() => setImporting(true)}>⬆ Import</button>}
+          {isAdmin && <button className={styles.btnPrimary} onClick={() => setAdding(true)}>+ Add Product</button>}
         </div>
       </div>
 
@@ -521,10 +521,12 @@ export default function ProductList() {
                         }
                       </div>
                     )}
-                    <div className={styles.rowActions}>
-                      <button className={styles.btnIcon} onClick={() => setEditing(p)} title="Edit">✏</button>
-                      <button className={styles.btnIcon} onClick={() => deleteProduct(p)} title="Delete">🗑</button>
-                    </div>
+                    {isAdmin && (
+                      <div className={styles.rowActions}>
+                        <button className={styles.btnIcon} onClick={() => setEditing(p)} title="Edit">✏</button>
+                        <button className={styles.btnIcon} onClick={() => deleteProduct(p)} title="Delete">🗑</button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
