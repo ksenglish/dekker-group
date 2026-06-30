@@ -569,7 +569,7 @@ function SecurityTab() {
 
   useEffect(() => {
     api.get('/auth/login-history')
-      .then(r => setHistory(r.data))
+      .then(r => setHistory(Array.isArray(r.data) ? r.data : []))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
