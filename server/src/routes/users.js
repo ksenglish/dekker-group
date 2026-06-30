@@ -84,6 +84,18 @@ router.post('/:id/invite', authenticate, requireRole('admin'), async (req, res) 
   }
 });
 
+// Unlock account — clear login_attempts for this user's email (admin only)
+router.post('/:id/unlock', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT email FROM users WHERE id=$1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    await pool.query('DELETE FROM login_attempts WHERE identifier = $1', [rows[0].email.toLowerCase()]);
+    res.json({ message: `Account unlocked for ${rows[0].email}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Delete user (admin only)
 router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
   if (req.params.id === req.user.id) {

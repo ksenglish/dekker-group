@@ -136,6 +136,15 @@ export default function UsersPage() {
     }
   }
 
+  async function unlockAccount(u) {
+    try {
+      await api.post(`/users/${u.id}/unlock`);
+      alert(`${u.name}'s account has been unlocked.`);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to unlock account');
+    }
+  }
+
   async function deleteUser(u) {
     if (!confirm(`Remove ${u.name}? This cannot be undone.`)) return;
     await api.delete(`/users/${u.id}`);
@@ -189,6 +198,7 @@ export default function UsersPage() {
                 <button className={styles.btnInvite} onClick={() => sendInvite(u)} disabled={inviting === u.id}>
                   {inviting === u.id ? 'Sending…' : '✉ Invite'}
                 </button>
+                <button className={styles.btnUnlock} onClick={() => unlockAccount(u)} title="Unlock account">🔓</button>
                 <button className={styles.btnIcon} onClick={() => setEditing(u)} title="Edit">✏</button>
                 {u.id !== currentUser.id && (
                   <button className={styles.btnIcon} onClick={() => deleteUser(u)} title="Delete">🗑</button>

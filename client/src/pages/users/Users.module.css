@@ -36,6 +36,8 @@
 .btnInvite { padding: 5px 10px; font-size: 12px; font-weight: 500; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: var(--radius); cursor: pointer; white-space: nowrap; transition: background 0.15s; }
 .btnInvite:hover:not(:disabled) { background: #dbeafe; }
 .btnInvite:disabled { opacity: 0.5; cursor: not-allowed; }
+.btnUnlock { background: none; border: none; cursor: pointer; padding: 4px 8px; border-radius: var(--radius); font-size: 14px; opacity: 0.6; transition: opacity 0.15s; }
+.btnUnlock:hover { opacity: 1; background: #fef9c3; }
 
 .youBadge { font-size: 10px; font-weight: 600; background: #f1f5f9; color: var(--color-text-muted); padding: 1px 6px; border-radius: 99px; margin-left: 4px; vertical-align: middle; }
 
