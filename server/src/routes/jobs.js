@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const c = require('../controllers/jobController');
+const { importTradify } = require('../controllers/importController');
 const { authenticate, requireRole, authenticateAutomation } = require('../middleware/auth');
 
 // Automation endpoint — accepts X-API-Key or user JWT
@@ -50,6 +51,9 @@ router.post('/geocode', requireRole('admin', 'office'), async (req, res) => {
     res.json({ lat, lng, formatted: data[0].display_name });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Geocode failed' }); }
 });
+
+// Bulk import jobs from a Tradify CSV export (admin only)
+router.post('/import/tradify', requireRole('admin'), importTradify);
 
 router.get('/', c.list);
 router.post('/', requireRole('admin', 'office'), c.create);

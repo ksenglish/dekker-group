@@ -586,6 +586,46 @@ export default function JobDetail() {
                     <span>Description</span><strong style={{ fontWeight: 400, whiteSpace: 'pre-wrap' }}>{job.description}</strong>
                   </div>
                 )}
+
+                {/* Data imported from Tradify */}
+                {job.source === 'tradify' && (
+                  <>
+                    <div className={styles.detailItem} style={{ gridColumn: '1 / -1', borderTop: '1px solid var(--color-border)', paddingTop: 12, marginTop: 4 }}>
+                      <span>📦 Imported from Tradify</span>
+                      <strong style={{ fontWeight: 400, color: 'var(--color-text-muted)', fontSize: 12 }}>
+                        Tradify Job {job.external_ref}
+                        {job.external_status ? ` · originally "${job.external_status}"` : ''}
+                      </strong>
+                    </div>
+                    {job.job_contact && (
+                      <div className={styles.detailItem}><span>Job Contact</span><strong>{job.job_contact}</strong></div>
+                    )}
+                    {(job.job_contact_mobile || job.job_contact_phone) && (
+                      <div className={styles.detailItem}>
+                        <span>Contact Phone</span>
+                        <strong>{job.job_contact_mobile || job.job_contact_phone}</strong>
+                      </div>
+                    )}
+                    {job.materials && (
+                      <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
+                        <span>Materials</span><strong style={{ fontWeight: 400, whiteSpace: 'pre-wrap' }}>{job.materials}</strong>
+                      </div>
+                    )}
+                    {job.time_log && (
+                      <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
+                        <span>Time (from Tradify)</span><strong style={{ fontWeight: 400, whiteSpace: 'pre-wrap' }}>{job.time_log}</strong>
+                      </div>
+                    )}
+                    {(job.entered_by || job.entered_on) && (
+                      <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
+                        <span>Originally entered</span>
+                        <strong style={{ fontWeight: 400, color: 'var(--color-text-muted)', fontSize: 12 }}>
+                          {job.entered_by || '—'}{job.entered_on ? ` · ${new Date(job.entered_on).toLocaleString('en-NZ')}` : ''}
+                        </strong>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           )}

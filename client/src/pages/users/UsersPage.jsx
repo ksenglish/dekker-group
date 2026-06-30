@@ -13,12 +13,14 @@ const ROLES = [
 const ROLE_LABEL = {
   admin: 'Admin', sales: 'Sales', operations: 'Operations', subcontractor: 'Subcontractor',
   office: 'Office', field_tech: 'Field Tech', // legacy
+  undefined: 'Undefined', // imported team members awaiting a role
 };
 
 const ROLE_BADGE = {
   admin: styles.badgeAdmin, sales: styles.badgeSales,
   operations: styles.badgeOps, subcontractor: styles.badgeTech,
   office: styles.badgeOffice, field_tech: styles.badgeTech,
+  undefined: styles.badgeUndefined,
 };
 
 function UserModal({ user, currentUserId, onSave, onClose }) {

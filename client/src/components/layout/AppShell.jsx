@@ -5,6 +5,7 @@ import CustomerList from '../../pages/customers/CustomerList';
 import CustomerDetail from '../../pages/customers/CustomerDetail';
 import JobList from '../../pages/jobs/JobList';
 import JobDetail from '../../pages/jobs/JobDetail';
+import TradifyImport from '../../pages/jobs/TradifyImport';
 import SchedulePage from '../../pages/schedule/SchedulePage';
 import QuoteList from '../../pages/quotes/QuoteList';
 import QuoteDetail from '../../pages/quotes/QuoteDetail';
@@ -124,6 +125,7 @@ export default function AppShell() {
           <Route path="/customers" element={<CustomerList />} />
           <Route path="/customers/:id" element={<CustomerDetail />} />
           <Route path="/jobs" element={<JobList />} />
+          <Route path="/jobs/import" element={<TradifyImport />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/schedule" element={<SchedulePage />} />
           <Route path="/quotes" element={<QuoteList />} />

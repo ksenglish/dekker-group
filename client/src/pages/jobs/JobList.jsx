@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 import styles from './Jobs.module.css';
 
 const STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
@@ -13,6 +14,7 @@ const PRIORITY_COLOURS = { low: '#6b7280', medium: '#d97706', high: '#dc2626' };
 
 export default function JobList() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [jobs, setJobs] = useState([]);
   const [total, setTotal] = useState(0);
@@ -82,6 +84,9 @@ export default function JobList() {
           <p className={styles.pageSubtitle}>{total} job{total !== 1 ? 's' : ''}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {user?.role === 'admin' && (
+            <button className={styles.btnSecondary} onClick={() => navigate('/jobs/import')}>⬆ Import from Tradify</button>
+          )}
           <button className={styles.btnSecondary} onClick={openTemplates}>New Job from Template</button>
           <button className={styles.btnPrimary} onClick={() => navigate('/jobs/new')}>+ New Job</button>
         </div>
