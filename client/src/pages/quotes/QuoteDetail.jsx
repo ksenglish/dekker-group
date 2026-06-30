@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Quotes.module.css';
 
 const STATUSES = ['draft', 'sent', 'accepted', 'declined', 'cancelled'];
@@ -177,7 +178,7 @@ export default function QuoteDetail() {
               <div className={styles.summaryRow}><span>Status</span>
                 <span className={styles.badge} style={{ background: STATUS_COLOURS[quote.status]+'18', color: STATUS_COLOURS[quote.status] }}>{quote.status}</span>
               </div>
-              {quote.job_number && <div className={styles.summaryRow}><span>Job</span><Link to={`/jobs/${quote.job_id}`}>#{quote.job_number}</Link></div>}
+              {quote.job_number && <div className={styles.summaryRow}><span>Job</span><Link to={`/jobs/${quote.job_id}`}>{formatJobNumber(quote)}</Link></div>}
               <div className={styles.summaryRow}><span>Created</span><strong>{new Date(quote.created_at).toLocaleDateString('en-NZ')}</strong></div>
               {quote.sent_at && <div className={styles.summaryRow}><span>Sent</span><strong>{new Date(quote.sent_at).toLocaleDateString('en-NZ')}</strong></div>}
               {quote.expires_at && (

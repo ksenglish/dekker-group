@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import api from '../../lib/api';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Map.module.css';
 
 // Fix Leaflet's broken default icon paths when bundled with Vite
@@ -98,7 +99,7 @@ export default function MapPage() {
 
       marker.bindPopup(`
         <div style="min-width:200px;font-family:sans-serif;">
-          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">#${job.job_number} — ${job.description || 'Job'}</div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${formatJobNumber(job)} — ${job.description || 'Job'}</div>
           <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">${job.customer_name || ''}</div>
           <div style="font-size:12px;margin-bottom:8px;">${job.site_address || ''}</div>
           <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:${colour}18;color:${colour};">
@@ -215,7 +216,7 @@ export default function MapPage() {
                 className={`${styles.jobCard} ${selectedJob?.id === job.id ? styles.jobCardSelected : ''}`}
                 onClick={() => navigate(`/jobs/${job.id}`)}>
                 <div className={styles.jobCardTop}>
-                  <span className={styles.jobNum}>#{job.job_number}</span>
+                  <span className={styles.jobNum}>{formatJobNumber(job)}</span>
                   <span className={styles.badge}
                     style={{ background: STATUS_COLOURS[job.status] + '18', color: STATUS_COLOURS[job.status] }}>
                     {STATUS_LABELS[job.status] || job.status}

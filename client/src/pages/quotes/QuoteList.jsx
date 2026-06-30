@@ -115,7 +115,7 @@ export default function QuoteList() {
               style={{ gridTemplateColumns: '110px 1fr 120px 100px 80px 110px 100px' }}>
               <span className={styles.docNum}>{fmtQuoteNum(q)}</span>
               <span>{q.customer_name || '—'}</span>
-              <span className={styles.muted}>{q.job_number ? `#${q.job_number}` : '—'}</span>
+              <span className={styles.muted}>{q.job_number ? formatJobNumber(q) : '—'}</span>
               <span>
                 <span className={styles.badge} style={{ background: statusColour(q) + '18', color: statusColour(q) }}>
                   {statusLabel(q)}

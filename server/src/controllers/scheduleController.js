@@ -20,7 +20,7 @@ async function list(req, res) {
   try {
     const { rows } = await pool.query(
       `SELECT s.*,
-              j.job_number, j.type AS job_type, j.status, j.description,
+              j.job_number, j.external_ref, j.type AS job_type, j.status, j.description,
               c.name AS customer_name,
               u.name AS tech_name
        FROM schedules s

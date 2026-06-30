@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../lib/api';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Schedule.module.css';
 
 // Build list of times 07:00–20:30 in 15-min steps
@@ -104,7 +105,7 @@ export default function AssignModal({ date, jobId: initialJobId, techMap, onClos
                 <option value="">Select a job…</option>
                 {jobs.map(j => (
                   <option key={j.id} value={j.id}>
-                    #{j.job_number}{j.customer_name ? ` — ${j.customer_name}` : ''}{j.type ? ` (${j.type})` : ''}
+                    {formatJobNumber(j)}{j.customer_name ? ` — ${j.customer_name}` : ''}{j.type ? ` (${j.type})` : ''}
                   </option>
                 ))}
               </select>

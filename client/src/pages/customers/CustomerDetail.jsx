@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import AddressAutocomplete from '../../components/AddressAutocomplete';
 import styles from './Customers.module.css';
 
@@ -390,7 +391,7 @@ export default function CustomerDetail() {
             {jobs.map(job => (
               <Link key={job.id} to={`/jobs/${job.id}`} className={styles.listRow}>
                 <div className={styles.listRowMain}>
-                  <span className={styles.listRowTitle}>#{job.job_number} — {job.description || job.type || 'Job'}</span>
+                  <span className={styles.listRowTitle}>{formatJobNumber(job)} — {job.description || job.type || 'Job'}</span>
                   <span className={styles.statusPill} style={{
                     background: (STATUS_COLOURS[job.status] || '#64748b') + '20',
                     color: STATUS_COLOURS[job.status] || '#64748b',

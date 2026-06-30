@@ -26,7 +26,7 @@ async function list(req, res) {
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   try {
     const { rows } = await pool.query(
-      `SELECT q.*, c.name AS customer_name, j.job_number,
+      `SELECT q.*, c.name AS customer_name, j.job_number, j.external_ref,
               (q.expires_at IS NOT NULL AND q.expires_at < CURRENT_DATE AND q.status NOT IN ('accepted','declined','cancelled')) AS is_expired
        FROM quotes q
        LEFT JOIN customers c ON c.id = q.customer_id
@@ -44,7 +44,7 @@ async function get(req, res) {
       `SELECT q.*, q.public_token, q.accepted_at, q.accepted_name,
               c.name AS customer_name, c.email AS customer_email,
               c.phone AS customer_phone, c.company AS customer_company,
-              j.job_number, j.description AS job_description
+              j.job_number, j.external_ref, j.description AS job_description
        FROM quotes q
        LEFT JOIN customers c ON c.id = q.customer_id
        LEFT JOIN jobs j ON j.id = q.job_id

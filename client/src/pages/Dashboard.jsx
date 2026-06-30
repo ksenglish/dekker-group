@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../lib/api';
+import { formatJobNumber } from '../lib/formatJobNumber';
 import styles from './Dashboard.module.css';
 
 const STATUS_COLOURS = {
@@ -106,7 +107,7 @@ export default function Dashboard() {
             </div>
             {recentJobs.map(job => (
               <Link key={job.id} to={`/jobs/${job.id}`} className={styles.recentRow}>
-                <span className={styles.recentNum}>#{job.job_number}</span>
+                <span className={styles.recentNum}>{formatJobNumber(job)}</span>
                 <span className={styles.recentCustomer}>{job.customer_name || 'No customer'}</span>
                 <span className={styles.recentDesc}>{job.description || job.type}</span>
                 <span className={styles.statusBadge} style={{ background: STATUS_COLOURS[job.status] + '18', color: STATUS_COLOURS[job.status] }}>
@@ -126,7 +127,7 @@ export default function Dashboard() {
             </div>
             {upcomingJobs.map(job => (
               <Link key={job.id} to={`/jobs/${job.id}`} className={styles.recentRow}>
-                <span className={styles.recentNum}>#{job.job_number}</span>
+                <span className={styles.recentNum}>{formatJobNumber(job)}</span>
                 <span className={styles.recentCustomer}>{job.customer_name || 'No customer'}</span>
                 <span className={styles.recentDesc}>{job.description || job.type}</span>
                 <span className={styles.recentDate}>

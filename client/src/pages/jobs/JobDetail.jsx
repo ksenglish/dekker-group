@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
@@ -10,7 +11,7 @@ import styles from './Jobs.module.css';
 
 // ── Job Email Modal ───────────────────────────────────────────────────────────
 function JobEmailModal({ job, onClose, onSent }) {
-  const [subject, setSubject] = useState(`Re: Job #${job.job_number}`);
+  const [subject, setSubject] = useState(`Re: Job ${formatJobNumber(job)}`);
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
@@ -382,7 +383,7 @@ export default function JobDetail() {
   }
 
   async function handleDelete() {
-    if (!confirm(`Delete job #${job.job_number}? This cannot be undone.`)) return;
+    if (!confirm(`Delete job ${formatJobNumber(job)}? This cannot be undone.`)) return;
     try {
       await api.delete(`/jobs/${id}`);
       navigate('/jobs');
@@ -412,7 +413,7 @@ export default function JobDetail() {
       <div className={styles.page}>
         <div className={styles.breadcrumb}>
           <Link to="/jobs">Jobs</Link><span>›</span>
-          <span>{isNew ? 'New Job' : `Edit Job #${job?.job_number}`}</span>
+          <span>{isNew ? 'New Job' : `Edit Job ${formatJobNumber(job)}`}</span>
         </div>
         <JobForm
           initial={job}
@@ -429,7 +430,7 @@ export default function JobDetail() {
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumb} style={{ marginBottom: 0 }}>
           <Link to="/jobs">Jobs</Link><span>›</span>
-          <span>Job #{job.job_number}</span>
+          <span>Job {formatJobNumber(job)}</span>
         </div>
         <div className={styles.headerActions}>
           {job.customer_email && user?.role !== 'field_tech' && (
@@ -685,7 +686,7 @@ export default function JobDetail() {
             <div className={styles.cardHeader}><h2>Job Summary</h2></div>
             <div className={styles.summaryList}>
               <div className={styles.summaryItem}>
-                <span>Job #</span><strong>#{job.job_number}</strong>
+                <span>Job #</span><strong>{formatJobNumber(job)}</strong>
               </div>
               <div className={styles.summaryItem}>
                 <span>Status</span>

@@ -9,7 +9,7 @@ async function list(req, res) {
   let p = 1;
 
   if (search) {
-    conditions.push(`(j.description ILIKE $${p} OR c.name ILIKE $${p} OR j.job_number::text ILIKE $${p})`);
+    conditions.push(`(j.description ILIKE $${p} OR c.name ILIKE $${p} OR j.job_number::text ILIKE $${p} OR j.external_ref ILIKE $${p})`);
     params.push(`%${search}%`); p++;
   }
   if (status) { conditions.push(`j.status = $${p}`); params.push(status); p++; }
@@ -28,7 +28,7 @@ async function list(req, res) {
 
   try {
     const { rows } = await pool.query(
-      `SELECT j.id, j.job_number, j.type, j.status, j.priority, j.description,
+      `SELECT j.id, j.job_number, j.external_ref, j.type, j.status, j.priority, j.description,
               j.created_at,
               (SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) AS scheduled_date,
               (SELECT s.start_time FROM schedules s WHERE s.job_id=j.id ORDER BY s.scheduled_date LIMIT 1) AS scheduled_time,

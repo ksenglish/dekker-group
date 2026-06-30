@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from '../quotes/Quotes.module.css';
 
 const STATUSES = ['draft', 'sent', 'paid', 'overdue', 'cancelled'];
@@ -228,7 +229,7 @@ export default function InvoiceDetail() {
               <div className={styles.summaryRow}><span>Status</span>
                 <span className={styles.badge} style={{ background: STATUS_COLOURS[invoice.status]+'18', color: STATUS_COLOURS[invoice.status] }}>{invoice.status}</span>
               </div>
-              {invoice.job_number && <div className={styles.summaryRow}><span>Job</span><Link to={`/jobs/${invoice.job_id}`}>#{invoice.job_number}</Link></div>}
+              {invoice.job_number && <div className={styles.summaryRow}><span>Job</span><Link to={`/jobs/${invoice.job_id}`}>{formatJobNumber(invoice)}</Link></div>}
               <div className={styles.summaryRow}><span>Issued</span><strong>{new Date(invoice.created_at).toLocaleDateString('en-NZ')}</strong></div>
               <div className={styles.summaryRow}>
                 <span>Due Date</span>

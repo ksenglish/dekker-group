@@ -4,6 +4,7 @@ import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { Link, useSearchParams } from 'react-router-dom';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import AssignModal from './AssignModal';
@@ -52,7 +53,7 @@ export default function SchedulePage() {
         const colour = techColour(s.user_id, map);
         return {
           id: `sched-${s.id}`,
-          title: `#${s.job_number} ${s.customer_name || ''} — ${s.tech_name || ''}`,
+          title: `${formatJobNumber(s)} ${s.customer_name || ''} — ${s.tech_name || ''}`,
           start: s.start_time ? `${d}T${s.start_time}` : d,
           end:   s.end_time   ? `${d}T${s.end_time}`   : undefined,
           allDay: !s.start_time,
@@ -159,7 +160,7 @@ export default function SchedulePage() {
         <div className={styles.modalOverlay} onClick={() => setSelectedEvent(null)}>
           <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2>Job #{selectedEvent.job_number}</h2>
+              <h2>Job {formatJobNumber(selectedEvent)}</h2>
               <button className={styles.modalClose} onClick={() => setSelectedEvent(null)}>✕</button>
             </div>
             <div className={styles.eventDetails}>

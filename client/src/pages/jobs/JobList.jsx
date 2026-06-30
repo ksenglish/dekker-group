@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Jobs.module.css';
 
 const STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
@@ -130,7 +131,7 @@ export default function JobList() {
           </div>
           {jobs.map(job => (
             <Link key={job.id} to={`/jobs/${job.id}`} className={styles.tableRow}>
-              <span className={styles.jobNumber}>#{job.job_number}</span>
+              <span className={styles.jobNumber}>{formatJobNumber(job)}</span>
               <span>{job.customer_name || <span className={styles.muted}>No customer</span>}</span>
               <span className={styles.jobDesc}>{job.description || <span className={styles.muted}>—</span>}</span>
               <span className={styles.typeTag}>{job.type?.replace('_', ' ')}</span>

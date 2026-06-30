@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from '../quotes/Quotes.module.css';
 
 const TABS = [
@@ -134,7 +135,7 @@ export default function InvoiceList() {
                 style={{ gridTemplateColumns: '110px 1fr 100px 90px 70px 100px 100px 90px 90px 80px' }}>
                 <span className={styles.docNum}>{fmtInvNum(inv)}</span>
                 <span>{inv.customer_name || '—'}</span>
-                <span className={styles.muted}>{inv.job_number ? `#${inv.job_number}` : '—'}</span>
+                <span className={styles.muted}>{inv.job_number ? formatJobNumber(inv) : '—'}</span>
                 <span>
                   <span className={styles.badge} style={{ background: colour + '18', color: colour }}>
                     {statusLabel(inv)}

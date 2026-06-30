@@ -29,7 +29,7 @@ async function list(req, res) {
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   try {
     const { rows } = await pool.query(
-      `SELECT i.*, c.name AS customer_name, j.job_number,
+      `SELECT i.*, c.name AS customer_name, j.job_number, j.external_ref,
               (i.status NOT IN ('paid','cancelled') AND i.due_date < CURRENT_DATE) AS is_overdue,
               COALESCE((SELECT SUM(amount) FROM invoice_payments WHERE invoice_id=i.id), 0) AS paid_amount
        FROM invoices i
@@ -47,7 +47,7 @@ async function get(req, res) {
     const { rows } = await pool.query(
       `SELECT i.*, c.name AS customer_name, c.email AS customer_email,
               c.phone AS customer_phone, c.company AS customer_company,
-              j.job_number, j.description AS job_description
+              j.job_number, j.external_ref, j.description AS job_description
        FROM invoices i
        LEFT JOIN customers c ON c.id = i.customer_id
        LEFT JOIN jobs j ON j.id = i.job_id

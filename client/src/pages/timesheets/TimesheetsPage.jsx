@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Timesheets.module.css';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -88,7 +89,7 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, currentUser,
               <label>Job (optional)</label>
               <select value={form.job_id} onChange={e => set('job_id', e.target.value)}>
                 <option value="">No job / general</option>
-                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number ? `#${j.job_number} — ` : ''}{j.title}</option>)}
+                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number ? `${formatJobNumber(j)} — ` : ''}{j.title}</option>)}
               </select>
             </div>
             <div className={styles.field} style={{ gridColumn: '1/-1' }}>
@@ -113,7 +114,7 @@ function exportCsv(entries, from, to) {
   const headers = ['Date', 'Team Member', 'Job', 'Hours', 'Description'];
   const rows = entries.map(e => [
     `"${e.date?.slice(0,10)}"`, `"${e.user_name || ''}"`,
-    `"${e.job_title ? `#${e.job_number} ${e.job_title}` : ''}"`,
+    `"${e.job_title ? `${formatJobNumber(e)} ${e.job_title}` : ''}"`,
     e.hours, `"${(e.description || '').replace(/"/g, '""')}"`,
   ].join(','));
   const csv = [headers.join(','), ...rows].join('\n');
@@ -233,7 +234,7 @@ export default function TimesheetsPage() {
             <div key={e.id} className={styles.tableRow}>
               <div>{new Date(e.date).toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })}</div>
               {isAdmin && <div>{e.user_name}</div>}
-              <div>{e.job_title ? <span className={styles.jobTag}>#{e.job_number}</span> : <span className={styles.muted}>General</span>}</div>
+              <div>{e.job_title ? <span className={styles.jobTag}>{formatJobNumber(e)}</span> : <span className={styles.muted}>General</span>}</div>
               <div className={styles.descCell}>{e.description || <span className={styles.muted}>—</span>}</div>
               <div style={{ textAlign: 'right', fontWeight: 600 }}>{parseFloat(e.hours).toFixed(2)}h</div>
               <div className={styles.actions}>
@@ -279,7 +280,7 @@ export default function TimesheetsPage() {
                       return (
                         <td key={d} className={`${styles.dayCell} ${hrs > 0 ? styles.dayCellFilled : ''}`}
                           onClick={() => hrs > 0 && setModal({ entry: dayEntries[0] })}
-                          title={dayEntries.map(e => `${parseFloat(e.hours).toFixed(2)}h${e.job_number ? ` #${e.job_number}` : ''}${e.description ? ` — ${e.description}` : ''}`).join('\n')}>
+                          title={dayEntries.map(e => `${parseFloat(e.hours).toFixed(2)}h${e.job_number ? ` ${formatJobNumber(e)}` : ''}${e.description ? ` — ${e.description}` : ''}`).join('\n')}>
                           {hrs > 0 ? fmtHours(hrs) : ''}
                         </td>
                       );

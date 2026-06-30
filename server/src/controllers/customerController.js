@@ -45,7 +45,7 @@ async function get(req, res) {
     if (!rows[0]) return res.status(404).json({ error: 'Customer not found' });
     const sites = await pool.query('SELECT * FROM customer_sites WHERE customer_id = $1 ORDER BY label', [req.params.id]);
     const jobs = await pool.query(
-      `SELECT j.id, j.job_number, j.type, j.status, j.priority, j.due_date, j.description,
+      `SELECT j.id, j.job_number, j.external_ref, j.type, j.status, j.priority, j.due_date, j.description,
               u.name AS lead_tech_name
        FROM jobs j LEFT JOIN users u ON u.id = j.lead_tech_id
        WHERE j.customer_id = $1 ORDER BY j.created_at DESC LIMIT 20`,

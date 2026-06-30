@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Jobs.module.css';
 
 export default function JobForm({ initial, onSave, onCancel }) {
@@ -86,7 +87,7 @@ export default function JobForm({ initial, onSave, onCancel }) {
   return (
     <form onSubmit={handleSubmit} className={styles.jobFormWrap}>
       <h2 className={styles.jobFormTitle}>
-        {initial?.id ? `Edit Job #${initial.job_number}` : 'New Job'}
+        {initial?.id ? `Edit Job ${formatJobNumber(initial)}` : 'New Job'}
       </h2>
       {error && <div className={styles.errorBanner}>{error}</div>}
 
