@@ -15,6 +15,30 @@ import styles from './Schedule.module.css';
 const TECH_COLOURS = ['#1e40af','#0891b2','#7c3aed','#16a34a','#d97706','#dc2626','#9333ea','#0f766e'];
 const APPT_TYPE_LABEL = { sales: 'Sales', operations: 'Operations' };
 const APPT_TYPE_COLOURS = { sales: '#5b21b6', operations: '#1e40af' };
+const JOB_STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
+const DEFAULT_STATUS_COLOURS = {
+  new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
+  in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
+};
+// How far ahead an appointment starts fading in from pale to its full status colour
+const FADE_WINDOW_HOURS = 120; // 5 days
+const MAX_LIGHTEN = 0.72;
+
+// Mix a hex colour toward white by `amt` (0 = unchanged, 1 = white)
+function lightenHex(hex, amt) {
+  const h = (hex || '#6b7280').replace('#', '');
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const num = parseInt(full, 16) || 0x6b7280;
+  const r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+  const mix = c => Math.round(c + (255 - c) * amt);
+  return `#${[mix(r), mix(g), mix(b)].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+// Combine a schedule row's date + optional start time into a real Date, for time-based fading
+function apptDateTime(row) {
+  const d = row.scheduled_date.split('T')[0];
+  return new Date(`${d}T${row.start_time || '00:00'}:00`);
+}
 
 export default function SchedulePage() {
   const { user } = useAuth();
@@ -22,12 +46,17 @@ export default function SchedulePage() {
   const [searchParams] = useSearchParams();
   const [techMap, setTechMap] = useState({});
   const [techRoles, setTechRoles] = useState({});
+  const [statusColours, setStatusColours] = useState(DEFAULT_STATUS_COLOURS);
   const [filterTech, setFilterTech] = useState('');
   const [filterApptType, setFilterApptType] = useState(''); // '' | 'sales' | 'operations'
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [notesDraft, setNotesDraft] = useState('');
+  const [savingNotes, setSavingNotes] = useState(false);
   const [assignTarget, setAssignTarget] = useState(null);
-  // fcEvents drives the calendar — plain state array, replaced on every fetch
+  // Raw rows from the API — recomputed into fcEvents whenever filters, colours, or the clock changes
+  const [rawSchedules, setRawSchedules] = useState([]);
   const [fcEvents, setFcEvents] = useState([]);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
   const [view, setView] = useState(() => {
     const saved = localStorage.getItem(viewKey);
@@ -48,21 +77,50 @@ export default function SchedulePage() {
       setTechMap(map);
       setTechRoles(roles);
     }).catch(() => {});
+    api.get('/settings/job-status-colours').then(r => setStatusColours(r.data)).catch(() => {});
   }, []);
 
+  // Refresh "now" periodically so upcoming appointments fade in as their time approaches
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Person colour — used only for the Day view column headers now that
+  // appointments themselves are colour-coded by job status
   function techColour(userId, map) {
     const keys = Object.keys(map);
     const idx = keys.indexOf(userId);
     return TECH_COLOURS[idx >= 0 ? idx % TECH_COLOURS.length : 0];
   }
 
-  function toFcEvents(rows, map, tech, apptType) {
-    return rows
-      .filter(s => !tech || s.user_id === tech)
-      .filter(s => !apptType || s.appointment_type === apptType)
+  // Colour an appointment by its job status — paler if it's still upcoming,
+  // full brightness once its scheduled time has arrived or passed.
+  function styleForAppt(row) {
+    const base = statusColours[row.status] || DEFAULT_STATUS_COLOURS[row.status] || '#6b7280';
+    const hoursUntil = (apptDateTime(row).getTime() - nowTick) / 3600000;
+    const lightenAmt = hoursUntil <= 0 ? 0 : Math.min(1, hoursUntil / FADE_WINDOW_HOURS) * MAX_LIGHTEN;
+    return {
+      background: lightenHex(base, lightenAmt),
+      border: base,
+      text: lightenAmt > 0.4 ? '#1e293b' : '#ffffff',
+    };
+  }
+
+  function loadSchedules() {
+    api.get('/schedules').then(r => setRawSchedules(r.data)).catch(() => {});
+  }
+
+  useEffect(() => { loadSchedules(); }, []);
+
+  // Recompute calendar events whenever the raw data, filters, status colours, or clock tick change
+  useEffect(() => {
+    const events = rawSchedules
+      .filter(s => !filterTech || s.user_id === filterTech)
+      .filter(s => !filterApptType || s.appointment_type === filterApptType)
       .map(s => {
         const d = s.scheduled_date.split('T')[0]; // strip Postgres timestamp
-        const colour = techColour(s.user_id, map);
+        const { background, border, text } = styleForAppt(s);
         return {
           id: `sched-${s.id}`,
           resourceId: s.user_id,
@@ -70,38 +128,41 @@ export default function SchedulePage() {
           start: s.start_time ? `${d}T${s.start_time}` : d,
           end:   s.end_time   ? `${d}T${s.end_time}`   : undefined,
           allDay: !s.start_time,
-          backgroundColor: colour,
-          borderColor: colour,
+          backgroundColor: background,
+          borderColor: border,
+          textColor: text,
           extendedProps: { ...s, schedId: s.id, type: 'scheduled' },
         };
       });
-  }
+    setFcEvents(events);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawSchedules, filterTech, filterApptType, statusColours, nowTick]);
 
-  function loadSchedules(map, tech, apptType) {
-    const resolvedMap     = map     !== undefined ? map     : techMap;
-    const resolvedTech    = tech    !== undefined ? tech    : filterTech;
-    const resolvedAppType = apptType !== undefined ? apptType : filterApptType;
-    api.get('/schedules').then(r => {
-      setFcEvents(toFcEvents(r.data, resolvedMap, resolvedTech, resolvedAppType));
-    }).catch(() => {});
-  }
-
-  useEffect(() => { loadSchedules(); }, []);
-
-  // Re-filter when filters change (no new fetch needed)
-  // Re-load when techMap arrives so colours are correct
-  useEffect(() => { loadSchedules(techMap, filterTech, filterApptType); }, [techMap, filterTech, filterApptType]);
-
-  async function handleEventDrop({ event, revert }) {
-    const { job_id } = event.extendedProps;
-    if (!job_id) return;
+  // Persist a drag or resize on the calendar — only sends the fields FullCalendar actually changed
+  async function persistMove({ event, newResource, revert }) {
+    const { schedId } = event.extendedProps;
+    if (!schedId) return;
+    const pad = n => String(n).padStart(2, '0');
+    const start = event.start;
+    const dateStr = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
+    const timeStr = d => d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : null;
+    const payload = {
+      scheduled_date: dateStr,
+      start_time: event.allDay ? null : timeStr(start),
+      end_time: event.allDay ? null : timeStr(event.end),
+    };
+    const resourceId = newResource?.id || event.getResources?.()[0]?.id;
+    if (resourceId) payload.user_id = resourceId;
     try {
-      await api.patch(`/schedules/jobs/${job_id}/reschedule`, { date: event.startStr.split('T')[0] });
+      await api.put(`/schedules/${schedId}`, payload);
       loadSchedules();
     } catch { revert(); }
   }
 
-  function handleEventClick({ event }) { setSelectedEvent(event.extendedProps); }
+  function handleEventClick({ event }) {
+    setSelectedEvent(event.extendedProps);
+    setNotesDraft(event.extendedProps.notes || '');
+  }
 
   function handleDateClick({ dateStr, resource }) {
     if (user?.role === 'field_tech') return;
@@ -110,6 +171,16 @@ export default function SchedulePage() {
       jobId: searchParams.get('job') || undefined,
       userId: resource?.id,
     });
+  }
+
+  async function handleSaveNotes() {
+    if (!selectedEvent?.schedId) return;
+    setSavingNotes(true);
+    try {
+      await api.put(`/schedules/${selectedEvent.schedId}`, { notes: notesDraft });
+      setSelectedEvent(e => ({ ...e, notes: notesDraft }));
+      loadSchedules();
+    } finally { setSavingNotes(false); }
   }
 
   // One column per team member for the Day view — filtered to match the dropdown above
@@ -129,7 +200,7 @@ export default function SchedulePage() {
       <div className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>Schedule</h1>
-          <p className={styles.pageSubtitle}>Click a date to schedule a job · Drag to reschedule</p>
+          <p className={styles.pageSubtitle}>Click a date to schedule a job · Drag or resize to adjust</p>
         </div>
         <div className={styles.headerActions}>
           {Object.keys(techMap).length > 0 && (
@@ -159,16 +230,15 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {Object.keys(techMap).length > 0 && (
-        <div className={styles.legend}>
-          {Object.entries(techMap).map(([id, name]) => (
-            <div key={id} className={styles.legendItem}>
-              <span className={styles.legendDot} style={{ background: techColour(id, techMap) }} />
-              {name}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className={styles.legend}>
+        {JOB_STATUSES.map(s => (
+          <div key={s} className={styles.legendItem}>
+            <span className={styles.legendDot} style={{ background: statusColours[s] || DEFAULT_STATUS_COLOURS[s] }} />
+            <span style={{ textTransform: 'capitalize' }}>{s.replace('_', ' ')}</span>
+          </div>
+        ))}
+        <span className={styles.legendHint}>Paler = upcoming · Full colour = underway or past</span>
+      </div>
 
       <div className={styles.calendarWrap}>
         <FullCalendar
@@ -180,7 +250,8 @@ export default function SchedulePage() {
           expandRows
           editable={canEdit}
           droppable={canEdit}
-          eventDrop={handleEventDrop}
+          eventDrop={persistMove}
+          eventResize={persistMove}
           eventClick={handleEventClick}
           dateClick={handleDateClick}
           events={fcEvents}
@@ -225,9 +296,31 @@ export default function SchedulePage() {
               )}
               <div className={styles.eventRow}><span>Date</span><strong>{new Date(selectedEvent.scheduled_date).toLocaleDateString('en-NZ')}</strong></div>
               {selectedEvent.start_time && <div className={styles.eventRow}><span>Time</span><strong>{selectedEvent.start_time}{selectedEvent.end_time ? ` – ${selectedEvent.end_time}` : ''}</strong></div>}
-              {selectedEvent.description && <div className={styles.eventRow}><span>Notes</span><strong>{selectedEvent.description}</strong></div>}
-              <div className={styles.eventRow}><span>Status</span><strong style={{ textTransform:'capitalize' }}>{selectedEvent.status?.replace('_',' ')}</strong></div>
+              {selectedEvent.description && <div className={styles.eventRow}><span>Job Description</span><strong>{selectedEvent.description}</strong></div>}
+              <div className={styles.eventRow}><span>Status</span>
+                <strong style={{ textTransform:'capitalize', color: statusColours[selectedEvent.status] || DEFAULT_STATUS_COLOURS[selectedEvent.status] }}>
+                  {selectedEvent.status?.replace('_',' ')}
+                </strong>
+              </div>
             </div>
+
+            <div className={styles.notesSection}>
+              <label>Appointment Notes</label>
+              {canEdit ? (
+                <>
+                  <textarea rows={3} value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
+                    placeholder="Notes specific to this appointment (separate from the job's own notes)…" />
+                  {notesDraft !== (selectedEvent.notes || '') && (
+                    <button className={styles.btnSecondary} onClick={handleSaveNotes} disabled={savingNotes}>
+                      {savingNotes ? 'Saving…' : 'Save Notes'}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <p className={styles.notesReadonly}>{selectedEvent.notes || 'No notes for this appointment.'}</p>
+              )}
+            </div>
+
             <div className={styles.modalFooter}>
               <Link to={`/jobs/${selectedEvent.job_id}`} className={styles.btnSecondary} onClick={() => setSelectedEvent(null)}>View Job</Link>
               {canEdit && selectedEvent.schedId && (

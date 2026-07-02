@@ -40,7 +40,7 @@ async function list(req, res) {
 }
 
 async function create(req, res) {
-  const { job_id, user_id, scheduled_date, start_time, end_time, appointment_type } = req.body;
+  const { job_id, user_id, scheduled_date, start_time, end_time, appointment_type, notes } = req.body;
   if (!job_id || !user_id || !scheduled_date) {
     return res.status(400).json({ error: 'job_id, user_id and scheduled_date are required' });
   }
@@ -49,9 +49,9 @@ async function create(req, res) {
   }
   try {
     const { rows } = await pool.query(
-      `INSERT INTO schedules (job_id, user_id, scheduled_date, start_time, end_time, appointment_type)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [job_id, user_id, scheduled_date, start_time || null, end_time || null, appointment_type || null]
+      `INSERT INTO schedules (job_id, user_id, scheduled_date, start_time, end_time, appointment_type, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [job_id, user_id, scheduled_date, start_time || null, end_time || null, appointment_type || null, notes || null]
     );
     // Also update job status to scheduled if it's still 'new'
     await pool.query(
@@ -64,16 +64,30 @@ async function create(req, res) {
   }
 }
 
+// Partial update — only fields present in the body are changed. Used for the
+// edit form, drag/resize on the calendar, and the notes-only save from the
+// appointment detail popup, each of which sends a different subset of fields.
 async function update(req, res) {
-  const { user_id, scheduled_date, start_time, end_time, appointment_type } = req.body;
+  const { user_id, scheduled_date, start_time, end_time, appointment_type, notes } = req.body;
   if (appointment_type && !['sales', 'operations'].includes(appointment_type)) {
     return res.status(400).json({ error: 'appointment_type must be "sales" or "operations"' });
   }
   try {
+    const { rows: existingRows } = await pool.query('SELECT * FROM schedules WHERE id=$1', [req.params.id]);
+    if (!existingRows[0]) return res.status(404).json({ error: 'Appointment not found' });
+    const existing = existingRows[0];
+    const merged = {
+      user_id:          user_id          !== undefined ? user_id                    : existing.user_id,
+      scheduled_date:   scheduled_date   !== undefined ? scheduled_date             : existing.scheduled_date,
+      start_time:       start_time       !== undefined ? (start_time || null)       : existing.start_time,
+      end_time:         end_time         !== undefined ? (end_time || null)         : existing.end_time,
+      appointment_type: appointment_type !== undefined ? (appointment_type || null) : existing.appointment_type,
+      notes:            notes            !== undefined ? (notes || null)            : existing.notes,
+    };
     const { rows } = await pool.query(
-      `UPDATE schedules SET user_id=$1, scheduled_date=$2, start_time=$3, end_time=$4, appointment_type=$5
-       WHERE id=$6 RETURNING *`,
-      [user_id, scheduled_date, start_time || null, end_time || null, appointment_type || null, req.params.id]
+      `UPDATE schedules SET user_id=$1, scheduled_date=$2, start_time=$3, end_time=$4, appointment_type=$5, notes=$6
+       WHERE id=$7 RETURNING *`,
+      [merged.user_id, merged.scheduled_date, merged.start_time, merged.end_time, merged.appointment_type, merged.notes, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) {

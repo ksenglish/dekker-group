@@ -107,6 +107,41 @@ router.put('/job-types', authenticate, requireRole('admin', 'office'), async (re
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// Job Status Colours — used to colour appointments on the Schedule by the job's status
+const JOB_STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
+const DEFAULT_STATUS_COLOURS = {
+  new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
+  in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
+};
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+
+router.get('/job-status-colours', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='job_status_colours'`);
+    res.json({ ...DEFAULT_STATUS_COLOURS, ...(rows[0]?.value || {}) });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/job-status-colours', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  try {
+    const colours = req.body;
+    if (typeof colours !== 'object' || Array.isArray(colours) || colours === null) {
+      return res.status(400).json({ error: 'Object of status -> hex colour required' });
+    }
+    for (const [status, colour] of Object.entries(colours)) {
+      if (!JOB_STATUSES.includes(status)) return res.status(400).json({ error: `Unknown status "${status}"` });
+      if (!HEX_RE.test(colour)) return res.status(400).json({ error: `Invalid colour for "${status}" — must be a hex value like #1e40af` });
+    }
+    const merged = { ...DEFAULT_STATUS_COLOURS, ...colours };
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('job_status_colours', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
+      [JSON.stringify(merged)]
+    );
+    res.json(merged);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 // Job Templates
 router.get('/job-templates', authenticate, async (req, res) => {
   try {

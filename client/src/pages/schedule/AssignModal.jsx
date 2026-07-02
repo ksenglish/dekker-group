@@ -49,6 +49,7 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
     start_time: '',
     end_time: '',
     appointment_type: guessApptType(techRoles[initialUserId]),
+    notes: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -169,6 +170,13 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
             <div className={styles.timeRow}>
               <TimeSelect label="Start Time" value={form.start_time} onChange={v => set('start_time', v)} />
               <TimeSelect label="End Time" value={form.end_time} onChange={v => set('end_time', v)} />
+            </div>
+
+            {/* Appointment notes */}
+            <div className={styles.field}>
+              <label>Appointment Notes</label>
+              <textarea rows={3} value={form.notes} onChange={e => set('notes', e.target.value)}
+                placeholder="Notes specific to this appointment (separate from the job's own notes)…" />
             </div>
           </div>
 

@@ -5,6 +5,12 @@ import styles from './Settings.module.css';
 
 const TABS = ['My Account', 'Security', 'Quote Theme', 'Terms & Conditions', 'Email', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
 
+const JOB_STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
+const DEFAULT_STATUS_COLOURS = {
+  new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
+  in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
+};
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('My Account');
   const [theme, setTheme] = useState(null);
@@ -741,10 +747,37 @@ function JobTypesTab() {
   const EMPTY_TPL = { name: '', type: '', description: '', priority: 'medium', is_recurring: false, recurrence_interval: 'annual' };
   const [tplForm, setTplForm] = useState(EMPTY_TPL);
 
+  const [statusColours, setStatusColours] = useState(DEFAULT_STATUS_COLOURS);
+  const [savingColours, setSavingColours] = useState(false);
+  const [coloursSaved, setColoursSaved] = useState(false);
+
   useEffect(() => {
     api.get('/settings/job-types').then(r => setJobTypes(r.data)).catch(() => {});
     api.get('/settings/job-templates').then(r => setTemplates(r.data)).catch(() => {});
+    api.get('/settings/job-status-colours').then(r => setStatusColours(r.data)).catch(() => {});
   }, []);
+
+  function setStatusColour(status, hex) {
+    setStatusColours(c => ({ ...c, [status]: hex }));
+    setColoursSaved(false);
+  }
+
+  async function saveStatusColours() {
+    setSavingColours(true);
+    try {
+      const { data } = await api.put('/settings/job-status-colours', statusColours);
+      setStatusColours(data);
+      setColoursSaved(true);
+      setTimeout(() => setColoursSaved(false), 3000);
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to save colours');
+    } finally { setSavingColours(false); }
+  }
+
+  function resetStatusColours() {
+    setStatusColours(DEFAULT_STATUS_COLOURS);
+    setColoursSaved(false);
+  }
 
   async function addType() {
     const t = newType.trim();
@@ -811,6 +844,36 @@ function JobTypesTab() {
               placeholder="New job type…"
               style={{ flex: 1, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13 }} />
             <button className={styles.btnPrimary} onClick={addType} disabled={!newType.trim()}>Add</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Job Status Colours */}
+      <div className={styles.card} style={{ marginTop: 24 }}>
+        <div className={styles.cardHeader}><h2>Job Status Colours</h2></div>
+        <div className={styles.cardBody}>
+          <p className={styles.hint} style={{ marginBottom: 12 }}>
+            Set a colour for each job status. Appointments on the Schedule are coloured to match the status of their job.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {JOB_STATUSES.map(s => (
+              <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid var(--color-border)' }}>
+                <input type="color" value={statusColours[s] || DEFAULT_STATUS_COLOURS[s]}
+                  onChange={e => setStatusColour(s, e.target.value)}
+                  style={{ width: 36, height: 28, padding: 0, border: '1px solid var(--color-border)', borderRadius: 4, cursor: 'pointer', background: 'none' }} />
+                <span style={{ fontSize: 14, fontWeight: 500, textTransform: 'capitalize', flex: 1 }}>{s.replace('_', ' ')}</span>
+                <input value={statusColours[s] || DEFAULT_STATUS_COLOURS[s]}
+                  onChange={e => setStatusColour(s, e.target.value)}
+                  style={{ width: 90, padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className={styles.btnPrimary} onClick={saveStatusColours} disabled={savingColours}>
+              {savingColours ? 'Saving…' : 'Save Colours'}
+            </button>
+            <button className={styles.btnSecondary} onClick={resetStatusColours} disabled={savingColours}>Reset to Defaults</button>
+            {coloursSaved && <span style={{ color: '#16a34a', fontSize: 13, fontWeight: 500 }}>✓ Saved</span>}
           </div>
         </div>
       </div>
