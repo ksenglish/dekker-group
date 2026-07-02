@@ -32,15 +32,23 @@ function TimeSelect({ value, onChange, label }) {
   );
 }
 
-export default function AssignModal({ date, jobId: initialJobId, techMap, onClose, onAssigned }) {
+// Guess Sales vs Operations from the team member's role — always editable by the user
+function guessApptType(role) {
+  if (role === 'sales') return 'sales';
+  if (role === 'operations' || role === 'field_tech' || role === 'subcontractor' || role === 'office') return 'operations';
+  return '';
+}
+
+export default function AssignModal({ date, jobId: initialJobId, userId: initialUserId, techMap, techRoles = {}, onClose, onAssigned }) {
   const [jobs, setJobs] = useState([]);
   const [jobTechs, setJobTechs] = useState([]); // team members on the selected job
   const [form, setForm] = useState({
     job_id: initialJobId || '',
-    user_id: '',
+    user_id: initialUserId || '',
     scheduled_date: date || new Date().toISOString().split('T')[0],
     start_time: '',
     end_time: '',
+    appointment_type: guessApptType(techRoles[initialUserId]),
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -51,23 +59,34 @@ export default function AssignModal({ date, jobId: initialJobId, techMap, onClos
     });
   }, []);
 
-  // When job changes, load its technicians and auto-select first one
+  function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
+  function selectUser(id) {
+    setForm(f => ({ ...f, user_id: id, appointment_type: guessApptType(techRoles[id]) }));
+  }
+
+  // When job changes, load its technicians. Keep the pre-selected team member
+  // (e.g. from clicking a Day-view column) if they're assigned to the job.
   useEffect(() => {
     if (!form.job_id) { setJobTechs([]); return; }
     api.get(`/jobs/${form.job_id}`).then(r => {
       const techs = r.data.technicians || [];
       setJobTechs(techs);
-      if (techs.length === 1) set('user_id', techs[0].id);
-      else if (techs.length === 0) set('user_id', '');
+      if (techs.length === 0) {
+        if (!initialUserId) selectUser('');
+      } else if (techs.some(t => t.id === initialUserId)) {
+        selectUser(initialUserId);
+      } else if (techs.length === 1) {
+        selectUser(techs[0].id);
+      } else {
+        selectUser('');
+      }
     }).catch(() => setJobTechs([]));
   }, [form.job_id]);
 
-  function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
-
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.job_id || !form.user_id || !form.scheduled_date) {
-      setError('Please select a job, team member and date'); return;
+    if (!form.job_id || !form.user_id || !form.scheduled_date || !form.appointment_type) {
+      setError('Please select a job, team member, appointment type and date'); return;
     }
     setSaving(true); setError('');
     try {
@@ -101,7 +120,7 @@ export default function AssignModal({ date, jobId: initialJobId, techMap, onClos
             {/* Job selector */}
             <div className={styles.field}>
               <label>Job *</label>
-              <select value={form.job_id} onChange={e => { set('job_id', e.target.value); set('user_id', ''); }}>
+              <select value={form.job_id} onChange={e => { set('job_id', e.target.value); selectUser(''); }}>
                 <option value="">Select a job…</option>
                 {jobs.map(j => (
                   <option key={j.id} value={j.id}>
@@ -119,7 +138,7 @@ export default function AssignModal({ date, jobId: initialJobId, techMap, onClos
             {/* Team member */}
             <div className={styles.field}>
               <label>Team Member *</label>
-              <select value={form.user_id} onChange={e => set('user_id', e.target.value)}>
+              <select value={form.user_id} onChange={e => selectUser(e.target.value)}>
                 <option value="">Select team member…</option>
                 {techOptions.map(t => (
                   <option key={t.id} value={t.id}>{t.name}</option>
@@ -128,6 +147,16 @@ export default function AssignModal({ date, jobId: initialJobId, techMap, onClos
               {jobTechs.length > 0 && (
                 <span className={styles.fieldHint}>Showing team members assigned to this job</span>
               )}
+            </div>
+
+            {/* Appointment type */}
+            <div className={styles.field}>
+              <label>Appointment Type *</label>
+              <select value={form.appointment_type} onChange={e => set('appointment_type', e.target.value)}>
+                <option value="">Select type…</option>
+                <option value="sales">Sales</option>
+                <option value="operations">Operations</option>
+              </select>
             </div>
 
             {/* Date */}

@@ -2,7 +2,7 @@ const pool = require('../db/pool');
 const { normaliseRole } = require('../middleware/auth');
 
 async function list(req, res) {
-  const { from, to, tech } = req.query;
+  const { from, to, tech, appointment_type } = req.query;
   const conditions = ['1=1'];
   const params = [];
   let p = 1;
@@ -10,6 +10,7 @@ async function list(req, res) {
   if (from) { conditions.push(`s.scheduled_date >= $${p}`); params.push(from); p++; }
   if (to)   { conditions.push(`s.scheduled_date <= $${p}`); params.push(to);   p++; }
   if (tech) { conditions.push(`s.user_id = $${p}`);         params.push(tech); p++; }
+  if (appointment_type) { conditions.push(`s.appointment_type = $${p}`); params.push(appointment_type); p++; }
 
   // Non-admin users only see their own appointments
   if (normaliseRole(req.user.role) !== 'admin') {
@@ -39,15 +40,18 @@ async function list(req, res) {
 }
 
 async function create(req, res) {
-  const { job_id, user_id, scheduled_date, start_time, end_time } = req.body;
+  const { job_id, user_id, scheduled_date, start_time, end_time, appointment_type } = req.body;
   if (!job_id || !user_id || !scheduled_date) {
     return res.status(400).json({ error: 'job_id, user_id and scheduled_date are required' });
   }
+  if (appointment_type && !['sales', 'operations'].includes(appointment_type)) {
+    return res.status(400).json({ error: 'appointment_type must be "sales" or "operations"' });
+  }
   try {
     const { rows } = await pool.query(
-      `INSERT INTO schedules (job_id, user_id, scheduled_date, start_time, end_time)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [job_id, user_id, scheduled_date, start_time || null, end_time || null]
+      `INSERT INTO schedules (job_id, user_id, scheduled_date, start_time, end_time, appointment_type)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [job_id, user_id, scheduled_date, start_time || null, end_time || null, appointment_type || null]
     );
     // Also update job status to scheduled if it's still 'new'
     await pool.query(
@@ -61,12 +65,15 @@ async function create(req, res) {
 }
 
 async function update(req, res) {
-  const { user_id, scheduled_date, start_time, end_time } = req.body;
+  const { user_id, scheduled_date, start_time, end_time, appointment_type } = req.body;
+  if (appointment_type && !['sales', 'operations'].includes(appointment_type)) {
+    return res.status(400).json({ error: 'appointment_type must be "sales" or "operations"' });
+  }
   try {
     const { rows } = await pool.query(
-      `UPDATE schedules SET user_id=$1, scheduled_date=$2, start_time=$3, end_time=$4
-       WHERE id=$5 RETURNING *`,
-      [user_id, scheduled_date, start_time || null, end_time || null, req.params.id]
+      `UPDATE schedules SET user_id=$1, scheduled_date=$2, start_time=$3, end_time=$4, appointment_type=$5
+       WHERE id=$6 RETURNING *`,
+      [user_id, scheduled_date, start_time || null, end_time || null, appointment_type || null, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) {

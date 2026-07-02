@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
+import resourcePlugin from '@fullcalendar/resource';
+import resourceTimeGridPlugin from '@fullcalendar/resource-timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { Link, useSearchParams } from 'react-router-dom';
 import { formatJobNumber } from '../../lib/formatJobNumber';
@@ -11,19 +13,26 @@ import AssignModal from './AssignModal';
 import styles from './Schedule.module.css';
 
 const TECH_COLOURS = ['#1e40af','#0891b2','#7c3aed','#16a34a','#d97706','#dc2626','#9333ea','#0f766e'];
+const APPT_TYPE_LABEL = { sales: 'Sales', operations: 'Operations' };
+const APPT_TYPE_COLOURS = { sales: '#5b21b6', operations: '#1e40af' };
 
 export default function SchedulePage() {
   const { user } = useAuth();
   const calRef = useRef(null);
   const [searchParams] = useSearchParams();
   const [techMap, setTechMap] = useState({});
+  const [techRoles, setTechRoles] = useState({});
   const [filterTech, setFilterTech] = useState('');
+  const [filterApptType, setFilterApptType] = useState(''); // '' | 'sales' | 'operations'
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [assignTarget, setAssignTarget] = useState(null);
   // fcEvents drives the calendar — plain state array, replaced on every fetch
   const [fcEvents, setFcEvents] = useState([]);
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
-  const [view, setView] = useState(() => localStorage.getItem(viewKey) || 'dayGridMonth');
+  const [view, setView] = useState(() => {
+    const saved = localStorage.getItem(viewKey);
+    return saved === 'timeGridDay' ? 'resourceTimeGridDay' : (saved || 'dayGridMonth');
+  });
 
   // Auto-open assign modal if ?job= param present
   useEffect(() => {
@@ -34,8 +43,10 @@ export default function SchedulePage() {
   useEffect(() => {
     api.get('/users').then(r => {
       const map = {};
-      r.data.forEach(u => { map[u.id] = u.name; });
+      const roles = {};
+      r.data.forEach(u => { map[u.id] = u.name; roles[u.id] = u.role; });
       setTechMap(map);
+      setTechRoles(roles);
     }).catch(() => {});
   }, []);
 
@@ -45,14 +56,16 @@ export default function SchedulePage() {
     return TECH_COLOURS[idx >= 0 ? idx % TECH_COLOURS.length : 0];
   }
 
-  function toFcEvents(rows, map, tech) {
+  function toFcEvents(rows, map, tech, apptType) {
     return rows
       .filter(s => !tech || s.user_id === tech)
+      .filter(s => !apptType || s.appointment_type === apptType)
       .map(s => {
         const d = s.scheduled_date.split('T')[0]; // strip Postgres timestamp
         const colour = techColour(s.user_id, map);
         return {
           id: `sched-${s.id}`,
+          resourceId: s.user_id,
           title: `${formatJobNumber(s)} ${s.customer_name || ''} — ${s.tech_name || ''}`,
           start: s.start_time ? `${d}T${s.start_time}` : d,
           end:   s.end_time   ? `${d}T${s.end_time}`   : undefined,
@@ -64,19 +77,20 @@ export default function SchedulePage() {
       });
   }
 
-  function loadSchedules(map, tech) {
-    const resolvedMap  = map  !== undefined ? map  : techMap;
-    const resolvedTech = tech !== undefined ? tech : filterTech;
+  function loadSchedules(map, tech, apptType) {
+    const resolvedMap     = map     !== undefined ? map     : techMap;
+    const resolvedTech    = tech    !== undefined ? tech    : filterTech;
+    const resolvedAppType = apptType !== undefined ? apptType : filterApptType;
     api.get('/schedules').then(r => {
-      setFcEvents(toFcEvents(r.data, resolvedMap, resolvedTech));
+      setFcEvents(toFcEvents(r.data, resolvedMap, resolvedTech, resolvedAppType));
     }).catch(() => {});
   }
 
   useEffect(() => { loadSchedules(); }, []);
 
-  // Re-filter when filter changes (no new fetch needed)
+  // Re-filter when filters change (no new fetch needed)
   // Re-load when techMap arrives so colours are correct
-  useEffect(() => { loadSchedules(techMap, filterTech); }, [techMap, filterTech]);
+  useEffect(() => { loadSchedules(techMap, filterTech, filterApptType); }, [techMap, filterTech, filterApptType]);
 
   async function handleEventDrop({ event, revert }) {
     const { job_id } = event.extendedProps;
@@ -89,10 +103,19 @@ export default function SchedulePage() {
 
   function handleEventClick({ event }) { setSelectedEvent(event.extendedProps); }
 
-  function handleDateClick({ dateStr }) {
+  function handleDateClick({ dateStr, resource }) {
     if (user?.role === 'field_tech') return;
-    setAssignTarget({ date: dateStr.split('T')[0], jobId: searchParams.get('job') || undefined });
+    setAssignTarget({
+      date: dateStr.split('T')[0],
+      jobId: searchParams.get('job') || undefined,
+      userId: resource?.id,
+    });
   }
+
+  // One column per team member for the Day view — filtered to match the dropdown above
+  const resources = Object.entries(techMap)
+    .filter(([id]) => !filterTech || id === filterTech)
+    .map(([id, name]) => ({ id, title: name }));
 
   function handleAssigned() {
     setAssignTarget(null);
@@ -118,6 +141,24 @@ export default function SchedulePage() {
         </div>
       </div>
 
+      <div className={styles.typeFilterRow}>
+        <span className={styles.typeFilterLabel}>Show:</span>
+        <div className={styles.typeFilterGroup}>
+          <button
+            className={`${styles.typeFilterBtn} ${!filterApptType ? styles.typeFilterBtnActive : ''}`}
+            onClick={() => setFilterApptType('')}
+          >All</button>
+          {['sales', 'operations'].map(t => (
+            <button
+              key={t}
+              className={`${styles.typeFilterBtn} ${filterApptType === t ? styles.typeFilterBtnActive : ''}`}
+              style={filterApptType === t ? { borderColor: APPT_TYPE_COLOURS[t], color: APPT_TYPE_COLOURS[t], background: APPT_TYPE_COLOURS[t] + '12' } : {}}
+              onClick={() => setFilterApptType(t)}
+            >{APPT_TYPE_LABEL[t]}</button>
+          ))}
+        </div>
+      </div>
+
       {Object.keys(techMap).length > 0 && (
         <div className={styles.legend}>
           {Object.entries(techMap).map(([id, name]) => (
@@ -132,9 +173,9 @@ export default function SchedulePage() {
       <div className={styles.calendarWrap}>
         <FullCalendar
           ref={calRef}
-          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          plugins={[dayGridPlugin, timeGridPlugin, resourcePlugin, resourceTimeGridPlugin, interactionPlugin]}
           initialView={view}
-          headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
+          headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,resourceTimeGridDay' }}
           height="100%"
           expandRows
           editable={canEdit}
@@ -143,6 +184,7 @@ export default function SchedulePage() {
           eventClick={handleEventClick}
           dateClick={handleDateClick}
           events={fcEvents}
+          resources={resources}
           eventDisplay="block"
           dayMaxEvents={4}
           slotMinTime="07:00:00"
@@ -150,7 +192,14 @@ export default function SchedulePage() {
           nowIndicator
           firstDay={1}
           locale="en-NZ"
-          buttonText={{ today: 'Today', month: 'Month', week: 'Week', day: 'Day' }}
+          buttonText={{ today: 'Today', month: 'Month', week: 'Week', resourceTimeGridDay: 'Day' }}
+          resourceOrder="title"
+          resourceLabelContent={arg => (
+            <span className={styles.resourceHeader}>
+              <span className={styles.resourceDot} style={{ background: techColour(arg.resource.id, techMap) }} />
+              {arg.resource.title}
+            </span>
+          )}
           viewDidMount={info => { setView(info.view.type); localStorage.setItem(viewKey, info.view.type); }}
           eventDidMount={({ el, event }) => { el.title = event.title; }}
         />
@@ -167,6 +216,13 @@ export default function SchedulePage() {
               <div className={styles.eventRow}><span>Customer</span><strong>{selectedEvent.customer_name || '—'}</strong></div>
               <div className={styles.eventRow}><span>Type</span><strong>{selectedEvent.job_type?.replace('_',' ')}</strong></div>
               {selectedEvent.tech_name && <div className={styles.eventRow}><span>Team Member</span><strong>{selectedEvent.tech_name}</strong></div>}
+              {selectedEvent.appointment_type && (
+                <div className={styles.eventRow}><span>Appointment Type</span>
+                  <strong style={{ color: APPT_TYPE_COLOURS[selectedEvent.appointment_type] }}>
+                    {APPT_TYPE_LABEL[selectedEvent.appointment_type]}
+                  </strong>
+                </div>
+              )}
               <div className={styles.eventRow}><span>Date</span><strong>{new Date(selectedEvent.scheduled_date).toLocaleDateString('en-NZ')}</strong></div>
               {selectedEvent.start_time && <div className={styles.eventRow}><span>Time</span><strong>{selectedEvent.start_time}{selectedEvent.end_time ? ` – ${selectedEvent.end_time}` : ''}</strong></div>}
               {selectedEvent.description && <div className={styles.eventRow}><span>Notes</span><strong>{selectedEvent.description}</strong></div>}
@@ -191,7 +247,9 @@ export default function SchedulePage() {
         <AssignModal
           date={assignTarget.date}
           jobId={assignTarget.jobId}
+          userId={assignTarget.userId}
           techMap={techMap}
+          techRoles={techRoles}
           onClose={() => setAssignTarget(null)}
           onAssigned={handleAssigned}
         />

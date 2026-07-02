@@ -21,6 +21,47 @@
   outline: none;
 }
 
+/* Appointment type filter */
+.typeFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.typeFilterLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.typeFilterGroup {
+  display: flex;
+  gap: 6px;
+}
+
+.typeFilterBtn {
+  padding: 6px 14px;
+  border-radius: 99px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.typeFilterBtn:hover { background: #f1f5f9; color: var(--color-text); }
+
+.typeFilterBtnActive {
+  font-weight: 600;
+  border-width: 2px;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
 /* Legend */
 .legend {
   display: flex;
@@ -117,6 +158,29 @@
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* Resource (team member) columns — Day view */
+.resourceHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.resourceDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.calendarWrap :global(.fc-resource-timeline-divider),
+.calendarWrap :global(.fc-timegrid-col.fc-resource) {
+  border-left: 1px solid var(--color-border);
 }
 
 /* Modals */
