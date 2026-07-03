@@ -167,13 +167,6 @@
   letter-spacing: 0.04em;
 }
 
-.resourceDot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 /* Custom calendar toolbar — drives both FullCalendar (Month/Week) and the custom Day view */
 .calToolbar {
   display: flex;
@@ -357,6 +350,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dayEventAddress {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.85;
 }
 
 .dayEventResizeHandle {

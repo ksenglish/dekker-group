@@ -23,10 +23,12 @@ async function list(req, res) {
       `SELECT s.*,
               j.job_number, j.external_ref, j.type AS job_type, j.status, j.description,
               c.name AS customer_name,
+              COALESCE(cs.address, j.site_address) AS site_address,
               u.name AS tech_name
        FROM schedules s
        JOIN jobs j ON j.id = s.job_id
        LEFT JOIN customers c ON c.id = j.customer_id
+       LEFT JOIN customer_sites cs ON cs.id = j.site_id
        JOIN users u ON u.id = s.user_id
        WHERE ${conditions.join(' AND ')}
        ORDER BY s.scheduled_date, s.start_time`,

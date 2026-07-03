@@ -8,10 +8,10 @@ import { formatJobNumber } from '../../lib/formatJobNumber';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import AssignModal from './AssignModal';
+import AddNoteModal from './AddNoteModal';
 import DayColumnsView from './DayColumnsView';
 import styles from './Schedule.module.css';
 
-const TECH_COLOURS = ['#1e40af','#0891b2','#7c3aed','#16a34a','#d97706','#dc2626','#9333ea','#0f766e'];
 const APPT_TYPE_LABEL = { sales: 'Sales', operations: 'Operations' };
 const APPT_TYPE_COLOURS = { sales: '#5b21b6', operations: '#1e40af' };
 const JOB_STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
@@ -19,9 +19,15 @@ const DEFAULT_STATUS_COLOURS = {
   new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
   in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
 };
+const NOTE_COLOUR = { background: '#fef9c3', border: '#eab308', text: '#713f12' };
 // How far ahead an appointment starts fading in from pale to its full status colour
 const FADE_WINDOW_HOURS = 120; // 5 days
 const MAX_LIGHTEN = 0.72;
+// Fixed window notes are fetched for — covers realistic calendar navigation without
+// needing to track FullCalendar's active date range (kept fully decoupled — see the
+// Month-view bug fix history in this file's git log for why that matters here)
+const NOTES_WINDOW_PAST_DAYS = 60;
+const NOTES_WINDOW_FUTURE_DAYS = 180;
 
 // Mix a hex colour toward white by `amt` (0 = unchanged, 1 = white)
 function lightenHex(hex, amt) {
@@ -58,11 +64,14 @@ export default function SchedulePage() {
   const [filterTech, setFilterTech] = useState('');
   const [filterApptType, setFilterApptType] = useState(''); // '' | 'sales' | 'operations'
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [selectedNote, setSelectedNote] = useState(null);
   const [notesDraft, setNotesDraft] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [assignTarget, setAssignTarget] = useState(null);
+  const [addNoteTarget, setAddNoteTarget] = useState(null);
   // Raw rows from the API — recomputed into fcEvents whenever filters, colours, or the clock changes
   const [rawSchedules, setRawSchedules] = useState([]);
+  const [rawNotes, setRawNotes] = useState([]);
   const [fcEvents, setFcEvents] = useState([]);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
@@ -102,14 +111,6 @@ export default function SchedulePage() {
     localStorage.setItem(viewKey, isDayView ? 'day' : 'dayGridMonth');
   }, [isDayView]);
 
-  // Person colour — used only for the Day view column headers now that
-  // appointments themselves are colour-coded by job status
-  function techColour(userId, map) {
-    const keys = Object.keys(map);
-    const idx = keys.indexOf(userId);
-    return TECH_COLOURS[idx >= 0 ? idx % TECH_COLOURS.length : 0];
-  }
-
   // Colour an appointment by its job status — paler if it's still upcoming,
   // full brightness once its scheduled time has arrived or passed.
   function styleForAppt(row) {
@@ -127,11 +128,17 @@ export default function SchedulePage() {
     api.get('/schedules').then(r => setRawSchedules(r.data)).catch(() => {});
   }
 
-  useEffect(() => { loadSchedules(); }, []);
+  function loadNotes() {
+    const from = toDateStr(shiftDay(new Date(), -NOTES_WINDOW_PAST_DAYS));
+    const to = toDateStr(shiftDay(new Date(), NOTES_WINDOW_FUTURE_DAYS));
+    api.get('/calendar-notes', { params: { from, to } }).then(r => setRawNotes(r.data)).catch(() => {});
+  }
+
+  useEffect(() => { loadSchedules(); loadNotes(); }, []);
 
   // Recompute calendar events whenever the raw data, filters, status colours, or clock tick change
   useEffect(() => {
-    const events = rawSchedules
+    const apptEvents = rawSchedules
       .filter(s => !filterTech || s.user_id === filterTech)
       .filter(s => !filterApptType || s.appointment_type === filterApptType)
       .map(s => {
@@ -157,12 +164,32 @@ export default function SchedulePage() {
           extendedProps: { ...s, schedId: s.id, type: 'scheduled' },
         };
       });
-    setFcEvents(events);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawSchedules, filterTech, filterApptType, statusColours, nowTick]);
 
-  // Persist a change to one appointment's date/time/team member — shared by
-  // FullCalendar's drag/resize (Month/Week) and the custom Day view's drag/resize
+    const noteEvents = rawNotes
+      .filter(n => !filterTech || n.user_id === filterTech)
+      .map(n => {
+        const d = n.occurrence_date;
+        return {
+          id: `note-${n.id}-${d}`,
+          resourceId: n.user_id,
+          dateKey: d,
+          title: `📝 ${n.note}`,
+          start: n.start_time ? `${d}T${n.start_time}` : d,
+          end:   n.end_time   ? `${d}T${n.end_time}`   : undefined,
+          allDay: !n.start_time,
+          backgroundColor: NOTE_COLOUR.background,
+          borderColor: NOTE_COLOUR.border,
+          textColor: NOTE_COLOUR.text,
+          extendedProps: { ...n, noteId: n.id, type: 'note', tech_name: n.tech_name },
+        };
+      });
+
+    setFcEvents([...apptEvents, ...noteEvents]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawSchedules, rawNotes, filterTech, filterApptType, statusColours, nowTick]);
+
+  // Persist a change to one appointment's date/time/team member — from the
+  // custom Day view's drag/resize (notes aren't draggable, so schedId is always present here)
   async function saveApptChange(schedId, payload) {
     if (!schedId) return;
     try {
@@ -172,6 +199,7 @@ export default function SchedulePage() {
   }
 
   async function handleFcEventDrop({ event, revert }) {
+    if (event.extendedProps.type === 'note') { revert(); return; } // notes aren't draggable
     const start = event.start;
     const payload = {
       scheduled_date: toDateStr(start),
@@ -185,6 +213,7 @@ export default function SchedulePage() {
   }
 
   async function handleFcEventResize({ event, revert }) {
+    if (event.extendedProps.type === 'note') { revert(); return; }
     const payload = {
       end_time: event.end ? `${pad2(event.end.getHours())}:${pad2(event.end.getMinutes())}` : null,
     };
@@ -194,22 +223,24 @@ export default function SchedulePage() {
     } catch { revert(); }
   }
 
-  function handleEventClick({ event }) {
-    setSelectedEvent(event.extendedProps);
-    setNotesDraft(event.extendedProps.notes || '');
+  function handleEventClickProps(props) {
+    if (props.type === 'note') { setSelectedNote(props); return; }
+    setSelectedEvent(props);
+    setNotesDraft(props.notes || '');
   }
 
-  function openAssign(dateStr, resourceId) {
+  function handleEventClick({ event }) { handleEventClickProps(event.extendedProps); }
+
+  // Clicking an empty slot opens the "add note" tool — job appointments are only
+  // ever created from the job itself (its own Schedule button, via the ?job= flow below)
+  function openAddNote(dateStr, resourceId, time) {
     if (user?.role === 'field_tech') return;
-    setAssignTarget({
-      date: dateStr,
-      jobId: searchParams.get('job') || undefined,
-      userId: resourceId,
-    });
+    setAddNoteTarget({ date: dateStr, time, userId: resourceId || user?.id });
   }
 
   function handleFcDateClick({ dateStr }) {
-    openAssign(dateStr.split('T')[0]);
+    const [datePart, timePart] = dateStr.split('T');
+    openAddNote(datePart, undefined, timePart ? timePart.slice(0, 5) : undefined);
   }
 
   async function handleSaveNotes() {
@@ -222,6 +253,14 @@ export default function SchedulePage() {
     } finally { setSavingNotes(false); }
   }
 
+  async function handleDeleteNote() {
+    if (!selectedNote?.noteId) return;
+    if (!confirm('Delete this note?')) return;
+    await api.delete(`/calendar-notes/${selectedNote.noteId}`);
+    setSelectedNote(null);
+    loadNotes();
+  }
+
   // One column per team member for the Day view — filtered to match the dropdown above
   const resources = Object.entries(techMap)
     .filter(([id]) => !filterTech || id === filterTech)
@@ -232,6 +271,11 @@ export default function SchedulePage() {
     loadSchedules();
   }
 
+  function handleNoteSaved() {
+    setAddNoteTarget(null);
+    loadNotes();
+  }
+
   const canEdit = user?.role !== 'field_tech';
 
   return (
@@ -239,7 +283,7 @@ export default function SchedulePage() {
       <div className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>Schedule</h1>
-          <p className={styles.pageSubtitle}>Click a date to schedule a job · Drag or resize to adjust</p>
+          <p className={styles.pageSubtitle}>Click an empty slot to add a note · Drag or resize appointments to adjust</p>
         </div>
         <div className={styles.headerActions}>
           {Object.keys(techMap).length > 0 && (
@@ -276,6 +320,10 @@ export default function SchedulePage() {
             <span style={{ textTransform: 'capitalize' }}>{s.replace('_', ' ')}</span>
           </div>
         ))}
+        <div className={styles.legendItem}>
+          <span className={styles.legendDot} style={{ background: NOTE_COLOUR.background, border: `1px solid ${NOTE_COLOUR.border}` }} />
+          <span>📝 Note</span>
+        </div>
         <span className={styles.legendHint}>Paler = upcoming · Full colour = underway or past</span>
       </div>
 
@@ -330,10 +378,9 @@ export default function SchedulePage() {
             date={dayDate}
             events={fcEvents}
             resources={resources}
-            techColour={id => techColour(id, techMap)}
             canEdit={canEdit}
-            onEventClick={props => { setSelectedEvent(props); setNotesDraft(props.notes || ''); }}
-            onSlotClick={(dateStr, resourceId) => openAssign(dateStr, resourceId)}
+            onEventClick={handleEventClickProps}
+            onSlotClick={(dateStr, resourceId, time) => openAddNote(dateStr, resourceId, time)}
             onSaveMove={saveApptChange}
           />
         )}
@@ -359,6 +406,7 @@ export default function SchedulePage() {
               )}
               <div className={styles.eventRow}><span>Date</span><strong>{new Date(selectedEvent.scheduled_date).toLocaleDateString('en-NZ')}</strong></div>
               {selectedEvent.start_time && <div className={styles.eventRow}><span>Time</span><strong>{selectedEvent.start_time}{selectedEvent.end_time ? ` – ${selectedEvent.end_time}` : ''}</strong></div>}
+              {selectedEvent.site_address && <div className={styles.eventRow}><span>Address</span><strong>{selectedEvent.site_address}</strong></div>}
               {selectedEvent.description && <div className={styles.eventRow}><span>Job Description</span><strong>{selectedEvent.description}</strong></div>}
               <div className={styles.eventRow}><span>Status</span>
                 <strong style={{ textTransform:'capitalize', color: statusColours[selectedEvent.status] || DEFAULT_STATUS_COLOURS[selectedEvent.status] }}>
@@ -399,6 +447,31 @@ export default function SchedulePage() {
         </div>
       )}
 
+      {selectedNote && (
+        <div className={styles.modalOverlay} onClick={() => setSelectedNote(null)}>
+          <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>📝 Note</h2>
+              <button className={styles.modalClose} onClick={() => setSelectedNote(null)}>✕</button>
+            </div>
+            <div className={styles.eventDetails}>
+              <div className={styles.eventRow}><span>Team Member</span><strong>{selectedNote.tech_name}</strong></div>
+              <div className={styles.eventRow}><span>Date</span><strong>{new Date(selectedNote.occurrence_date).toLocaleDateString('en-NZ')}</strong></div>
+              {selectedNote.start_time && <div className={styles.eventRow}><span>Time</span><strong>{selectedNote.start_time.slice(0,5)}{selectedNote.end_time ? ` – ${selectedNote.end_time.slice(0,5)}` : ''}</strong></div>}
+              {selectedNote.recurrence !== 'none' && <div className={styles.eventRow}><span>Repeats</span><strong style={{ textTransform: 'capitalize' }}>{selectedNote.recurrence}</strong></div>}
+            </div>
+            <div className={styles.notesSection} style={{ borderTop: 'none' }}>
+              <p className={styles.notesReadonly}>{selectedNote.note}</p>
+            </div>
+            <div className={styles.modalFooter}>
+              {canEdit && (
+                <button className={styles.btnDanger} onClick={handleDeleteNote}>Delete Note</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {assignTarget && (
         <AssignModal
           date={assignTarget.date}
@@ -408,6 +481,17 @@ export default function SchedulePage() {
           techRoles={techRoles}
           onClose={() => setAssignTarget(null)}
           onAssigned={handleAssigned}
+        />
+      )}
+
+      {addNoteTarget && (
+        <AddNoteModal
+          date={addNoteTarget.date}
+          time={addNoteTarget.time}
+          userId={addNoteTarget.userId}
+          techMap={techMap}
+          onClose={() => setAddNoteTarget(null)}
+          onSaved={handleNoteSaved}
         />
       )}
     </div>

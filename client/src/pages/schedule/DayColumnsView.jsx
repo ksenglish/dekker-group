@@ -42,7 +42,7 @@ function assignLanes(events) {
   return placed.map(ev => ({ ...ev, totalLanes }));
 }
 
-export default function DayColumnsView({ date, events, resources, techColour, canEdit, onEventClick, onSlotClick, onSaveMove }) {
+export default function DayColumnsView({ date, events, resources, canEdit, onEventClick, onSlotClick, onSaveMove }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60000);
@@ -55,10 +55,13 @@ export default function DayColumnsView({ date, events, resources, techColour, ca
   const dayKey = dateStr(date);
   const dayEvents = events.filter(e => e.dateKey === dayKey);
 
+  // Clicking empty space opens the "add note" tool, defaulted to the clicked time
   function handleSlotClick(e, resourceId) {
     if (e.target.closest(`.${styles.dayEvent}`)) return; // clicks on events are handled separately
     if (!canEdit) return;
-    onSlotClick(dayKey, resourceId);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetMin = snap15(pxToMin(e.clientY - rect.top));
+    onSlotClick(dayKey, resourceId, minToHHMM(Math.max(0, offsetMin)));
   }
 
   return (
@@ -66,10 +69,7 @@ export default function DayColumnsView({ date, events, resources, techColour, ca
       <div className={styles.dayHeaderRow}>
         <div className={styles.dayTimeGutterHeader} />
         {resources.map(r => (
-          <div key={r.id} className={styles.dayColumnHeader}>
-            <span className={styles.resourceDot} style={{ background: techColour(r.id) }} />
-            {r.title}
-          </div>
+          <div key={r.id} className={styles.dayColumnHeader}>{r.title}</div>
         ))}
       </div>
       <div className={styles.dayScrollArea}>
@@ -101,8 +101,8 @@ export default function DayColumnsView({ date, events, resources, techColour, ca
               dayEvents
                 .filter(e => e.resourceId === r.id && !e.allDay)
                 .map(e => {
-                  const startTime = e.extendedProps.start_time;
-                  const endTime = e.extendedProps.end_time;
+                  const startTime = e.extendedProps.start_time || e.extendedProps.note_start_time;
+                  const endTime = e.extendedProps.end_time || e.extendedProps.note_end_time;
                   return { ...e, startMin: timeToMin(startTime), endMin: endTime ? timeToMin(endTime) : timeToMin(startTime) + 30 };
                 })
             );
@@ -116,7 +116,7 @@ export default function DayColumnsView({ date, events, resources, techColour, ca
                   <div className={styles.dayNowLine} style={{ top: nowOffsetPx }} />
                 )}
                 {timed.map(e => (
-                  <DayEvent key={e.id} appt={e} canEdit={canEdit}
+                  <DayEvent key={e.id} appt={e} canEdit={canEdit && e.extendedProps.type !== 'note'}
                     onClick={() => onEventClick(e.extendedProps)}
                     onSaveMove={(payload) => onSaveMove(e.extendedProps.schedId, payload)}
                     dayKey={dayKey} />
@@ -141,6 +141,8 @@ function DayColumn({ resourceId, height, onClick, children }) {
 function DayEvent({ appt, canEdit, onClick, onSaveMove, dayKey }) {
   const elRef = useRef(null);
   const [drag, setDrag] = useState(null); // { top, height } while actively dragging/resizing — overrides computed position
+  const isNote = appt.extendedProps.type === 'note';
+  const address = !isNote && appt.extendedProps.site_address;
 
   const top = drag?.top ?? minToPx(appt.startMin);
   const height = drag?.height ?? Math.max(18, minToPx(appt.endMin - appt.startMin));
@@ -222,10 +224,13 @@ function DayEvent({ appt, canEdit, onClick, onSaveMove, dayKey }) {
       style={{
         top, height, left: `${left}%`, width: `calc(${width}% - 2px)`,
         background: appt.backgroundColor, borderColor: appt.borderColor, color: appt.textColor,
+        cursor: isNote ? 'pointer' : 'grab',
       }}
-      title={appt.title}
-      onMouseDown={startMove}>
+      title={address ? `${appt.title}\n${address}` : appt.title}
+      onMouseDown={isNote ? undefined : startMove}
+      onClick={isNote ? onClick : undefined}>
       <span className={styles.dayEventTitle}>{appt.title}</span>
+      {address && <span className={styles.dayEventAddress}>📍 {address}</span>}
       {canEdit && <div className={styles.dayEventResizeHandle} onMouseDown={startResize} />}
     </div>
   );
