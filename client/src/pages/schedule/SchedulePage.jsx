@@ -25,18 +25,20 @@ const MAX_LIGHTEN = 0.72;
 
 // Mix a hex colour toward white by `amt` (0 = unchanged, 1 = white)
 function lightenHex(hex, amt) {
+  const safeAmt = Number.isFinite(amt) ? Math.max(0, Math.min(1, amt)) : 0;
   const h = (hex || '#6b7280').replace('#', '');
   const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
   const num = parseInt(full, 16) || 0x6b7280;
   const r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
-  const mix = c => Math.round(c + (255 - c) * amt);
+  const mix = c => Math.round(c + (255 - c) * safeAmt);
   return `#${[mix(r), mix(g), mix(b)].map(v => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
-// Combine a schedule row's date + optional start time into a real Date, for time-based fading
+// Combine a schedule row's date + optional start time into a real Date, for time-based fading.
+// start_time comes back from Postgres as HH:MM:SS — don't re-append seconds onto it.
 function apptDateTime(row) {
   const d = row.scheduled_date.split('T')[0];
-  return new Date(`${d}T${row.start_time || '00:00'}:00`);
+  return new Date(`${d}T${row.start_time || '00:00:00'}`);
 }
 
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -113,9 +115,18 @@ export default function SchedulePage() {
     return () => clearInterval(id);
   }, []);
 
-  // Keep FullCalendar (Month/Week) in sync with our own toolbar's date/view state
+  // Keep FullCalendar (Month/Week) in sync with our own toolbar's date/view state.
+  // FullCalendar is unmounted entirely while Day view is active (see render below),
+  // so transitions into/out of Day always remount it fresh via initialView/initialDate —
+  // calling changeView() on that same transition would hit it before its first layout
+  // has settled (it was hidden or doesn't exist yet) and corrupt its internal
+  // date-range bookkeeping, causing every event to render on every day. Only call
+  // changeView() for a live Month<->Week swap, where FullCalendar stays mounted throughout.
+  const prevViewRef = useRef(view);
   useEffect(() => {
-    if (view === 'day') return;
+    const prevView = prevViewRef.current;
+    prevViewRef.current = view;
+    if (view === 'day' || prevView === 'day') return;
     const api = calRef.current?.getApi();
     if (api) api.changeView(view, currentDate);
   }, [view, currentDate]);
@@ -312,32 +323,34 @@ export default function SchedulePage() {
       </div>
 
       <div className={styles.calendarWrap}>
-        <div style={{ display: view === 'day' ? 'none' : 'block', height: '100%' }}>
-          <FullCalendar
-            ref={calRef}
-            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-            initialView={view === 'day' ? 'dayGridMonth' : view}
-            initialDate={currentDate}
-            headerToolbar={false}
-            height="100%"
-            expandRows
-            editable={canEdit}
-            droppable={canEdit}
-            eventDrop={handleFcEventDrop}
-            eventResize={handleFcEventResize}
-            eventClick={handleEventClick}
-            dateClick={handleFcDateClick}
-            events={fcEvents}
-            eventDisplay="block"
-            dayMaxEvents={4}
-            slotMinTime="07:00:00"
-            slotMaxTime="20:30:00"
-            nowIndicator
-            firstDay={1}
-            locale="en-NZ"
-            eventDidMount={({ el, event }) => { el.title = event.title; }}
-          />
-        </div>
+        {view !== 'day' && (
+          <div style={{ height: '100%' }}>
+            <FullCalendar
+              ref={calRef}
+              plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+              initialView={view}
+              initialDate={currentDate}
+              headerToolbar={false}
+              height="100%"
+              expandRows
+              editable={canEdit}
+              droppable={canEdit}
+              eventDrop={handleFcEventDrop}
+              eventResize={handleFcEventResize}
+              eventClick={handleEventClick}
+              dateClick={handleFcDateClick}
+              events={fcEvents}
+              eventDisplay="block"
+              dayMaxEvents={4}
+              slotMinTime="07:00:00"
+              slotMaxTime="20:30:00"
+              nowIndicator
+              firstDay={1}
+              locale="en-NZ"
+              eventDidMount={({ el, event }) => { el.title = event.title; }}
+            />
+          </div>
+        )}
         {view === 'day' && (
           <DayColumnsView
             date={currentDate}
