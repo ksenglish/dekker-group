@@ -2,14 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
-import resourcePlugin from '@fullcalendar/resource';
-import resourceTimeGridPlugin from '@fullcalendar/resource-timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { Link, useSearchParams } from 'react-router-dom';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import AssignModal from './AssignModal';
+import DayColumnsView from './DayColumnsView';
 import styles from './Schedule.module.css';
 
 const TECH_COLOURS = ['#1e40af','#0891b2','#7c3aed','#16a34a','#d97706','#dc2626','#9333ea','#0f766e'];
@@ -40,6 +39,32 @@ function apptDateTime(row) {
   return new Date(`${d}T${row.start_time || '00:00'}:00`);
 }
 
+function pad2(n) { return String(n).padStart(2, '0'); }
+function toDateStr(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function startOfWeekMon(d) {
+  const date = new Date(d);
+  const day = date.getDay();
+  date.setDate(date.getDate() + (day === 0 ? -6 : 1 - day));
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+function shiftDate(date, view, dir) {
+  const d = new Date(date);
+  if (view === 'day') d.setDate(d.getDate() + dir);
+  else if (view === 'timeGridWeek') d.setDate(d.getDate() + dir * 7);
+  else d.setMonth(d.getMonth() + dir);
+  return d;
+}
+function formatTitle(view, date) {
+  if (view === 'dayGridMonth') return date.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
+  if (view === 'day') return date.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const start = startOfWeekMon(date);
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+  const startStr = start.toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' });
+  const endStr = end.toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${startStr} – ${endStr}`;
+}
+
 export default function SchedulePage() {
   const { user } = useAuth();
   const calRef = useRef(null);
@@ -60,8 +85,10 @@ export default function SchedulePage() {
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
   const [view, setView] = useState(() => {
     const saved = localStorage.getItem(viewKey);
-    return saved === 'timeGridDay' ? 'resourceTimeGridDay' : (saved || 'dayGridMonth');
+    if (saved === 'timeGridDay' || saved === 'resourceTimeGridDay') return 'day';
+    return saved || 'dayGridMonth';
   });
+  const [currentDate, setCurrentDate] = useState(() => new Date());
 
   // Auto-open assign modal if ?job= param present
   useEffect(() => {
@@ -85,6 +112,15 @@ export default function SchedulePage() {
     const id = setInterval(() => setNowTick(Date.now()), 5 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Keep FullCalendar (Month/Week) in sync with our own toolbar's date/view state
+  useEffect(() => {
+    if (view === 'day') return;
+    const api = calRef.current?.getApi();
+    if (api) api.changeView(view, currentDate);
+  }, [view, currentDate]);
+
+  useEffect(() => { localStorage.setItem(viewKey, view); }, [view]);
 
   // Person colour — used only for the Day view column headers now that
   // appointments themselves are colour-coded by job status
@@ -124,6 +160,9 @@ export default function SchedulePage() {
         return {
           id: `sched-${s.id}`,
           resourceId: s.user_id,
+          dateKey: d,
+          startTime: s.start_time,
+          endTime: s.end_time,
           title: `${formatJobNumber(s)} ${s.customer_name || ''} — ${s.tech_name || ''}`,
           start: s.start_time ? `${d}T${s.start_time}` : d,
           end:   s.end_time   ? `${d}T${s.end_time}`   : undefined,
@@ -138,23 +177,35 @@ export default function SchedulePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawSchedules, filterTech, filterApptType, statusColours, nowTick]);
 
-  // Persist a drag or resize on the calendar — only sends the fields FullCalendar actually changed
-  async function persistMove({ event, newResource, revert }) {
-    const { schedId } = event.extendedProps;
+  // Persist a change to one appointment's date/time/team member — shared by
+  // FullCalendar's drag/resize (Month/Week) and the custom Day view's drag/resize
+  async function saveApptChange(schedId, payload) {
     if (!schedId) return;
-    const pad = n => String(n).padStart(2, '0');
-    const start = event.start;
-    const dateStr = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}`;
-    const timeStr = d => d ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : null;
-    const payload = {
-      scheduled_date: dateStr,
-      start_time: event.allDay ? null : timeStr(start),
-      end_time: event.allDay ? null : timeStr(event.end),
-    };
-    const resourceId = newResource?.id || event.getResources?.()[0]?.id;
-    if (resourceId) payload.user_id = resourceId;
     try {
       await api.put(`/schedules/${schedId}`, payload);
+      loadSchedules();
+    } catch { loadSchedules(); }
+  }
+
+  async function handleFcEventDrop({ event, revert }) {
+    const start = event.start;
+    const payload = {
+      scheduled_date: toDateStr(start),
+      start_time: event.allDay ? null : `${pad2(start.getHours())}:${pad2(start.getMinutes())}`,
+      end_time: event.allDay || !event.end ? null : `${pad2(event.end.getHours())}:${pad2(event.end.getMinutes())}`,
+    };
+    try {
+      await api.put(`/schedules/${event.extendedProps.schedId}`, payload);
+      loadSchedules();
+    } catch { revert(); }
+  }
+
+  async function handleFcEventResize({ event, revert }) {
+    const payload = {
+      end_time: event.end ? `${pad2(event.end.getHours())}:${pad2(event.end.getMinutes())}` : null,
+    };
+    try {
+      await api.put(`/schedules/${event.extendedProps.schedId}`, payload);
       loadSchedules();
     } catch { revert(); }
   }
@@ -164,13 +215,17 @@ export default function SchedulePage() {
     setNotesDraft(event.extendedProps.notes || '');
   }
 
-  function handleDateClick({ dateStr, resource }) {
+  function openAssign(dateStr, resourceId) {
     if (user?.role === 'field_tech') return;
     setAssignTarget({
-      date: dateStr.split('T')[0],
+      date: dateStr,
       jobId: searchParams.get('job') || undefined,
-      userId: resource?.id,
+      userId: resourceId,
     });
+  }
+
+  function handleFcDateClick({ dateStr }) {
+    openAssign(dateStr.split('T')[0]);
   }
 
   async function handleSaveNotes() {
@@ -240,40 +295,61 @@ export default function SchedulePage() {
         <span className={styles.legendHint}>Paler = upcoming · Full colour = underway or past</span>
       </div>
 
+      {/* Custom toolbar drives both FullCalendar (Month/Week) and the custom Day view */}
+      <div className={styles.calToolbar}>
+        <div className={styles.calToolbarNav}>
+          <button className={styles.calNavBtn} onClick={() => setCurrentDate(d => shiftDate(d, view, -1))}>‹</button>
+          <button className={styles.calNavBtn} onClick={() => setCurrentDate(d => shiftDate(d, view, 1))}>›</button>
+          <button className={styles.calTodayBtn} onClick={() => setCurrentDate(new Date())}>Today</button>
+        </div>
+        <div className={styles.calToolbarTitle}>{formatTitle(view, currentDate)}</div>
+        <div className={styles.calToolbarViews}>
+          {[['dayGridMonth', 'Month'], ['timeGridWeek', 'Week'], ['day', 'Day']].map(([v, label]) => (
+            <button key={v} className={`${styles.calViewBtn} ${view === v ? styles.calViewBtnActive : ''}`}
+              onClick={() => setView(v)}>{label}</button>
+          ))}
+        </div>
+      </div>
+
       <div className={styles.calendarWrap}>
-        <FullCalendar
-          ref={calRef}
-          plugins={[dayGridPlugin, timeGridPlugin, resourcePlugin, resourceTimeGridPlugin, interactionPlugin]}
-          initialView={view}
-          headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,resourceTimeGridDay' }}
-          height="100%"
-          expandRows
-          editable={canEdit}
-          droppable={canEdit}
-          eventDrop={persistMove}
-          eventResize={persistMove}
-          eventClick={handleEventClick}
-          dateClick={handleDateClick}
-          events={fcEvents}
-          resources={resources}
-          eventDisplay="block"
-          dayMaxEvents={4}
-          slotMinTime="07:00:00"
-          slotMaxTime="20:30:00"
-          nowIndicator
-          firstDay={1}
-          locale="en-NZ"
-          buttonText={{ today: 'Today', month: 'Month', week: 'Week', resourceTimeGridDay: 'Day' }}
-          resourceOrder="title"
-          resourceLabelContent={arg => (
-            <span className={styles.resourceHeader}>
-              <span className={styles.resourceDot} style={{ background: techColour(arg.resource.id, techMap) }} />
-              {arg.resource.title}
-            </span>
-          )}
-          viewDidMount={info => { setView(info.view.type); localStorage.setItem(viewKey, info.view.type); }}
-          eventDidMount={({ el, event }) => { el.title = event.title; }}
-        />
+        <div style={{ display: view === 'day' ? 'none' : 'block', height: '100%' }}>
+          <FullCalendar
+            ref={calRef}
+            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+            initialView={view === 'day' ? 'dayGridMonth' : view}
+            initialDate={currentDate}
+            headerToolbar={false}
+            height="100%"
+            expandRows
+            editable={canEdit}
+            droppable={canEdit}
+            eventDrop={handleFcEventDrop}
+            eventResize={handleFcEventResize}
+            eventClick={handleEventClick}
+            dateClick={handleFcDateClick}
+            events={fcEvents}
+            eventDisplay="block"
+            dayMaxEvents={4}
+            slotMinTime="07:00:00"
+            slotMaxTime="20:30:00"
+            nowIndicator
+            firstDay={1}
+            locale="en-NZ"
+            eventDidMount={({ el, event }) => { el.title = event.title; }}
+          />
+        </div>
+        {view === 'day' && (
+          <DayColumnsView
+            date={currentDate}
+            events={fcEvents}
+            resources={resources}
+            techColour={id => techColour(id, techMap)}
+            canEdit={canEdit}
+            onEventClick={props => { setSelectedEvent(props); setNotesDraft(props.notes || ''); }}
+            onSlotClick={(dateStr, resourceId) => openAssign(dateStr, resourceId)}
+            onSaveMove={saveApptChange}
+          />
+        )}
       </div>
 
       {selectedEvent && (

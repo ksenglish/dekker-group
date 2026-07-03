@@ -167,17 +167,6 @@
   letter-spacing: 0.04em;
 }
 
-/* Resource (team member) columns — Day view */
-.resourceHeader {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  text-transform: none;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
 .resourceDot {
   width: 9px;
   height: 9px;
@@ -185,9 +174,198 @@
   flex-shrink: 0;
 }
 
-.calendarWrap :global(.fc-resource-timeline-divider),
-.calendarWrap :global(.fc-timegrid-col.fc-resource) {
+/* Custom calendar toolbar — drives both FullCalendar (Month/Week) and the custom Day view */
+.calToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.calToolbarNav { display: flex; align-items: center; gap: 6px; }
+
+.calNavBtn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.calNavBtn:hover { background: #f1f5f9; }
+
+.calTodayBtn {
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.calTodayBtn:hover { background: #f1f5f9; }
+
+.calToolbarTitle { font-size: 17px; font-weight: 700; }
+
+.calToolbarViews { display: flex; gap: 6px; }
+
+.calViewBtn {
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.calViewBtn:hover { background: #f1f5f9; }
+
+.calViewBtnActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: white;
+}
+
+/* Custom Day view — one column per team member, no third-party licence required */
+.dayView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.dayHeaderRow {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.dayTimeGutterHeader { width: 56px; flex-shrink: 0; }
+
+.dayColumnHeader {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
   border-left: 1px solid var(--color-border);
+}
+
+.dayScrollArea { flex: 1; overflow-y: auto; }
+
+.dayAllDayRow {
+  display: flex;
+  border-bottom: 1px solid var(--color-border);
+  min-height: 28px;
+}
+
+.dayTimeGutterLabel {
+  width: 56px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  text-align: right;
+  padding: 6px 6px 0 0;
+  text-transform: uppercase;
+}
+
+.dayAllDayCell {
+  flex: 1;
+  min-width: 140px;
+  border-left: 1px solid var(--color-border);
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dayAllDayEvent {
+  border: 1px solid;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.dayGridRow { display: flex; position: relative; }
+
+.dayTimeGutter {
+  width: 56px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.dayHourLabel {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.dayColumn {
+  flex: 1;
+  min-width: 140px;
+  position: relative;
+  border-left: 1px solid var(--color-border);
+}
+
+.dayGridLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.dayNowLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px solid #dc2626;
+  z-index: 5;
+}
+
+.dayEvent {
+  position: absolute;
+  border: 1px solid;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 4px;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.dayEvent:active { cursor: grabbing; }
+
+.dayEventTitle {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dayEventResizeHandle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
 }
 
 /* Modals */
