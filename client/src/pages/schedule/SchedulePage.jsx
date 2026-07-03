@@ -43,28 +43,9 @@ function apptDateTime(row) {
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 function toDateStr(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
-function startOfWeekMon(d) {
-  const date = new Date(d);
-  const day = date.getDay();
-  date.setDate(date.getDate() + (day === 0 ? -6 : 1 - day));
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-function shiftDate(date, view, dir) {
-  const d = new Date(date);
-  if (view === 'day') d.setDate(d.getDate() + dir);
-  else if (view === 'timeGridWeek') d.setDate(d.getDate() + dir * 7);
-  else d.setMonth(d.getMonth() + dir);
-  return d;
-}
-function formatTitle(view, date) {
-  if (view === 'dayGridMonth') return date.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' });
-  if (view === 'day') return date.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const start = startOfWeekMon(date);
-  const end = new Date(start); end.setDate(end.getDate() + 6);
-  const startStr = start.toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' });
-  const endStr = end.toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' });
-  return `${startStr} – ${endStr}`;
+function shiftDay(date, dir) { const d = new Date(date); d.setDate(d.getDate() + dir); return d; }
+function formatDayTitle(date) {
+  return date.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 export default function SchedulePage() {
@@ -85,12 +66,14 @@ export default function SchedulePage() {
   const [fcEvents, setFcEvents] = useState([]);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
-  const [view, setView] = useState(() => {
+  // isDayView is a separate flag layered on top of FullCalendar, not one of its own views —
+  // FullCalendar itself only ever knows about dayGridMonth/timeGridWeek, exactly as it did
+  // before Day view existed, so its own navigation is completely untouched by this feature.
+  const [isDayView, setIsDayView] = useState(() => {
     const saved = localStorage.getItem(viewKey);
-    if (saved === 'timeGridDay' || saved === 'resourceTimeGridDay') return 'day';
-    return saved || 'dayGridMonth';
+    return saved === 'day' || saved === 'timeGridDay' || saved === 'resourceTimeGridDay';
   });
-  const [currentDate, setCurrentDate] = useState(() => new Date());
+  const [dayDate, setDayDate] = useState(() => new Date());
 
   // Auto-open assign modal if ?job= param present
   useEffect(() => {
@@ -115,23 +98,9 @@ export default function SchedulePage() {
     return () => clearInterval(id);
   }, []);
 
-  // Keep FullCalendar (Month/Week) in sync with our own toolbar's date/view state.
-  // FullCalendar is unmounted entirely while Day view is active (see render below),
-  // so transitions into/out of Day always remount it fresh via initialView/initialDate —
-  // calling changeView() on that same transition would hit it before its first layout
-  // has settled (it was hidden or doesn't exist yet) and corrupt its internal
-  // date-range bookkeeping, causing every event to render on every day. Only call
-  // changeView() for a live Month<->Week swap, where FullCalendar stays mounted throughout.
-  const prevViewRef = useRef(view);
   useEffect(() => {
-    const prevView = prevViewRef.current;
-    prevViewRef.current = view;
-    if (view === 'day' || prevView === 'day') return;
-    const api = calRef.current?.getApi();
-    if (api) api.changeView(view, currentDate);
-  }, [view, currentDate]);
-
-  useEffect(() => { localStorage.setItem(viewKey, view); }, [view]);
+    localStorage.setItem(viewKey, isDayView ? 'day' : 'dayGridMonth');
+  }, [isDayView]);
 
   // Person colour — used only for the Day view column headers now that
   // appointments themselves are colour-coded by job status
@@ -306,54 +275,55 @@ export default function SchedulePage() {
         <span className={styles.legendHint}>Paler = upcoming · Full colour = underway or past</span>
       </div>
 
-      {/* Custom toolbar drives both FullCalendar (Month/Week) and the custom Day view */}
-      <div className={styles.calToolbar}>
-        <div className={styles.calToolbarNav}>
-          <button className={styles.calNavBtn} onClick={() => setCurrentDate(d => shiftDate(d, view, -1))}>‹</button>
-          <button className={styles.calNavBtn} onClick={() => setCurrentDate(d => shiftDate(d, view, 1))}>›</button>
-          <button className={styles.calTodayBtn} onClick={() => setCurrentDate(new Date())}>Today</button>
+      {/* Day view gets its own small toolbar since FullCalendar's native one (used for
+          Month/Week below) is hidden along with the rest of FullCalendar while Day is active */}
+      {isDayView && (
+        <div className={styles.calToolbar}>
+          <div className={styles.calToolbarNav}>
+            <button className={styles.calNavBtn} onClick={() => setDayDate(d => shiftDay(d, -1))}>‹</button>
+            <button className={styles.calNavBtn} onClick={() => setDayDate(d => shiftDay(d, 1))}>›</button>
+            <button className={styles.calTodayBtn} onClick={() => setDayDate(new Date())}>Today</button>
+          </div>
+          <div className={styles.calToolbarTitle}>{formatDayTitle(dayDate)}</div>
+          <div className={styles.calToolbarViews}>
+            <button className={styles.calViewBtn} onClick={() => setIsDayView(false)}>Back to Month/Week</button>
+          </div>
         </div>
-        <div className={styles.calToolbarTitle}>{formatTitle(view, currentDate)}</div>
-        <div className={styles.calToolbarViews}>
-          {[['dayGridMonth', 'Month'], ['timeGridWeek', 'Week'], ['day', 'Day']].map(([v, label]) => (
-            <button key={v} className={`${styles.calViewBtn} ${view === v ? styles.calViewBtnActive : ''}`}
-              onClick={() => setView(v)}>{label}</button>
-          ))}
-        </div>
-      </div>
+      )}
 
       <div className={styles.calendarWrap}>
-        {view !== 'day' && (
-          <div style={{ height: '100%' }}>
-            <FullCalendar
-              ref={calRef}
-              plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-              initialView={view}
-              initialDate={currentDate}
-              headerToolbar={false}
-              height="100%"
-              expandRows
-              editable={canEdit}
-              droppable={canEdit}
-              eventDrop={handleFcEventDrop}
-              eventResize={handleFcEventResize}
-              eventClick={handleEventClick}
-              dateClick={handleFcDateClick}
-              events={fcEvents}
-              eventDisplay="block"
-              dayMaxEvents={4}
-              slotMinTime="07:00:00"
-              slotMaxTime="20:30:00"
-              nowIndicator
-              firstDay={1}
-              locale="en-NZ"
-              eventDidMount={({ el, event }) => { el.title = event.title; }}
-            />
-          </div>
-        )}
-        {view === 'day' && (
+        <div style={{ display: isDayView ? 'none' : 'block', height: '100%' }}>
+          <FullCalendar
+            ref={calRef}
+            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+            initialView="dayGridMonth"
+            headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,dayViewBtn' }}
+            customButtons={{
+              dayViewBtn: { text: 'Day', click: () => { setDayDate(calRef.current?.getApi()?.getDate() || new Date()); setIsDayView(true); } },
+            }}
+            height="100%"
+            expandRows
+            editable={canEdit}
+            droppable={canEdit}
+            eventDrop={handleFcEventDrop}
+            eventResize={handleFcEventResize}
+            eventClick={handleEventClick}
+            dateClick={handleFcDateClick}
+            events={fcEvents}
+            eventDisplay="block"
+            dayMaxEvents={4}
+            slotMinTime="07:00:00"
+            slotMaxTime="20:30:00"
+            nowIndicator
+            firstDay={1}
+            locale="en-NZ"
+            buttonText={{ today: 'Today', month: 'Month', week: 'Week' }}
+            eventDidMount={({ el, event }) => { el.title = event.title; }}
+          />
+        </div>
+        {isDayView && (
           <DayColumnsView
-            date={currentDate}
+            date={dayDate}
             events={fcEvents}
             resources={resources}
             techColour={id => techColour(id, techMap)}
