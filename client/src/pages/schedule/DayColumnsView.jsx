@@ -100,7 +100,11 @@ export default function DayColumnsView({ date, events, resources, techColour, ca
             const timed = assignLanes(
               dayEvents
                 .filter(e => e.resourceId === r.id && !e.allDay)
-                .map(e => ({ ...e, startMin: timeToMin(e.startTime), endMin: e.endTime ? timeToMin(e.endTime) : timeToMin(e.startTime) + 30 }))
+                .map(e => {
+                  const startTime = e.extendedProps.start_time;
+                  const endTime = e.extendedProps.end_time;
+                  return { ...e, startMin: timeToMin(startTime), endMin: endTime ? timeToMin(endTime) : timeToMin(startTime) + 30 };
+                })
             );
             return (
               <DayColumn key={r.id} resourceId={r.id} height={TOTAL_HEIGHT}

@@ -139,10 +139,14 @@ export default function SchedulePage() {
         const { background, border, text } = styleForAppt(s);
         return {
           id: `sched-${s.id}`,
+          // NOTE: don't add top-level `startTime`/`endTime` fields here — those are
+          // FullCalendar's own reserved property names for defining recurring events
+          // (a time-of-day repeated across a date range). Combined with a normal
+          // start/end they made FullCalendar treat every appointment as recurring
+          // daily, generating one instance per day across the whole visible range.
+          // Use extendedProps.start_time / extendedProps.end_time (below) instead.
           resourceId: s.user_id,
           dateKey: d,
-          startTime: s.start_time,
-          endTime: s.end_time,
           title: `${formatJobNumber(s)} ${s.customer_name || ''} — ${s.tech_name || ''}`,
           start: s.start_time ? `${d}T${s.start_time}` : d,
           end:   s.end_time   ? `${d}T${s.end_time}`   : undefined,
