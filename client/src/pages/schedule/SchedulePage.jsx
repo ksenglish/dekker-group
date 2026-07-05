@@ -14,6 +14,10 @@ import styles from './Schedule.module.css';
 
 const APPT_TYPE_LABEL = { sales: 'Sales', operations: 'Operations' };
 const APPT_TYPE_COLOURS = { sales: '#5b21b6', operations: '#1e40af' };
+// Diaries — which calendar(s) each team member belongs to (set per-user in Users admin)
+const DIARIES = ['admin', 'sales', 'operations', 'subcontractor'];
+const DIARY_LABEL = { admin: 'Admin', sales: 'Sales', operations: 'Operations', subcontractor: 'Subcontractor' };
+const DIARY_COLOURS = { admin: '#b45309', sales: '#5b21b6', operations: '#1e40af', subcontractor: '#0f766e' };
 const JOB_STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
 const DEFAULT_STATUS_COLOURS = {
   new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
@@ -60,9 +64,10 @@ export default function SchedulePage() {
   const [searchParams] = useSearchParams();
   const [techMap, setTechMap] = useState({});
   const [techRoles, setTechRoles] = useState({});
+  const [techDiaries, setTechDiaries] = useState({});
   const [statusColours, setStatusColours] = useState(DEFAULT_STATUS_COLOURS);
   const [filterTech, setFilterTech] = useState('');
-  const [filterApptType, setFilterApptType] = useState(''); // '' | 'sales' | 'operations'
+  const [filterDiary, setFilterDiary] = useState(''); // '' (all) | one of DIARIES
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
   const [notesDraft, setNotesDraft] = useState('');
@@ -94,9 +99,11 @@ export default function SchedulePage() {
     api.get('/users').then(r => {
       const map = {};
       const roles = {};
-      r.data.forEach(u => { map[u.id] = u.name; roles[u.id] = u.role; });
+      const diaries = {};
+      r.data.forEach(u => { map[u.id] = u.name; roles[u.id] = u.role; diaries[u.id] = u.diaries || []; });
       setTechMap(map);
       setTechRoles(roles);
+      setTechDiaries(diaries);
     }).catch(() => {});
     api.get('/settings/job-status-colours').then(r => setStatusColours(r.data)).catch(() => {});
   }, []);
@@ -136,11 +143,15 @@ export default function SchedulePage() {
 
   useEffect(() => { loadSchedules(); loadNotes(); }, []);
 
+  // Diary filter — a person (and their appointments/notes) shows under a diary
+  // if that diary is ticked for them in Users admin
+  const inDiary = userId => !filterDiary || (techDiaries[userId] || []).includes(filterDiary);
+
   // Recompute calendar events whenever the raw data, filters, status colours, or clock tick change
   useEffect(() => {
     const apptEvents = rawSchedules
       .filter(s => !filterTech || s.user_id === filterTech)
-      .filter(s => !filterApptType || s.appointment_type === filterApptType)
+      .filter(s => inDiary(s.user_id))
       .map(s => {
         const d = s.scheduled_date.split('T')[0]; // strip Postgres timestamp
         const { background, border, text } = styleForAppt(s);
@@ -167,6 +178,7 @@ export default function SchedulePage() {
 
     const noteEvents = rawNotes
       .filter(n => !filterTech || n.user_id === filterTech)
+      .filter(n => inDiary(n.user_id))
       .map(n => {
         const d = n.occurrence_date;
         return {
@@ -186,7 +198,7 @@ export default function SchedulePage() {
 
     setFcEvents([...apptEvents, ...noteEvents]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawSchedules, rawNotes, filterTech, filterApptType, statusColours, nowTick]);
+  }, [rawSchedules, rawNotes, filterTech, filterDiary, techDiaries, statusColours, nowTick]);
 
   // Persist a change to one appointment's date/time/team member — from the
   // custom Day view's drag/resize (notes aren't draggable, so schedId is always present here)
@@ -253,17 +265,34 @@ export default function SchedulePage() {
     } finally { setSavingNotes(false); }
   }
 
+  function handleEditNote() {
+    setAddNoteTarget({ existing: selectedNote });
+    setSelectedNote(null);
+  }
+
+  // Removes just one date from a recurring note's series
+  async function handleDeleteOccurrence() {
+    if (!selectedNote?.noteId) return;
+    if (!confirm('Delete this occurrence only? Other repeats of this note stay in the diary.')) return;
+    await api.post(`/calendar-notes/${selectedNote.noteId}/exclude`, { date: selectedNote.occurrence_date });
+    setSelectedNote(null);
+    loadNotes();
+  }
+
   async function handleDeleteNote() {
     if (!selectedNote?.noteId) return;
-    if (!confirm('Delete this note?')) return;
+    const isRecurring = selectedNote.recurrence !== 'none';
+    if (!confirm(isRecurring ? 'Delete this note and ALL its repeats?' : 'Delete this note?')) return;
     await api.delete(`/calendar-notes/${selectedNote.noteId}`);
     setSelectedNote(null);
     loadNotes();
   }
 
-  // One column per team member for the Day view — filtered to match the dropdown above
+  // One column per team member for the Day view — filtered to match the
+  // team-member dropdown and the selected diary
   const resources = Object.entries(techMap)
     .filter(([id]) => !filterTech || id === filterTech)
+    .filter(([id]) => inDiary(id))
     .map(([id, name]) => ({ id, title: name }));
 
   function handleAssigned() {
@@ -296,19 +325,19 @@ export default function SchedulePage() {
       </div>
 
       <div className={styles.typeFilterRow}>
-        <span className={styles.typeFilterLabel}>Show:</span>
+        <span className={styles.typeFilterLabel}>Diary:</span>
         <div className={styles.typeFilterGroup}>
           <button
-            className={`${styles.typeFilterBtn} ${!filterApptType ? styles.typeFilterBtnActive : ''}`}
-            onClick={() => setFilterApptType('')}
+            className={`${styles.typeFilterBtn} ${!filterDiary ? styles.typeFilterBtnActive : ''}`}
+            onClick={() => setFilterDiary('')}
           >All</button>
-          {['sales', 'operations'].map(t => (
+          {DIARIES.map(d => (
             <button
-              key={t}
-              className={`${styles.typeFilterBtn} ${filterApptType === t ? styles.typeFilterBtnActive : ''}`}
-              style={filterApptType === t ? { borderColor: APPT_TYPE_COLOURS[t], color: APPT_TYPE_COLOURS[t], background: APPT_TYPE_COLOURS[t] + '12' } : {}}
-              onClick={() => setFilterApptType(t)}
-            >{APPT_TYPE_LABEL[t]}</button>
+              key={d}
+              className={`${styles.typeFilterBtn} ${filterDiary === d ? styles.typeFilterBtnActive : ''}`}
+              style={filterDiary === d ? { borderColor: DIARY_COLOURS[d], color: DIARY_COLOURS[d], background: DIARY_COLOURS[d] + '12' } : {}}
+              onClick={() => setFilterDiary(d)}
+            >{DIARY_LABEL[d]}</button>
           ))}
         </div>
       </div>
@@ -465,7 +494,15 @@ export default function SchedulePage() {
             </div>
             <div className={styles.modalFooter}>
               {canEdit && (
-                <button className={styles.btnDanger} onClick={handleDeleteNote}>Delete Note</button>
+                <>
+                  <button className={styles.btnSecondary} onClick={handleEditNote}>✏ Edit</button>
+                  {selectedNote.recurrence !== 'none' && (
+                    <button className={styles.btnDanger} onClick={handleDeleteOccurrence}>Delete This Occurrence</button>
+                  )}
+                  <button className={styles.btnDanger} onClick={handleDeleteNote}>
+                    {selectedNote.recurrence !== 'none' ? 'Delete Series' : 'Delete Note'}
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -489,6 +526,7 @@ export default function SchedulePage() {
           date={addNoteTarget.date}
           time={addNoteTarget.time}
           userId={addNoteTarget.userId}
+          existing={addNoteTarget.existing}
           techMap={techMap}
           onClose={() => setAddNoteTarget(null)}
           onSaved={handleNoteSaved}

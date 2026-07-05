@@ -5,11 +5,26 @@ const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { sendResetEmail } = require('../controllers/authController');
 
+// Which diaries (Schedule calendars) a user can appear under
+const VALID_DIARIES = ['admin', 'sales', 'operations', 'subcontractor'];
+
+function diariesFromRole(role) {
+  if (role === 'admin') return ['admin'];
+  if (role === 'sales') return ['sales'];
+  if (role === 'operations' || role === 'office') return ['operations'];
+  if (role === 'subcontractor' || role === 'field_tech') return ['subcontractor'];
+  return [];
+}
+
+function validDiaries(diaries) {
+  return Array.isArray(diaries) && diaries.every(d => VALID_DIARIES.includes(d));
+}
+
 // Get all users (admin only)
 router.get('/', authenticate, requireRole('admin'), async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, email, role, is_active, created_at FROM users ORDER BY name'
+      'SELECT id, name, email, role, diaries, is_active, created_at FROM users ORDER BY name'
     );
     res.json(rows);
   } catch {
@@ -19,18 +34,21 @@ router.get('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // Create user (admin only)
 router.post('/', authenticate, requireRole('admin'), async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, diaries } = req.body;
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required' });
   }
   if (!['admin', 'sales', 'operations', 'subcontractor', 'office', 'field_tech'].includes(role)) {
     return res.status(400).json({ error: 'Invalid role' });
   }
+  if (diaries !== undefined && !validDiaries(diaries)) {
+    return res.status(400).json({ error: 'Invalid diaries' });
+  }
   try {
     const password_hash = await bcrypt.hash(password, 12);
     const { rows } = await pool.query(
-      'INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING id, name, email, role, created_at',
-      [name, email.toLowerCase().trim(), password_hash, role]
+      'INSERT INTO users (name, email, password_hash, role, diaries) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role, diaries, created_at',
+      [name, email.toLowerCase().trim(), password_hash, role, diaries !== undefined ? diaries : diariesFromRole(role)]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -41,21 +59,29 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // Update user (admin only)
 router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
-  const { name, email, role, password, is_active } = req.body;
+  const { name, email, role, password, is_active, diaries } = req.body;
   if (req.params.id === req.user.id && is_active === false)
     return res.status(400).json({ error: 'You cannot deactivate your own account' });
+  if (diaries !== undefined && !validDiaries(diaries)) {
+    return res.status(400).json({ error: 'Invalid diaries' });
+  }
   try {
+    // Keep existing diaries when the request doesn't include them
+    const { rows: existingRows } = await pool.query('SELECT diaries FROM users WHERE id=$1', [req.params.id]);
+    if (!existingRows[0]) return res.status(404).json({ error: 'User not found' });
+    const finalDiaries = diaries !== undefined ? diaries : existingRows[0].diaries;
+
     if (password) {
       const password_hash = await bcrypt.hash(password, 12);
       const { rows } = await pool.query(
-        'UPDATE users SET name=$1, email=$2, role=$3, password_hash=$4, is_active=$5, updated_at=NOW() WHERE id=$6 RETURNING id, name, email, role, is_active, created_at',
-        [name, email.toLowerCase().trim(), role, password_hash, is_active !== false, req.params.id]
+        'UPDATE users SET name=$1, email=$2, role=$3, password_hash=$4, is_active=$5, diaries=$6, updated_at=NOW() WHERE id=$7 RETURNING id, name, email, role, diaries, is_active, created_at',
+        [name, email.toLowerCase().trim(), role, password_hash, is_active !== false, finalDiaries, req.params.id]
       );
       return res.json(rows[0]);
     }
     const { rows } = await pool.query(
-      'UPDATE users SET name=$1, email=$2, role=$3, is_active=$4, updated_at=NOW() WHERE id=$5 RETURNING id, name, email, role, is_active, created_at',
-      [name, email.toLowerCase().trim(), role, is_active !== false, req.params.id]
+      'UPDATE users SET name=$1, email=$2, role=$3, is_active=$4, diaries=$5, updated_at=NOW() WHERE id=$6 RETURNING id, name, email, role, diaries, is_active, created_at',
+      [name, email.toLowerCase().trim(), role, is_active !== false, finalDiaries, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) {

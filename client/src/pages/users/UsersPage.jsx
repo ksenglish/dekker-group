@@ -23,11 +23,29 @@ const ROLE_BADGE = {
   undefined: styles.badgeUndefined,
 };
 
+// Which Schedule diaries (calendars) a user appears under — multi-select,
+// e.g. someone doing both sales and operations work belongs to both
+const DIARY_OPTIONS = [
+  { value: 'admin', label: 'Admin' },
+  { value: 'sales', label: 'Sales' },
+  { value: 'operations', label: 'Operations' },
+  { value: 'subcontractor', label: 'Subcontractor' },
+];
+
+function diariesFromRole(role) {
+  if (role === 'admin') return ['admin'];
+  if (role === 'sales') return ['sales'];
+  if (role === 'operations' || role === 'office') return ['operations'];
+  if (role === 'subcontractor' || role === 'field_tech') return ['subcontractor'];
+  return [];
+}
+
 function UserModal({ user, currentUserId, onSave, onClose }) {
   const [form, setForm] = useState({
     name: user?.name || '',
     email: user?.email || '',
     role: user?.role || 'operations',
+    diaries: user ? (user.diaries || []) : diariesFromRole('operations'),
     password: '',
     confirmPassword: '',
     is_active: user?.is_active !== false,
@@ -37,6 +55,13 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const isNew = !user;
 
+  function toggleDiary(d) {
+    setForm(f => ({
+      ...f,
+      diaries: f.diaries.includes(d) ? f.diaries.filter(x => x !== d) : [...f.diaries, d],
+    }));
+  }
+
   async function save(e) {
     e.preventDefault();
     if (!form.name.trim() || !form.email.trim()) return setErr('Name and email are required');
@@ -45,7 +70,7 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
     if (form.password && form.password.length < 8) return setErr('Password must be at least 8 characters');
     setSaving(true); setErr('');
     try {
-      const payload = { name: form.name, email: form.email, role: form.role, is_active: form.is_active };
+      const payload = { name: form.name, email: form.email, role: form.role, diaries: form.diaries, is_active: form.is_active };
       if (form.password) payload.password = form.password;
       const { data } = user
         ? await api.put(`/users/${user.id}`, payload)
@@ -78,10 +103,26 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
                 {ROLES.map(r => (
                   <div key={r.value}
                     className={`${styles.roleCard} ${form.role === r.value ? styles.roleCardActive : ''}`}
-                    onClick={() => set('role', r.value)}>
+                    onClick={() => {
+                      set('role', r.value);
+                      // For new users, suggest the matching diary — stays editable below
+                      if (isNew) set('diaries', diariesFromRole(r.value));
+                    }}>
                     <div className={styles.roleCardTitle}>{r.label}</div>
                     <div className={styles.roleCardDesc}>{r.desc}</div>
                   </div>
+                ))}
+              </div>
+            </div>
+            <div className={styles.field} style={{ gridColumn: '1/-1' }}>
+              <label>Schedule Diaries</label>
+              <p className={styles.hint}>Which calendars this person appears under on the Schedule — select all that apply.</p>
+              <div className={styles.diaryChecks}>
+                {DIARY_OPTIONS.map(d => (
+                  <label key={d.value} className={styles.diaryCheck}>
+                    <input type="checkbox" checked={form.diaries.includes(d.value)} onChange={() => toggleDiary(d.value)} />
+                    {d.label}
+                  </label>
                 ))}
               </div>
             </div>

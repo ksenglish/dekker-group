@@ -34,15 +34,17 @@ const RECURRENCE_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
 ];
 
-export default function AddNoteModal({ date, time, userId, techMap, onClose, onSaved }) {
-  const startTime = time || '09:00';
+// Pass `existing` (a calendar note object) to edit it instead of creating a new one
+export default function AddNoteModal({ date, time, userId, techMap, existing, onClose, onSaved }) {
+  const isEdit = !!existing;
+  const startTime = existing?.start_time ? existing.start_time.slice(0, 5) : (time || '09:00');
   const [form, setForm] = useState({
-    user_id: userId || '',
-    note: '',
-    note_date: date,
+    user_id: existing?.user_id || userId || '',
+    note: existing?.note || '',
+    note_date: existing ? String(existing.note_date).slice(0, 10) : date,
     start_time: startTime,
-    end_time: plusOneHour(startTime),
-    recurrence: 'none',
+    end_time: existing?.end_time ? existing.end_time.slice(0, 5) : plusOneHour(startTime),
+    recurrence: existing?.recurrence || 'none',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -56,7 +58,8 @@ export default function AddNoteModal({ date, time, userId, techMap, onClose, onS
     }
     setSaving(true); setError('');
     try {
-      await api.post('/calendar-notes', form);
+      if (isEdit) await api.put(`/calendar-notes/${existing.noteId || existing.id}`, form);
+      else await api.post('/calendar-notes', form);
       onSaved();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save note');
@@ -69,7 +72,7 @@ export default function AddNoteModal({ date, time, userId, techMap, onClose, onS
     <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2>Add Note to Diary</h2>
+          <h2>{isEdit ? 'Edit Note' : 'Add Note to Diary'}</h2>
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -121,7 +124,7 @@ export default function AddNoteModal({ date, time, userId, techMap, onClose, onS
           <div className={styles.modalFooter}>
             <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
             <button type="submit" className={styles.btnPrimary} disabled={saving}>
-              {saving ? 'Saving…' : 'Add Note'}
+              {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Note'}
             </button>
           </div>
         </form>

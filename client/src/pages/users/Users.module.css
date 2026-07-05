@@ -67,6 +67,15 @@
 .field input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light); }
 
 .roleCards { display: flex; flex-direction: column; gap: 8px; }
+
+.hint { font-size: 12px; color: var(--color-text-muted); margin: 0 0 6px; }
+.diaryChecks { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.diaryCheck {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  padding: 7px 12px; border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.diaryCheck:hover { background: #f8fafc; }
 .roleCard { padding: 12px 14px; border: 1.5px solid var(--color-border); border-radius: var(--radius); cursor: pointer; transition: all 0.15s; }
 .roleCard:hover { border-color: var(--color-primary); }
 .roleCardActive { border-color: var(--color-primary); background: var(--color-primary-light); }
