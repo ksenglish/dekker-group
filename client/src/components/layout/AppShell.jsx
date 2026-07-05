@@ -14,6 +14,7 @@ import InvoiceDetail from '../../pages/invoices/InvoiceDetail';
 import SettingsPage from '../../pages/settings/SettingsPage';
 import ProductList from '../../pages/products/ProductList';
 import UsersPage from '../../pages/users/UsersPage';
+import LeadsPage from '../../pages/leads/LeadsPage';
 import TimesheetsPage from '../../pages/timesheets/TimesheetsPage';
 import ReportsPage from '../../pages/reports/ReportsPage';
 import MapPage from '../../pages/map/MapPage';
@@ -23,6 +24,7 @@ import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '⊞', exact: true },
+  { to: '/leads', label: 'New Leads', icon: '📥', officeOnly: true },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/jobs', label: 'Jobs', icon: '🔧' },
   { to: '/schedule', label: 'Schedule', icon: '📅' },
@@ -67,7 +69,9 @@ export default function AppShell() {
         </div>
 
         <nav className={styles.nav}>
-          {NAV_ITEMS.map(item => (
+          {NAV_ITEMS.filter(item =>
+            !item.officeOnly || ['admin', 'sales', 'operations', 'office'].includes(user?.role)
+          ).map(item => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -122,6 +126,7 @@ export default function AppShell() {
       <main className={styles.main}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/leads" element={<LeadsPage />} />
           <Route path="/customers" element={<CustomerList />} />
           <Route path="/customers/:id" element={<CustomerDetail />} />
           <Route path="/jobs" element={<JobList />} />

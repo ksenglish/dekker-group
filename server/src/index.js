@@ -21,12 +21,13 @@ const timesheetRoutes = require('./routes/timesheets');
 const reportRoutes = require('./routes/reports');
 const scanRoutes = require('./routes/scan');
 const presenterRoutes = require('./routes/presenter');
+const leadRoutes = require('./routes/leads');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(compression()); // gzip all responses — cuts bandwidth 60-80%
-app.use(cors({
+const restrictedCors = cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true); // same-origin / non-browser requests
     const raw = process.env.CLIENT_URL || '';
@@ -44,7 +45,14 @@ app.use(cors({
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
-}));
+});
+// The lead webhook is a public contact-form endpoint hit from external websites
+// (e.g. the Dekker Air site), so it allows any origin; everything else stays restricted.
+const publicCors = cors();
+app.use((req, res, next) => {
+  if (req.path === '/api/leads/webhook') return publicCors(req, res, next);
+  return restrictedCors(req, res, next);
+});
 app.use(express.json({ limit: '15mb' }));
 app.use(cookieParser());
 
@@ -62,6 +70,7 @@ app.use('/api/timesheets', timesheetRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/scan', scanRoutes);
 app.use('/api/presenter', presenterRoutes);
+app.use('/api/leads', leadRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {
