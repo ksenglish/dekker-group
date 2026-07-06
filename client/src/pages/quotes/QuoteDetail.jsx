@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import EmailComposeModal from './EmailComposeModal';
 import styles from './Quotes.module.css';
 
 const STATUSES = ['draft', 'sent', 'accepted', 'declined', 'cancelled'];
@@ -15,7 +16,7 @@ export default function QuoteDetail() {
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [emailing, setEmailing] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
   const [converting, setConverting] = useState(false);
   const [msg, setMsg] = useState(null); // { type: 'success'|'error', text }
   const [notes, setNotes] = useState('');
@@ -49,14 +50,10 @@ export default function QuoteDetail() {
     URL.revokeObjectURL(url);
   }
 
-  async function handleEmail() {
-    setEmailing(true);
-    try {
-      await api.post(`/quotes/${id}/email`);
-      setQuote(q => ({ ...q, status: 'sent' }));
-      flash('success', `Quote emailed to ${quote.customer_email}`);
-    } catch (err) { flash('error', err.response?.data?.error || 'Email failed'); }
-    finally { setEmailing(false); }
+  function handleEmailSent(customerEmail) {
+    setShowEmailModal(false);
+    setQuote(q => ({ ...q, status: 'sent' }));
+    flash('success', `Quote emailed to ${customerEmail}`);
   }
 
   async function handleDelete() {
@@ -95,6 +92,14 @@ export default function QuoteDetail() {
           <span>{quote?.quote_number ? `QT-${String(quote.quote_number).padStart(4,'0')}` : `Q-${id.slice(0,8).toUpperCase()}`}</span>
         </div>
         <div className={styles.headerActions}>
+          <button className={styles.btnSecondary} onClick={() => navigate(quote.job_id ? `/jobs/${quote.job_id}` : '/quotes')}>
+            ← Back{quote.job_id ? ' to Job' : ''}
+          </button>
+          {quote.job_id && (
+            <button className={styles.btnSecondary} onClick={() => navigate(`/jobs/${quote.job_id}?tab=line_items`)}>
+              ✎ Edit
+            </button>
+          )}
           <button className={styles.btnSecondary} onClick={handleDownload}>⬇ Download PDF</button>
           {quote.public_token && (
             <button className={styles.btnSecondary} onClick={() => window.open(`${window.location.origin}/q/${quote.public_token}`, '_blank')}>
@@ -108,8 +113,8 @@ export default function QuoteDetail() {
             }}>🔗 Copy Link</button>
           )}
           {quote.customer_email && (
-            <button className={styles.btnSecondary} onClick={handleEmail} disabled={emailing}>
-              {emailing ? 'Sending…' : '✉ Email to Customer'}
+            <button className={styles.btnSecondary} onClick={() => setShowEmailModal(true)}>
+              ✉ Email to Customer
             </button>
           )}
           {quote.status === 'accepted' && (
@@ -122,6 +127,15 @@ export default function QuoteDetail() {
           )}
         </div>
       </div>
+
+      {showEmailModal && (
+        <EmailComposeModal
+          quoteId={id}
+          customerEmail={quote.customer_email}
+          onClose={() => setShowEmailModal(false)}
+          onSent={handleEmailSent}
+        />
+      )}
 
       <div className={styles.detailLayout}>
         <div className={styles.detailMain}>

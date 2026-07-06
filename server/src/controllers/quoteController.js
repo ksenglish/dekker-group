@@ -11,6 +11,27 @@ function calcTotals(items) {
   return { subtotal, gst, total: subtotal + gst };
 }
 
+// Fill {{placeholder}} tokens in a saved email template with this quote's real data
+function resolveTemplateText(text, ctx) {
+  return text.replace(/\{\{\s*([\w]+)\s*\}\}/g, (m, key) => (key in ctx ? ctx[key] : m));
+}
+
+async function buildQuoteEmailContext(q, theme, senderName) {
+  const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+  return {
+    customer_name: q.customer_name || '',
+    customer_first_name: (q.customer_name || '').split(' ')[0] || '',
+    customer_company: q.customer_company || '',
+    company_name: theme.companyName,
+    sender_name: senderName || theme.companyName,
+    sender_email: theme.email || '',
+    quote_number: q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : `Q-${q.id.slice(0, 8).toUpperCase()}`,
+    quote_total: `$${(q.total / 100).toFixed(2)}`,
+    job_number: q.external_ref || (q.job_number ? `JB${String(q.job_number).padStart(5, '0')}` : ''),
+    accept_link: `${clientUrl}/q/${q.public_token}`,
+  };
+}
+
 async function list(req, res) {
   const { status, customer, job } = req.query;
   const conditions = [];
@@ -173,14 +194,51 @@ async function downloadPdf(req, res) {
   } catch (err) { console.error(err); res.status(500).json({ error: 'PDF generation failed' }); }
 }
 
+async function getQuoteForEmail(id) {
+  const { rows: [q] } = await pool.query(
+    `SELECT q.*, c.name AS customer_name, c.email AS customer_email,
+            c.company AS customer_company, c.phone AS customer_phone,
+            j.job_number, j.external_ref
+     FROM quotes q LEFT JOIN customers c ON c.id=q.customer_id
+     LEFT JOIN jobs j ON j.id=q.job_id WHERE q.id=$1`,
+    [id]
+  );
+  return q;
+}
+
+// Resolve a saved template (or the category default) against this quote's real data,
+// so the compose modal can show the customer's actual name/total/link before sending
+async function emailPreview(req, res) {
+  try {
+    const q = await getQuoteForEmail(req.params.id);
+    if (!q) return res.status(404).json({ error: 'Not found' });
+    const theme = await getTheme();
+    const ctx = await buildQuoteEmailContext(q, theme, req.user?.name);
+
+    let template;
+    if (req.query.templateId) {
+      const { rows } = await pool.query('SELECT * FROM email_templates WHERE id=$1', [req.query.templateId]);
+      template = rows[0];
+    }
+    if (!template) {
+      const { rows } = await pool.query(
+        `SELECT * FROM email_templates WHERE category='quote' ORDER BY is_default DESC, name LIMIT 1`
+      );
+      template = rows[0];
+    }
+    if (!template) return res.status(404).json({ error: 'No email template found' });
+
+    res.json({
+      templateId: template.id,
+      subject: resolveTemplateText(template.subject, ctx),
+      body: resolveTemplateText(template.body, ctx),
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+}
+
 async function sendEmail(req, res) {
   try {
-    const { rows: [q] } = await pool.query(
-      `SELECT q.*, c.name AS customer_name, c.email AS customer_email,
-              c.company AS customer_company, c.phone AS customer_phone
-       FROM quotes q LEFT JOIN customers c ON c.id=q.customer_id WHERE q.id=$1`,
-      [req.params.id]
-    );
+    const q = await getQuoteForEmail(req.params.id);
     if (!q) return res.status(404).json({ error: 'Not found' });
     if (!q.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
@@ -192,19 +250,26 @@ async function sendEmail(req, res) {
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme,
     });
-    const totalNZD = `$${(q.total / 100).toFixed(2)}`;
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
-    const acceptUrl = `${clientUrl}/q/${q.public_token}`;
+
+    // A user-edited draft (subject/body) takes priority; fall back to the
+    // category's default template so the endpoint still works if called directly.
+    let { subject, body } = req.body || {};
+    if (!subject || !body) {
+      const ctx = await buildQuoteEmailContext(q, theme, req.user?.name);
+      const { rows } = await pool.query(
+        `SELECT * FROM email_templates WHERE category='quote' ORDER BY is_default DESC, name LIMIT 1`
+      );
+      const template = rows[0];
+      subject = subject || (template ? resolveTemplateText(template.subject, ctx) : `Quote from ${theme.companyName} — ${ctx.quote_total}`);
+      body = body || (template ? resolveTemplateText(template.body, ctx) : `Hi ${ctx.customer_first_name},\n\nPlease find your quote attached.`);
+    }
+    const htmlBody = body.split('\n').map(line => `<p>${line || '&nbsp;'}</p>`).join('\n');
+
     await sendMail({
       to: q.customer_email,
-      subject: `Quote from ${theme.companyName} — ${totalNZD} (incl. GST)`,
-      html: `<p>Hi ${q.customer_name},</p>
-<p>Please find your quote from ${theme.companyName} attached.</p>
-<p><strong>Total: ${totalNZD} (incl. 15% GST)</strong></p>
-<p>To accept this quote online, click the link below:</p>
-<p><a href="${acceptUrl}" style="display:inline-block;padding:10px 20px;background:#000;color:#fff;text-decoration:none;border-radius:4px;">View &amp; Accept Quote</a></p>
-<p>If you have any questions, please don't hesitate to get in touch.</p>
-<p>Kind regards,<br>${theme.companyName}<br>${theme.email}</p>`,
+      subject,
+      html: htmlBody,
+      text: body,
       attachments: [{ filename: `quote-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }],
     });
     await pool.query('UPDATE quotes SET status=\'sent\', delivery_status=\'sent\', sent_at=NOW(), updated_at=NOW() WHERE id=$1', [req.params.id]);
@@ -277,4 +342,4 @@ async function publicAccept(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, remove, convertToInvoice, downloadPdf, sendEmail, publicGet, publicAccept };
+module.exports = { list, get, create, update, remove, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept };

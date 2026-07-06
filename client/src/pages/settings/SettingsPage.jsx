@@ -3,7 +3,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Settings.module.css';
 
-const TABS = ['My Account', 'Security', 'Quote Theme', 'Terms & Conditions', 'Email', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
+const TABS = ['My Account', 'Security', 'Quote Theme', 'Terms & Conditions', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
 
 const JOB_STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
 const DEFAULT_STATUS_COLOURS = {
@@ -437,6 +437,8 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {activeTab === 'Email Templates' && <EmailTemplatesTab />}
+
           {activeTab === 'Billing Rates' && <BillingRatesTab />}
 
           {activeTab === 'Integrations' && <IntegrationsTab />}
@@ -735,6 +737,135 @@ function IntegrationsTab() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+const EMAIL_PLACEHOLDERS = [
+  ['{{customer_name}}', 'Customer full name'],
+  ['{{customer_first_name}}', 'Customer first name'],
+  ['{{customer_company}}', 'Customer company'],
+  ['{{company_name}}', 'Your company name'],
+  ['{{sender_name}}', 'The staff member sending it'],
+  ['{{quote_number}}', 'e.g. QT-0033'],
+  ['{{quote_total}}', 'e.g. $1,234.56'],
+  ['{{job_number}}', 'e.g. JB00885'],
+  ['{{accept_link}}', 'Link for the customer to view & accept the quote'],
+];
+
+function EmailTemplatesTab() {
+  const [templates, setTemplates] = useState([]);
+  const [editing, setEditing] = useState(null); // null | 'new' | template object
+  const EMPTY = { name: '', subject: '', body: '', is_default: false };
+  const [form, setForm] = useState(EMPTY);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  function load() {
+    api.get('/email-templates', { params: { category: 'quote' } }).then(r => setTemplates(r.data)).catch(() => {});
+  }
+  useEffect(() => { load(); }, []);
+
+  function openNew() { setForm(EMPTY); setErr(''); setEditing('new'); }
+  function openEdit(t) { setForm({ name: t.name, subject: t.subject, body: t.body, is_default: t.is_default }); setErr(''); setEditing(t); }
+
+  async function save() {
+    if (!form.name.trim() || !form.subject.trim() || !form.body.trim()) {
+      return setErr('Name, subject and body are all required');
+    }
+    setSaving(true); setErr('');
+    try {
+      if (editing === 'new') await api.post('/email-templates', { ...form, category: 'quote' });
+      else await api.put(`/email-templates/${editing.id}`, form);
+      setEditing(null);
+      load();
+    } catch (e) { setErr(e.response?.data?.error || 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function remove(t) {
+    if (!confirm(`Delete the "${t.name}" template?`)) return;
+    await api.delete(`/email-templates/${t.id}`);
+    load();
+  }
+
+  return (
+    <div className={styles.section}>
+      <div className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2>Quote Email Templates</h2>
+          <button className={styles.btnPrimary} onClick={openNew}>+ New Template</button>
+        </div>
+        <div className={styles.cardBody}>
+          <p className={styles.hint} style={{ marginBottom: 12 }}>
+            These appear in the template picker when clicking "Email to Customer" on a quote. The default template loads automatically, and can be swapped or edited before sending.
+          </p>
+          {templates.length === 0 && <p style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>No templates yet.</p>}
+          {templates.map(t => (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '12px', background: '#f8fafc', borderRadius: 6, border: '1px solid var(--color-border)', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>
+                  {t.name}
+                  {t.is_default && <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: '#166534', background: '#f0fdf4', padding: '2px 8px', borderRadius: 99 }}>Default</span>}
+                </div>
+                <div style={{ fontSize: 13, marginTop: 4, color: 'var(--color-text-muted)' }}>{t.subject}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <button className={styles.btnSecondary} onClick={() => openEdit(t)}>Edit</button>
+                <button className={styles.btnSecondary} style={{ color: '#dc2626' }} onClick={() => remove(t)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {editing !== null && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={e => e.target === e.currentTarget && setEditing(null)}>
+          <div style={{ background: 'white', borderRadius: 10, padding: 28, width: 560, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>{editing === 'new' ? 'New Email Template' : 'Edit Email Template'}</h3>
+            {err && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 14px', borderRadius: 6, fontSize: 13, marginBottom: 14 }}>{err}</div>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Template Name *</label>
+                <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Follow-up Quote Email"
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Subject *</label>
+                <input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Your quote from {{company_name}}"
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>Body *</label>
+                <textarea rows={8} value={form.body} onChange={e => setForm(f => ({ ...f, body: e.target.value }))}
+                  placeholder={'Hi {{customer_first_name}},\n\nPlease find your quote attached…'}
+                  style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }} />
+              </div>
+              <div style={{ background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: 6, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Available placeholders</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+                  {EMAIL_PLACEHOLDERS.map(([tok, desc]) => (
+                    <div key={tok} style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>
+                      <code style={{ color: 'var(--color-primary)' }}>{tok}</code> — {desc}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.is_default} onChange={e => setForm(f => ({ ...f, is_default: e.target.checked }))} />
+                Use as the default quote email template
+              </label>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 24 }}>
+              <button className={styles.btnSecondary} onClick={() => setEditing(null)}>Cancel</button>
+              <button className={styles.btnPrimary} onClick={save} disabled={saving}>
+                {saving ? 'Saving…' : editing === 'new' ? 'Create Template' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

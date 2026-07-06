@@ -17,6 +17,7 @@ router.put('/:id', c.update);
 router.delete('/:id', c.remove);
 router.post('/:id/convert', c.convertToInvoice);
 router.get('/:id/pdf', c.downloadPdf);
+router.get('/:id/email-preview', c.emailPreview);
 router.post('/:id/email', c.sendEmail);
 
 module.exports = router;

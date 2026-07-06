@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { formatJobNumber } from '../../lib/formatJobNumber';
@@ -333,6 +333,7 @@ const PRIORITY_COLOURS = { low: '#6b7280', medium: '#d97706', high: '#dc2626' };
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const isNew = id === 'new';
 
@@ -340,7 +341,8 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(!isNew);
   const [editMode, setEditMode] = useState(isNew);
   const [noteText, setNoteText] = useState('');
-  const [activeTab, setActiveTab] = useState('details');
+  // Supports deep-linking to a tab, e.g. /jobs/:id?tab=line_items from the "Edit" button on a quote
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'details');
   const [creatingQuote, setCreatingQuote] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailFlash, setEmailFlash] = useState('');

@@ -22,6 +22,7 @@ const reportRoutes = require('./routes/reports');
 const scanRoutes = require('./routes/scan');
 const presenterRoutes = require('./routes/presenter');
 const leadRoutes = require('./routes/leads');
+const emailTemplateRoutes = require('./routes/emailTemplates');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -71,6 +72,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/scan', scanRoutes);
 app.use('/api/presenter', presenterRoutes);
 app.use('/api/leads', leadRoutes);
+app.use('/api/email-templates', emailTemplateRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {
