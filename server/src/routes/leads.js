@@ -83,12 +83,27 @@ const WIX_FORM_SOURCES = {
 };
 
 router.post('/webhook/wix', async (req, res) => {
-  const { formId, formName, submissions } = req.body || {};
+  // Wix may wrap the trigger payload in an envelope — unwrap the common shapes
+  let body = req.body || {};
+  if (!body.submissions && body.data && typeof body.data === 'object') body = body.data;
+  if (!body.submissions && body.payload && typeof body.payload === 'object') body = body.payload;
+
+  const { formId, formName } = body;
+  let submissions = body.submissions;
+  // submissions can be an array of { label, value } or an object map of label -> value
+  if (submissions && !Array.isArray(submissions) && typeof submissions === 'object') {
+    submissions = Object.entries(submissions).map(([label, value]) => ({ label, value }));
+  }
   if (!Array.isArray(submissions)) {
+    console.error('Wix webhook: unrecognised payload shape:', JSON.stringify(req.body).slice(0, 1500));
     return res.status(400).json({ error: 'submissions array is required' });
   }
 
-  const val = re => submissions.find(s => re.test(s.label || ''))?.value || null;
+  const val = re => {
+    const v = submissions.find(s => re.test(s.label || ''))?.value;
+    if (v == null) return null;
+    return Array.isArray(v) ? v.join(', ') : String(v);
+  };
   const first = val(/first\s*name/i);
   const last = val(/last\s*name/i);
   const name = [first, last].filter(Boolean).join(' ') || val(/^name/i);
