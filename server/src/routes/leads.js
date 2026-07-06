@@ -20,6 +20,7 @@ function leadEmailHtml(lead) {
         ${row('Name', lead.name)}
         ${row('Phone', lead.phone)}
         ${row('Email', lead.email)}
+        ${row('Address', lead.address)}
         ${row('Service Required', lead.service_required)}
         ${row('Source', lead.source)}
       </table>
@@ -32,7 +33,7 @@ function leadEmailHtml(lead) {
 
 // ── Public webhook — website contact forms POST here (no login required) ──────
 router.post('/webhook', async (req, res) => {
-  const { name, email, phone, service_required, message, source, website } = req.body || {};
+  const { name, email, phone, address, service_required, message, source, website } = req.body || {};
   // `website` is a honeypot field: real visitors never fill it, bots do.
   // Return 201 so the bot thinks it worked, but store nothing.
   if (website) return res.status(201).json({ ok: true });
@@ -42,9 +43,9 @@ router.post('/webhook', async (req, res) => {
   const clip = (v, n) => (v ? String(v).slice(0, n) : null);
   try {
     const { rows } = await pool.query(
-      `INSERT INTO leads (name, email, phone, service_required, message, source)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [clip(name, 255), clip(email, 255), clip(phone, 50),
+      `INSERT INTO leads (name, email, phone, address, service_required, message, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [clip(name, 255), clip(email, 255), clip(phone, 50), clip(address, 1000),
        clip(service_required, 255), clip(message, 5000), clip(source, 255)]
     );
     const lead = rows[0];
@@ -54,7 +55,7 @@ router.post('/webhook', async (req, res) => {
       to: SALES_EMAIL,
       subject: `New Lead — ${lead.name}${lead.source ? ` (${lead.source})` : ''}`,
       html: leadEmailHtml(lead),
-      text: `New website lead\nName: ${lead.name}\nPhone: ${lead.phone || '-'}\nEmail: ${lead.email || '-'}\nService: ${lead.service_required || '-'}\nSource: ${lead.source || '-'}\nMessage: ${lead.message || '-'}`,
+      text: `New website lead\nName: ${lead.name}\nPhone: ${lead.phone || '-'}\nEmail: ${lead.email || '-'}\nAddress: ${lead.address || '-'}\nService: ${lead.service_required || '-'}\nSource: ${lead.source || '-'}\nMessage: ${lead.message || '-'}`,
     }).catch(err => console.error('Lead email failed:', err.message));
 
     res.status(201).json({ ok: true, id: lead.id });
@@ -110,6 +111,12 @@ router.post('/:id/convert', requireRole('admin', 'office'), async (req, res) => 
       `INSERT INTO customers (name, email, phone, lead_source) VALUES ($1,$2,$3,$4) RETURNING id`,
       [lead.name, lead.email, lead.phone, lead.source]
     );
+    if (lead.address) {
+      await client.query(
+        `INSERT INTO customer_sites (customer_id, address) VALUES ($1,$2)`,
+        [custRows[0].id, lead.address]
+      );
+    }
     await client.query(
       `UPDATE leads SET status='converted', customer_id=$1, updated_at=NOW() WHERE id=$2`,
       [custRows[0].id, lead.id]

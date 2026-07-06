@@ -126,6 +126,7 @@ export default function LeadsPage() {
             <div className={styles.detailList}>
               {selected.phone && <div className={styles.detailRow}><span>Phone</span><strong><a href={`tel:${selected.phone}`}>{selected.phone}</a></strong></div>}
               {selected.email && <div className={styles.detailRow}><span>Email</span><strong><a href={`mailto:${selected.email}`}>{selected.email}</a></strong></div>}
+              {selected.address && <div className={styles.detailRow}><span>Address</span><strong>{selected.address}</strong></div>}
               {selected.service_required && <div className={styles.detailRow}><span>Service Required</span><strong>{selected.service_required}</strong></div>}
               {selected.source && <div className={styles.detailRow}><span>Source</span><strong>{selected.source}</strong></div>}
               <div className={styles.detailRow}><span>Received</span><strong>{new Date(selected.created_at).toLocaleString('en-NZ')}</strong></div>
