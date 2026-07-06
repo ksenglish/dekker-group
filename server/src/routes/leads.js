@@ -31,12 +31,8 @@ function leadEmailHtml(lead) {
     </div>`;
 }
 
-// ── Public webhook — website contact forms POST here (no login required) ──────
-router.post('/webhook', async (req, res) => {
-  const { name, email, phone, address, service_required, message, source, website } = req.body || {};
-  // `website` is a honeypot field: real visitors never fill it, bots do.
-  // Return 201 so the bot thinks it worked, but store nothing.
-  if (website) return res.status(201).json({ ok: true });
+// Shared by both webhook shapes: validate, store, and email the lead
+async function createLead({ name, email, phone, address, service_required, message, source }, res) {
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
   if (!email && !phone) return res.status(400).json({ error: 'email or phone is required' });
 
@@ -63,6 +59,49 @@ router.post('/webhook', async (req, res) => {
     console.error('Lead webhook error:', err);
     res.status(500).json({ error: 'Server error' });
   }
+}
+
+// ── Public webhook — website contact forms POST here (no login required) ──────
+router.post('/webhook', async (req, res) => {
+  const { website, ...fields } = req.body || {};
+  // `website` is a honeypot field: real visitors never fill it, bots do.
+  // Return 201 so the bot thinks it worked, but store nothing.
+  if (website) return res.status(201).json({ ok: true });
+  await createLead(fields, res);
+});
+
+// ── Wix Automations adapter ───────────────────────────────────────────────────
+// Wix's "Send HTTP request" action posts the entire form-submitted trigger
+// payload: { formId, formName, submissions: [{ label, value }], ... }.
+// Fields are matched by label so form field order never matters.
+const WIX_FORM_SOURCES = {
+  '681bc4c5-2943-4868-b658-6f6a2e17f17b': 'Dekker Air-Website-Main Page',    // Dekker Air - Contact Us
+  '4f120313-b74f-40e1-8f56-55be0dec95bb': 'Dekker Air-Website-Heating',      // Dekker Air - Heating
+  'a50ceca7-83b2-47aa-81d8-eeb4452266ab': 'Dekker Air-Website-Cooling',      // Dekker Air - Cooling
+  '84abb054-3e9f-4512-9c21-4b3ac80fc7ab': 'Dekker Air-Website-HVAC Service', // Dekker Air - HVAC Service
+  'd3e79d0f-0b8f-4a33-a8c4-8ace6ddd5fbe': 'Dekker Air-Website-Ventilation',  // Dekker Air - Ventilation Form
+};
+
+router.post('/webhook/wix', async (req, res) => {
+  const { formId, formName, submissions } = req.body || {};
+  if (!Array.isArray(submissions)) {
+    return res.status(400).json({ error: 'submissions array is required' });
+  }
+
+  const val = re => submissions.find(s => re.test(s.label || ''))?.value || null;
+  const first = val(/first\s*name/i);
+  const last = val(/last\s*name/i);
+  const name = [first, last].filter(Boolean).join(' ') || val(/^name/i);
+
+  await createLead({
+    name,
+    email: val(/e-?mail/i),
+    phone: val(/phone|mobile/i),
+    address: val(/address/i),
+    service_required: val(/interested|service|choose an issue/i),
+    message: val(/message|tell us|anything else|enquiry|more about/i),
+    source: WIX_FORM_SOURCES[formId] || (formName ? `${formName} (Website)` : 'Website'),
+  }, res);
 });
 
 // ── Authenticated endpoints (admin + office staff) ────────────────────────────

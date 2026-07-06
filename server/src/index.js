@@ -50,7 +50,7 @@ const restrictedCors = cors({
 // (e.g. the Dekker Air site), so it allows any origin; everything else stays restricted.
 const publicCors = cors();
 app.use((req, res, next) => {
-  if (req.path === '/api/leads/webhook') return publicCors(req, res, next);
+  if (req.path.startsWith('/api/leads/webhook')) return publicCors(req, res, next);
   return restrictedCors(req, res, next);
 });
 app.use(express.json({ limit: '15mb' }));
