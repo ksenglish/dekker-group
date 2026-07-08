@@ -142,6 +142,18 @@ export default function PublicQuote() {
           <div style={{ ...s.totalRow, ...s.totalFinal }}><span>Total (incl. GST)</span><span>{fmt(quote.total)}</span></div>
         </div>
 
+        {/* Proposal (job drawing pulled from ArcSite) */}
+        {quote.arcsite_drawings?.length > 0 && (
+          <div style={s.brochureSection}>
+            <div style={s.label}>Proposal</div>
+            {quote.arcsite_drawings.map((src, i) => (
+              <div key={i} style={s.brochureBlock}>
+                <img src={src} alt="Proposal drawing" style={s.proposalImg} />
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Notes */}
         {quote.notes && (
           <div style={s.notes}>
@@ -247,5 +259,6 @@ const s = {
   brochureBlock: { marginTop: 20 },
   brochureTitle: { fontSize: 13, fontWeight: 600, color: '#0f172a', marginBottom: 10 },
   brochurePdf: { width: '100%', height: 800, border: 'none', borderRadius: 6 },
+  proposalImg: { width: '90%', margin: '0 auto', borderRadius: 6, display: 'block' },
   brochureImg: { width: '100%', borderRadius: 6, display: 'block' },
 };

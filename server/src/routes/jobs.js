@@ -205,7 +205,7 @@ const pool = require('../db/pool');
 router.get('/:id/attachments', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT a.id, a.filename, a.mime_type, a.created_at, u.name AS uploader_name
+      `SELECT a.id, a.filename, a.mime_type, a.created_at, a.arcsite_drawing_id, u.name AS uploader_name
        FROM job_attachments a LEFT JOIN users u ON u.id = a.uploaded_by
        WHERE a.job_id=$1 ORDER BY a.created_at DESC`,
       [req.params.id]

@@ -586,7 +586,7 @@ export default function JobDetail() {
       {/* Sales Presenter picker */}
       {showPresenter && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 300 }}>
-          <SalesPresenter onPick={async (product) => {
+          <SalesPresenter jobId={id} onPick={async (product) => {
             setShowPresenter(false);
             if (!product) return;
             try {

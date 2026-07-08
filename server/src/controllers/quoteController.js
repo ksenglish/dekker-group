@@ -329,6 +329,7 @@ async function publicGet(req, res) {
     }
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
+    const arcsiteDrawings = await getJobDrawingImages(q.job_id);
     const theme = await getTheme();
     res.json({
       id: q.id,
@@ -345,6 +346,7 @@ async function publicGet(req, res) {
       expires_at: q.expires_at,
       is_expired: q.expires_at ? new Date(q.expires_at) < new Date() : false,
       line_items: enrichedItems,
+      arcsite_drawings: arcsiteDrawings,
       company: { name: theme.companyName, email: theme.email, phone: theme.phone, logo: theme.logoBase64,
         logoSize: theme.logoSize, logoPosition: theme.logoPosition, contactPosition: theme.contactPosition },
     });

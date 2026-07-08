@@ -1,9 +1,15 @@
 const PDFDocument = require('pdfkit');
-const { PDFDocument: PdfLib } = require('pdf-lib');
+const { PDFDocument: PdfLib, StandardFonts, rgb } = require('pdf-lib');
 
 const LIGHT_GREY = '#f1f5f9';
 const MID_GREY = '#94a3b8';
 const TEXT = '#0f172a';
+
+// pdf-lib's rgb() wants 0-1 floats, unlike pdfkit's .fillColor() which takes hex directly.
+function hexToRgb01(hex) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return rgb(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
 
 const DEFAULT_THEME = {
   companyName: 'DEKKER GROUP',
@@ -225,39 +231,65 @@ async function buildPDF({ type, number, customer, items, subtotal, gst, total, s
 
   // ── Appendix (pdf-lib merge): product brochures + job drawings ─
   const brochureUrls = (items || []).filter(i => i.brochure_base64).map(i => i.brochure_base64);
-  const appendixUrls = [...brochureUrls, ...(appendixImages || [])];
-  if (!appendixUrls.length) return mainBuf;
+  if (!brochureUrls.length && !(appendixImages || []).length) return mainBuf;
 
-  const seen = new Set();
   const merged = await PdfLib.load(mainBuf);
 
-  for (const dataUrl of appendixUrls) {
+  // Product brochures — unchanged, full-bleed (PDF pages copied in, or images filling the page).
+  const seenBrochures = new Set();
+  for (const dataUrl of brochureUrls) {
     const key = dataUrl.slice(0, 100);
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seenBrochures.has(key)) continue;
+    seenBrochures.add(key);
     try {
       if (dataUrl.startsWith('data:application/pdf')) {
-        // PDF brochure — copy all pages into merged doc
         const raw = dataUrl.replace(/^data:application\/pdf;base64,/, '');
         const brochureDoc = await PdfLib.load(Buffer.from(raw, 'base64'));
         const pageIndices = brochureDoc.getPageIndices();
         const copied = await merged.copyPages(brochureDoc, pageIndices);
         copied.forEach(p => merged.addPage(p));
       } else {
-        // Image brochure — add a new A4 page with the image filling it
         const raw = dataUrl.replace(/^data:image\/\w+;base64,/, '');
         const imgBuf = Buffer.from(raw, 'base64');
         const page = merged.addPage([595, 842]); // A4
-        let img;
-        if (dataUrl.startsWith('data:image/png')) {
-          img = await merged.embedPng(imgBuf);
-        } else {
-          img = await merged.embedJpg(imgBuf);
-        }
+        const img = dataUrl.startsWith('data:image/png') ? await merged.embedPng(imgBuf) : await merged.embedJpg(imgBuf);
         const { width, height } = img.scaleToFit(595, 842);
         page.drawImage(img, { x: (595 - width) / 2, y: (842 - height) / 2, width, height });
       }
-    } catch { /* skip bad appendix item */ }
+    } catch { /* skip bad brochure */ }
+  }
+
+  // Job drawings pulled from ArcSite — titled "Proposal", framed with margins
+  // instead of full-bleed like brochures.
+  if ((appendixImages || []).length) {
+    const titleFont = await merged.embedFont(StandardFonts.HelveticaBold);
+    const PAGE_W = 595, PAGE_H = 842, MARGIN = 50, TITLE_SIZE = 18, GAP = 16;
+    const contentW = PAGE_W - MARGIN * 2;
+    const contentH = PAGE_H - MARGIN * 2 - TITLE_SIZE - GAP;
+
+    const seenDrawings = new Set();
+    for (const dataUrl of appendixImages) {
+      const key = dataUrl.slice(0, 100);
+      if (seenDrawings.has(key)) continue;
+      seenDrawings.add(key);
+      try {
+        const raw = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+        const imgBuf = Buffer.from(raw, 'base64');
+        const page = merged.addPage([PAGE_W, PAGE_H]);
+        page.drawText('Proposal', {
+          x: MARGIN, y: PAGE_H - MARGIN - TITLE_SIZE,
+          size: TITLE_SIZE, font: titleFont, color: hexToRgb01(BRAND),
+        });
+        const img = dataUrl.startsWith('data:image/png') ? await merged.embedPng(imgBuf) : await merged.embedJpg(imgBuf);
+        const fit = img.scaleToFit(contentW, contentH);
+        const width = fit.width * 0.9, height = fit.height * 0.9;
+        page.drawImage(img, {
+          x: MARGIN + (contentW - width) / 2,
+          y: MARGIN + (contentH - height) / 2,
+          width, height,
+        });
+      } catch { /* skip bad drawing */ }
+    }
   }
 
   return Buffer.from(await merged.save());

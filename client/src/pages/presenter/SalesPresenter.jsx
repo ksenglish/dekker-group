@@ -11,7 +11,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.vers
 
 // ── Calculators ───────────────────────────────────────────────────────────────
 
-function AreaCalculator({ product }) {
+function AreaCalculator({ product, jobId }) {
   const cfg = product.calculator_config || {};
   const [length, setLength] = useState('');
   const [width, setWidth] = useState('');
@@ -22,6 +22,10 @@ function AreaCalculator({ product }) {
   const [scanResult, setScanResult] = useState(null);
   const [scanError, setScanError] = useState('');
   const [previewUrl, setPreviewUrl] = useState('');
+  const [showJobPicker, setShowJobPicker] = useState(false);
+  const [jobAttachments, setJobAttachments] = useState([]);
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
+  const [thumbUrls, setThumbUrls] = useState({});
   const fileRef = useRef();
   const pricePerM2 = (product.price_from / 100) || cfg.price_per_m2 || 0;
 
@@ -61,6 +65,51 @@ function AreaCalculator({ product }) {
     setScannedArea(null); setScanResult(null); setScanError(''); setPreviewUrl('');
   }
 
+  async function openJobPicker() {
+    setShowJobPicker(true);
+    setLoadingAttachments(true);
+    try {
+      const { data } = await api.get(`/jobs/${jobId}/attachments`);
+      const images = data
+        .filter(a => (a.mime_type || '').startsWith('image/'))
+        .sort((a, b) => (b.arcsite_drawing_id ? 1 : 0) - (a.arcsite_drawing_id ? 1 : 0));
+      setJobAttachments(images);
+    } catch {
+      setJobAttachments([]);
+    } finally { setLoadingAttachments(false); }
+  }
+
+  useEffect(() => {
+    if (!showJobPicker || !jobAttachments.length) return;
+    const urls = [];
+    jobAttachments.forEach(a => {
+      if (thumbUrls[a.id]) return;
+      api.get(`/jobs/${jobId}/attachments/${a.id}/data`, { responseType: 'blob' }).then(res => {
+        const url = URL.createObjectURL(res.data);
+        urls.push(url);
+        setThumbUrls(u => ({ ...u, [a.id]: url }));
+      }).catch(() => {});
+    });
+    return () => { urls.forEach(u => URL.revokeObjectURL(u)); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobAttachments, showJobPicker]);
+
+  async function selectJobAttachment(a) {
+    try {
+      const res = await api.get(`/jobs/${jobId}/attachments/${a.id}/data`, { responseType: 'blob' });
+      const reader = new FileReader();
+      reader.onload = ev => {
+        setPreviewUrl(ev.target.result);
+        setScanResult(null); setScanError('');
+      };
+      reader.readAsDataURL(res.data);
+      setShowJobPicker(false);
+    } catch {
+      setScanError('Failed to load image from job');
+      setShowJobPicker(false);
+    }
+  }
+
   return (
     <div className={styles.calc}>
       <h3 className={styles.calcTitle}>Area Calculator</h3>
@@ -81,6 +130,11 @@ function AreaCalculator({ product }) {
             <button className={styles.scanUploadBtn} onClick={() => { fileRef.current.setAttribute('capture', 'environment'); fileRef.current.click(); }}>
               📷 Take Photo
             </button>
+            {jobId && (
+              <button className={styles.scanUploadBtn} onClick={openJobPicker}>
+                📥 From Job
+              </button>
+            )}
             <button className={styles.scanCancelBtn} onClick={() => { setScanMode(false); setPreviewUrl(''); setScanError(''); }}>
               Cancel
             </button>
@@ -96,6 +150,39 @@ function AreaCalculator({ product }) {
             </div>
           )}
           {scanError && <div className={styles.scanError}>{scanError}</div>}
+        </div>
+      )}
+
+      {/* Job attachment picker */}
+      {showJobPicker && (
+        <div className={styles.jobPickerOverlay} onClick={e => e.target === e.currentTarget && setShowJobPicker(false)}>
+          <div className={styles.jobPickerModal}>
+            <div className={styles.jobPickerHeader}>
+              <span>Select an image from this job</span>
+              <button className={styles.brochureClose} onClick={() => setShowJobPicker(false)}>✕</button>
+            </div>
+            {loadingAttachments ? (
+              <p className={styles.scanHint}>Loading…</p>
+            ) : jobAttachments.length === 0 ? (
+              <p className={styles.scanHint}>No images on this job yet.</p>
+            ) : (
+              <div className={styles.jobPickerGrid}>
+                {jobAttachments.map(a => (
+                  <button key={a.id} className={styles.jobPickerItem} onClick={() => selectJobAttachment(a)}>
+                    {thumbUrls[a.id] ? (
+                      <img src={thumbUrls[a.id]} alt={a.filename} />
+                    ) : (
+                      <div className={styles.jobPickerLoading}>…</div>
+                    )}
+                    <span className={styles.jobPickerName}>
+                      {a.arcsite_drawing_id && <span className={styles.jobPickerBadge}>ArcSite</span>}
+                      {a.filename}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -648,9 +735,9 @@ function SmartVentBalancedPressureCalculator({ onPick }) {
   );
 }
 
-function Calculator({ product, onPick }) {
+function Calculator({ product, onPick, jobId }) {
   const type = product.calculator_type || 'unit';
-  if (type === 'area') return <AreaCalculator product={product} />;
+  if (type === 'area') return <AreaCalculator product={product} jobId={jobId} />;
   if (type === 'linear') return <LinearCalculator product={product} />;
   if (type === 'heatpump') return <HeatpumpCalculator product={product} />;
   if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
@@ -896,7 +983,7 @@ function BrochureModal({ src, name, onClose }) {
   );
 }
 
-function ProductPanel({ product, section, onClose, onPick }) {
+function ProductPanel({ product, section, onClose, onPick, jobId }) {
   const [showBrochure, setShowBrochure] = useState(false);
   return (
     <div className={styles.panelOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -923,7 +1010,7 @@ function ProductPanel({ product, section, onClose, onPick }) {
               From <strong>${(product.price_from / 100).toLocaleString('en-NZ')}</strong> <span>+ GST</span>
             </div>
           )}
-          <Calculator product={product} onPick={onPick} />
+          <Calculator product={product} onPick={onPick} jobId={jobId} />
           {onPick && product.calculator_type !== 'smartvent_lite' && product.calculator_type !== 'smartvent_positive_pressure' && product.calculator_type !== 'smartvent_balanced_pressure' && (
             <button className={styles.addToJobBtn} onClick={() => onPick(product.price_list_product || product)}>
               + Add to Quote
@@ -970,7 +1057,7 @@ function SubcategoryGrid({ subcategories, section, onPick: onPickSubcat }) {
 }
 
 // ── Main Presenter ────────────────────────────────────────────────────────────
-export default function SalesPresenter({ onPick }) {
+export default function SalesPresenter({ onPick, jobId }) {
   const navigate = useNavigate();
   const [sections, setSections] = useState([]);
   const [activeSection, setActiveSection] = useState(null);
@@ -1144,6 +1231,7 @@ export default function SalesPresenter({ onPick }) {
           section={activeSection}
           onClose={() => { setSelectedProduct(null); setSelectedProductFull(null); }}
           onPick={onPick}
+          jobId={jobId}
         />
       )}
     </div>
