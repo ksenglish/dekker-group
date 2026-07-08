@@ -163,11 +163,13 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
     for (const summary of drawings) {
       try {
         const drawing = await arcsite.getDrawing(summary.id);
-        const fileUrl = drawing.pdf_url || drawing.png_url;
+        // Prefer the image (PNG) so it can be viewed inline in the app and
+        // merged straight into the quote PDF, same as product brochures.
+        const fileUrl = drawing.png_url || drawing.pdf_url;
         if (!fileUrl) { skipped.push(`${drawing.name} (not ready yet — try again shortly)`); continue; }
 
         const { buffer, contentType } = await arcsite.downloadFile(fileUrl);
-        const ext = drawing.pdf_url ? 'pdf' : 'png';
+        const ext = drawing.png_url ? 'png' : 'pdf';
         const filename = `${drawing.name || 'Drawing'}.${ext}`;
         const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
 

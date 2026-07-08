@@ -159,6 +159,14 @@ async function convertToInvoice(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+async function getJobDrawingImages(jobId) {
+  const { rows } = await pool.query(
+    `SELECT data_base64 FROM job_attachments WHERE job_id=$1 AND arcsite_drawing_id IS NOT NULL ORDER BY created_at`,
+    [jobId]
+  );
+  return rows.map(r => r.data_base64);
+}
+
 async function enrichItemsWithImages(items) {
   const ids = items.map(i => i.product_id).filter(Boolean);
   if (!ids.length) return items;
@@ -182,12 +190,14 @@ async function downloadPdf(req, res) {
     if (!q) return res.status(404).json({ error: 'Not found' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
+    const appendixImages = await getJobDrawingImages(q.job_id);
     const theme = await getTheme();
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme,
+      appendixImages,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="quote-${q.id.slice(0,8)}.pdf"` });
     res.send(pdf);
@@ -243,12 +253,14 @@ async function sendEmail(req, res) {
     if (!q.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
+    const appendixImages = await getJobDrawingImages(q.job_id);
     const theme = await getTheme();
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme,
+      appendixImages,
     });
 
     // A user-edited draft (subject/body) takes priority; fall back to the

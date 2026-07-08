@@ -32,7 +32,7 @@ function formatDate(d) {
 
 const LOGO_SIZES = { small: 36, medium: 58, large: 78 };
 
-async function buildPDF({ type, number, customer, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, issuedAt, theme = {} }) {
+async function buildPDF({ type, number, customer, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, issuedAt, theme = {}, appendixImages = [] }) {
   const t = { ...DEFAULT_THEME, ...theme };
   const BRAND = t.brandColour || '#1e40af';
   const logoH = LOGO_SIZES[t.logoSize] || 58;
@@ -223,19 +223,19 @@ async function buildPDF({ type, number, customer, items, subtotal, gst, total, s
     doc.end();
   });
 
-  // ── Brochure Appendix (pdf-lib merge) ───────────────────────
-  const brochureItems = (items || []).filter(i => i.brochure_base64);
-  if (!brochureItems.length) return mainBuf;
+  // ── Appendix (pdf-lib merge): product brochures + job drawings ─
+  const brochureUrls = (items || []).filter(i => i.brochure_base64).map(i => i.brochure_base64);
+  const appendixUrls = [...brochureUrls, ...(appendixImages || [])];
+  if (!appendixUrls.length) return mainBuf;
 
   const seen = new Set();
   const merged = await PdfLib.load(mainBuf);
 
-  for (const item of brochureItems) {
-    const key = item.brochure_base64.slice(0, 100);
+  for (const dataUrl of appendixUrls) {
+    const key = dataUrl.slice(0, 100);
     if (seen.has(key)) continue;
     seen.add(key);
     try {
-      const dataUrl = item.brochure_base64;
       if (dataUrl.startsWith('data:application/pdf')) {
         // PDF brochure — copy all pages into merged doc
         const raw = dataUrl.replace(/^data:application\/pdf;base64,/, '');
@@ -257,7 +257,7 @@ async function buildPDF({ type, number, customer, items, subtotal, gst, total, s
         const { width, height } = img.scaleToFit(595, 842);
         page.drawImage(img, { x: (595 - width) / 2, y: (842 - height) / 2, width, height });
       }
-    } catch { /* skip bad brochure */ }
+    } catch { /* skip bad appendix item */ }
   }
 
   return Buffer.from(await merged.save());
