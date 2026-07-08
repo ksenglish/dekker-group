@@ -131,6 +131,7 @@ export default function QuoteDetail() {
       {showEmailModal && (
         <EmailComposeModal
           quoteId={id}
+          jobId={quote.job_id}
           customerEmail={quote.customer_email}
           onClose={() => setShowEmailModal(false)}
           onSent={handleEmailSent}

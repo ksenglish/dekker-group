@@ -6,7 +6,7 @@ import styles from './Quotes.module.css';
 // Compose-before-send modal for the quote "Email to Customer" button — loads a
 // saved, personalised template (with {{placeholders}} already resolved for this
 // quote), lets the user switch templates or edit freely, then sends on confirm.
-export default function EmailComposeModal({ quoteId, customerEmail, onClose, onSent }) {
+export default function EmailComposeModal({ quoteId, jobId, customerEmail, onClose, onSent }) {
   const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);
   const [templateId, setTemplateId] = useState('');
@@ -16,18 +16,26 @@ export default function EmailComposeModal({ quoteId, customerEmail, onClose, onS
   const [switching, setSwitching] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [jobAttachments, setJobAttachments] = useState([]);
+  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState([]);
 
   useEffect(() => {
     Promise.all([
       api.get('/email-templates', { params: { category: 'quote' } }),
       api.get(`/quotes/${quoteId}/email-preview`),
-    ]).then(([tplRes, previewRes]) => {
+      jobId ? api.get(`/jobs/${jobId}/attachments`) : Promise.resolve({ data: [] }),
+    ]).then(([tplRes, previewRes, attRes]) => {
       setTemplates(tplRes.data);
       setTemplateId(previewRes.data.templateId || '');
       setSubject(previewRes.data.subject);
       setBody(previewRes.data.body);
+      setJobAttachments(attRes.data);
     }).catch(() => setError('Failed to load email template')).finally(() => setLoading(false));
-  }, [quoteId]);
+  }, [quoteId, jobId]);
+
+  function toggleAttachment(id) {
+    setSelectedAttachmentIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
+  }
 
   async function selectTemplate(id) {
     setTemplateId(id);
@@ -45,7 +53,7 @@ export default function EmailComposeModal({ quoteId, customerEmail, onClose, onS
     if (!subject.trim() || !body.trim()) return;
     setSending(true); setError('');
     try {
-      await api.post(`/quotes/${quoteId}/email`, { subject, body });
+      await api.post(`/quotes/${quoteId}/email`, { subject, body, attachment_ids: selectedAttachmentIds });
       onSent(customerEmail);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to send email');
@@ -101,6 +109,21 @@ export default function EmailComposeModal({ quoteId, customerEmail, onClose, onS
                   style={{ padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
                 <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>The quote PDF is attached automatically.</span>
               </div>
+
+              {jobAttachments.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={{ fontSize: 13, fontWeight: 500 }}>Also attach</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 140, overflowY: 'auto',
+                    border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: '8px 12px' }}>
+                    {jobAttachments.map(a => (
+                      <label key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={selectedAttachmentIds.includes(a.id)} onChange={() => toggleAttachment(a.id)} />
+                        {a.filename}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className={styles.modalFooter} style={{ marginTop: 20 }}>

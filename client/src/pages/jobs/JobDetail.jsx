@@ -222,20 +222,35 @@ function JobAttachments({ jobId, user }) {
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        attachments.length === 0 ? <div className={styles.emptySmall}>No photos uploaded yet.</div> : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, padding: 16 }}>
-          {attachments.map(a => (
-            <div key={a.id} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
-              <img
-                src={`${VITE_API}/jobs/${jobId}/attachments/${a.id}/data`}
-                alt={a.filename}
-                style={{ width: '100%', height: 120, objectFit: 'cover', cursor: 'pointer', display: 'block' }}
-                onClick={() => setLightbox(`${VITE_API}/jobs/${jobId}/attachments/${a.id}/data`)}
-              />
-              <div style={{ padding: '4px 6px', fontSize: 10, color: 'var(--color-text-muted)', background: 'white' }}>
-                {a.uploader_name} · {new Date(a.created_at).toLocaleDateString('en-NZ')}
+          {attachments.map(a => {
+            const isImage = (a.mime_type || '').startsWith('image/');
+            const fileUrl = `${VITE_API}/jobs/${jobId}/attachments/${a.id}/data`;
+            return (
+              <div key={a.id} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+                {isImage ? (
+                  <img
+                    src={fileUrl}
+                    alt={a.filename}
+                    style={{ width: '100%', height: 120, objectFit: 'cover', cursor: 'pointer', display: 'block' }}
+                    onClick={() => setLightbox(fileUrl)}
+                  />
+                ) : (
+                  <div
+                    onClick={() => window.open(fileUrl, '_blank')}
+                    style={{ width: '100%', height: 120, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      gap: 6, cursor: 'pointer', background: '#f8fafc', textAlign: 'center', padding: '0 8px' }}
+                  >
+                    <span style={{ fontSize: 32 }}>📄</span>
+                    <span style={{ fontSize: 11, color: 'var(--color-text-muted)', wordBreak: 'break-word' }}>{a.filename}</span>
+                  </div>
+                )}
+                <div style={{ padding: '4px 6px', fontSize: 10, color: 'var(--color-text-muted)', background: 'white' }}>
+                  {a.uploader_name} · {new Date(a.created_at).toLocaleDateString('en-NZ')}
+                </div>
+                <button onClick={() => del(a.id)} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '2px 5px', fontSize: 11 }}>✕</button>
               </div>
-              <button onClick={() => del(a.id)} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '2px 5px', fontSize: 11 }}>✕</button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {lightbox && (
@@ -347,6 +362,9 @@ export default function JobDetail() {
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailFlash, setEmailFlash] = useState('');
   const [showPresenter, setShowPresenter] = useState(false);
+  const [syncingArcSite, setSyncingArcSite] = useState(false);
+  const [pullingDrawings, setPullingDrawings] = useState(false);
+  const [attachmentsRefreshKey, setAttachmentsRefreshKey] = useState(0);
 
   useEffect(() => {
     if (isNew) return;
@@ -392,6 +410,35 @@ export default function JobDetail() {
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to delete job. Please try again.');
     }
+  }
+
+  async function handleArcSiteSync() {
+    setSyncingArcSite(true);
+    try {
+      const { data } = await api.post(`/jobs/${id}/arcsite-sync`);
+      setJob(j => ({ ...j, arcsite_project_id: data.arcsite_project_id }));
+      setEmailFlash(`Synced to ArcSite as "${data.name}"`);
+    } catch (err) {
+      setEmailFlash(err.response?.data?.error || 'Failed to sync with ArcSite');
+    } finally { setSyncingArcSite(false); }
+  }
+
+  async function handlePullDrawings() {
+    setPullingDrawings(true);
+    try {
+      const { data } = await api.post(`/jobs/${id}/arcsite-pull-drawings`);
+      if (data.pulled.length === 0 && data.skipped.length === 0) {
+        setEmailFlash('No drawings found on this ArcSite project yet.');
+      } else {
+        const parts = [];
+        if (data.pulled.length) parts.push(`Pulled ${data.pulled.length} drawing${data.pulled.length === 1 ? '' : 's'}`);
+        if (data.skipped.length) parts.push(`${data.skipped.length} skipped`);
+        setEmailFlash(parts.join(' · '));
+        if (data.pulled.length) setAttachmentsRefreshKey(k => k + 1);
+      }
+    } catch (err) {
+      setEmailFlash(err.response?.data?.error || 'Failed to pull drawings from ArcSite');
+    } finally { setPullingDrawings(false); }
   }
 
   function handleSaved(savedJob) {
@@ -440,6 +487,16 @@ export default function JobDetail() {
           )}
           <button className={styles.btnSecondary} onClick={() => navigate(`/schedule?job=${id}`)}>📅 Schedule</button>
           <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
+          {user?.role !== 'field_tech' && (
+            <button className={styles.btnSecondary} onClick={handleArcSiteSync} disabled={syncingArcSite}>
+              {syncingArcSite ? 'Syncing…' : job.arcsite_project_id ? '🔄 Re-sync ArcSite' : '📐 Send to ArcSite'}
+            </button>
+          )}
+          {user?.role !== 'field_tech' && job.arcsite_project_id && (
+            <button className={styles.btnSecondary} onClick={handlePullDrawings} disabled={pullingDrawings}>
+              {pullingDrawings ? 'Pulling…' : '📥 Pull Drawing'}
+            </button>
+          )}
           {user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
           )}
@@ -657,7 +714,7 @@ export default function JobDetail() {
           )}
 
           {activeTab === 'timesheets' && <JobTimesheets jobId={id} user={user} />}
-          {activeTab === 'photos' && <JobAttachments jobId={id} user={user} />}
+          {activeTab === 'photos' && <JobAttachments key={attachmentsRefreshKey} jobId={id} user={user} />}
 
           {activeTab === 'notes' && (
             <div className={styles.card}>

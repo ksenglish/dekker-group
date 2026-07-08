@@ -25,7 +25,10 @@ const leadRoutes = require('./routes/leads');
 const emailTemplateRoutes = require('./routes/emailTemplates');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+// SERVER_PORT takes priority so a PORT already exported for the client dev
+// server (e.g. by local tooling) can't make the API try to bind the same port.
+// Render only ever sets PORT, so production is unaffected.
+const PORT = process.env.SERVER_PORT || process.env.PORT || 3001;
 
 app.use(compression()); // gzip all responses — cuts bandwidth 60-80%
 const restrictedCors = cors({

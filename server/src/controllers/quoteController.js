@@ -265,12 +265,28 @@ async function sendEmail(req, res) {
     }
     const htmlBody = body.split('\n').map(line => `<p>${line || '&nbsp;'}</p>`).join('\n');
 
+    const attachments = [{ filename: `quote-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }];
+    const { attachment_ids } = req.body || {};
+    if (Array.isArray(attachment_ids) && attachment_ids.length) {
+      const extra = await pool.query(
+        'SELECT filename, mime_type, data_base64 FROM job_attachments WHERE job_id=$1 AND id = ANY($2::uuid[])',
+        [q.job_id, attachment_ids]
+      );
+      for (const a of extra.rows) {
+        attachments.push({
+          filename: a.filename,
+          content: Buffer.from(a.data_base64.replace(/^data:[^;]+;base64,/, ''), 'base64'),
+          contentType: a.mime_type || 'application/octet-stream',
+        });
+      }
+    }
+
     await sendMail({
       to: q.customer_email,
       subject,
       html: htmlBody,
       text: body,
-      attachments: [{ filename: `quote-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }],
+      attachments,
     });
     await pool.query('UPDATE quotes SET status=\'sent\', delivery_status=\'sent\', sent_at=NOW(), updated_at=NOW() WHERE id=$1', [req.params.id]);
     await logActivity({ type: 'quote_sent', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id,

@@ -3,6 +3,7 @@ const router = express.Router();
 const c = require('../controllers/jobController');
 const { importTradify } = require('../controllers/importController');
 const { authenticate, requireRole, authenticateAutomation } = require('../middleware/auth');
+const arcsite = require('../utils/arcsite');
 
 // Automation endpoint — accepts X-API-Key or user JWT
 router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
@@ -94,6 +95,102 @@ router.post('/:id/email', requireRole('admin', 'office'), async (req, res) => {
       message: `Email sent to ${job.customer_name} re Job #${job.job_number}` });
     res.json({ message: 'Email sent' });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message || 'Failed to send email' }); }
+});
+
+// ── ArcSite integration ──────────────────────────────────────────────────────
+
+function formatJobNumber(job) {
+  if (job.external_ref) return job.external_ref;
+  if (job.job_number != null && job.job_number !== '') return 'JB' + String(job.job_number).padStart(5, '0');
+  return '';
+}
+
+// Push this job + its customer to ArcSite as a Project (creates on first call, updates thereafter)
+router.post('/:id/arcsite-sync', requireRole('admin', 'office'), async (req, res) => {
+  try {
+    const pool = require('../db/pool');
+    const { rows: [job] } = await pool.query('SELECT * FROM jobs WHERE id=$1', [req.params.id]);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!job.customer_id) return res.status(400).json({ error: 'Job must have a customer before syncing to ArcSite' });
+
+    const { rows: [customer] } = await pool.query('SELECT * FROM customers WHERE id=$1', [job.customer_id]);
+
+    const project = {
+      name: job.description || `Job ${formatJobNumber(job)}`,
+      owner: process.env.ARCSITE_OWNER_EMAIL,
+      job_number: formatJobNumber(job),
+      customer: {
+        name: customer?.name,
+        phone: customer?.phone,
+        second_phone: customer?.mobile,
+        email: customer?.email,
+        address: {
+          street: customer?.address_street,
+          city: customer?.address_city,
+          state: customer?.address_region,
+          zip_code: customer?.address_postcode,
+        },
+      },
+      sales_rep: {
+        name: req.user.name,
+        email: req.user.email,
+      },
+    };
+
+    const result = await arcsite.createOrUpdateProject(project, job.arcsite_project_id);
+    if (!job.arcsite_project_id) {
+      await pool.query('UPDATE jobs SET arcsite_project_id=$1, updated_at=NOW() WHERE id=$2', [result.id, job.id]);
+    }
+    res.json({ arcsite_project_id: result.id, name: result.name });
+  } catch (err) {
+    console.error('ArcSite sync failed:', err);
+    res.status(502).json({ error: err.message || 'Failed to sync with ArcSite' });
+  }
+});
+
+// Pull every drawing currently on this job's ArcSite project into job_attachments
+router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async (req, res) => {
+  try {
+    const pool = require('../db/pool');
+    const { rows: [job] } = await pool.query('SELECT * FROM jobs WHERE id=$1', [req.params.id]);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    if (!job.arcsite_project_id) return res.status(400).json({ error: 'Send this job to ArcSite first' });
+
+    const drawings = await arcsite.listProjectDrawings(job.arcsite_project_id);
+    const pulled = [];
+    const skipped = [];
+
+    for (const summary of drawings) {
+      try {
+        const drawing = await arcsite.getDrawing(summary.id);
+        const fileUrl = drawing.pdf_url || drawing.png_url;
+        if (!fileUrl) { skipped.push(`${drawing.name} (not ready yet — try again shortly)`); continue; }
+
+        const { buffer, contentType } = await arcsite.downloadFile(fileUrl);
+        const ext = drawing.pdf_url ? 'pdf' : 'png';
+        const filename = `${drawing.name || 'Drawing'}.${ext}`;
+        const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+
+        await pool.query(
+          `INSERT INTO job_attachments (job_id, uploaded_by, filename, mime_type, data_base64, arcsite_drawing_id)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (job_id, arcsite_drawing_id) DO UPDATE
+             SET filename=EXCLUDED.filename, mime_type=EXCLUDED.mime_type,
+                 data_base64=EXCLUDED.data_base64, created_at=NOW()`,
+          [job.id, req.user.id, filename, contentType, dataUrl, drawing.id]
+        );
+        pulled.push(filename);
+      } catch (err) {
+        console.error('ArcSite drawing pull failed for', summary.id, err);
+        skipped.push(`${summary.name || summary.id} (${err.message})`);
+      }
+    }
+
+    res.json({ pulled, skipped });
+  } catch (err) {
+    console.error('ArcSite pull-drawings failed:', err);
+    res.status(502).json({ error: err.message || 'Failed to pull drawings from ArcSite' });
+  }
 });
 
 // Attachments (photos from site)
