@@ -174,7 +174,7 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
         await pool.query(
           `INSERT INTO job_attachments (job_id, uploaded_by, filename, mime_type, data_base64, arcsite_drawing_id)
            VALUES ($1,$2,$3,$4,$5,$6)
-           ON CONFLICT (job_id, arcsite_drawing_id) DO UPDATE
+           ON CONFLICT (job_id, arcsite_drawing_id) WHERE arcsite_drawing_id IS NOT NULL DO UPDATE
              SET filename=EXCLUDED.filename, mime_type=EXCLUDED.mime_type,
                  data_base64=EXCLUDED.data_base64, created_at=NOW()`,
           [job.id, req.user.id, filename, contentType, dataUrl, drawing.id]
