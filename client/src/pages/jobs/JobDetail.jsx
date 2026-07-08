@@ -432,7 +432,7 @@ export default function JobDetail() {
       } else {
         const parts = [];
         if (data.pulled.length) parts.push(`Pulled ${data.pulled.length} drawing${data.pulled.length === 1 ? '' : 's'}`);
-        if (data.skipped.length) parts.push(`${data.skipped.length} skipped`);
+        if (data.skipped.length) parts.push(`Skipped: ${data.skipped.join('; ')}`);
         setEmailFlash(parts.join(' · '));
         if (data.pulled.length) setAttachmentsRefreshKey(k => k + 1);
       }
