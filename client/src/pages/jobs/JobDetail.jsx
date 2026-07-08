@@ -177,12 +177,29 @@ function JobAttachments({ jobId, user }) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
+  const [fileUrls, setFileUrls] = useState({}); // attachment id -> blob object URL
 
   useEffect(() => {
     api.get(`/jobs/${jobId}/attachments`)
       .then(r => setAttachments(r.data))
       .finally(() => setLoading(false));
   }, [jobId]);
+
+  // The /data endpoint requires a Bearer token, which a plain <img src> or
+  // window.open() can't supply — fetch each file through the authenticated
+  // api client instead and open/display it as a local blob URL.
+  useEffect(() => {
+    const urls = [];
+    attachments.forEach(a => {
+      if (fileUrls[a.id]) return;
+      api.get(`/jobs/${jobId}/attachments/${a.id}/data`, { responseType: 'blob' }).then(res => {
+        const url = URL.createObjectURL(res.data);
+        urls.push(url);
+        setFileUrls(u => ({ ...u, [a.id]: url }));
+      }).catch(() => {});
+    });
+    return () => { urls.forEach(u => URL.revokeObjectURL(u)); };
+  }, [attachments, jobId]);
 
   function handleFile(e) {
     const file = e.target.files[0];
@@ -207,8 +224,6 @@ function JobAttachments({ jobId, user }) {
     setAttachments(a => a.filter(x => x.id !== id));
   }
 
-  const VITE_API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-
   return (
     <div className={styles.card}>
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -224,21 +239,27 @@ function JobAttachments({ jobId, user }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10, padding: 16 }}>
           {attachments.map(a => {
             const isImage = (a.mime_type || '').startsWith('image/');
-            const fileUrl = `${VITE_API}/jobs/${jobId}/attachments/${a.id}/data`;
+            const fileUrl = fileUrls[a.id];
             return (
               <div key={a.id} style={{ position: 'relative', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
                 {isImage ? (
-                  <img
-                    src={fileUrl}
-                    alt={a.filename}
-                    style={{ width: '100%', height: 120, objectFit: 'cover', cursor: 'pointer', display: 'block' }}
-                    onClick={() => setLightbox(fileUrl)}
-                  />
+                  fileUrl ? (
+                    <img
+                      src={fileUrl}
+                      alt={a.filename}
+                      style={{ width: '100%', height: 120, objectFit: 'cover', cursor: 'pointer', display: 'block' }}
+                      onClick={() => setLightbox(fileUrl)}
+                    />
+                  ) : (
+                    <div style={{ width: '100%', height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
+                      <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>Loading…</span>
+                    </div>
+                  )
                 ) : (
                   <div
-                    onClick={() => window.open(fileUrl, '_blank')}
+                    onClick={() => fileUrl && window.open(fileUrl, '_blank')}
                     style={{ width: '100%', height: 120, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                      gap: 6, cursor: 'pointer', background: '#f8fafc', textAlign: 'center', padding: '0 8px' }}
+                      gap: 6, cursor: fileUrl ? 'pointer' : 'default', background: '#f8fafc', textAlign: 'center', padding: '0 8px' }}
                   >
                     <span style={{ fontSize: 32 }}>📄</span>
                     <span style={{ fontSize: 11, color: 'var(--color-text-muted)', wordBreak: 'break-word' }}>{a.filename}</span>
