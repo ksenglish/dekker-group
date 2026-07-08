@@ -168,8 +168,13 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
         const fileUrl = drawing.png_url || drawing.pdf_url;
         if (!fileUrl) { skipped.push(`${drawing.name} (not ready yet — try again shortly)`); continue; }
 
-        const { buffer, contentType } = await arcsite.downloadFile(fileUrl);
-        const ext = drawing.png_url ? 'png' : 'pdf';
+        // Trust which endpoint we called, not the CDN's Content-Type header —
+        // ArcSite's asset URLs don't reliably report it, which was causing
+        // PNG drawings to be stored with the wrong mime type.
+        const { buffer } = await arcsite.downloadFile(fileUrl);
+        const isPng = !!drawing.png_url;
+        const contentType = isPng ? 'image/png' : 'application/pdf';
+        const ext = isPng ? 'png' : 'pdf';
         const filename = `${drawing.name || 'Drawing'}.${ext}`;
         const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
 
