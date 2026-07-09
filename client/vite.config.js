@@ -30,11 +30,23 @@ export default defineConfig({
         // Cache the app shell forever (versioned filenames change on deploy)
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
 
+        // The default SPA navigation fallback (serves cached index.html for any
+        // unmatched navigation, so client-side routing survives a refresh) runs
+        // before runtimeCaching rules below and only checks request.mode, not
+        // path — without this, it swallows real server navigations like the
+        // Xero OAuth connect/callback redirect chain before they ever reach /api.
+        navigateFallbackDenylist: [/^\/api\//],
+
         // Runtime caching strategies
         runtimeCaching: [
           {
-            // API reads: serve cached, refresh in background (data shows instantly)
-            urlPattern: ({ url }) => url.pathname.startsWith('/api/') && !url.pathname.includes('/pdf') && !url.pathname.includes('/email'),
+            // API reads: serve cached, refresh in background (data shows instantly).
+            // Excludes navigation requests — a service worker can't hand a redirected
+            // response back to a page navigation (e.g. the Xero OAuth connect/callback
+            // redirect chain), the browser silently kills it with a blank screen.
+            urlPattern: ({ url, request }) =>
+              request.mode !== 'navigate' &&
+              url.pathname.startsWith('/api/') && !url.pathname.includes('/pdf') && !url.pathname.includes('/email'),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',
