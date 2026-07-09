@@ -3,6 +3,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const c = require('../controllers/settingsController');
 const { buildPDF } = require('../utils/pdf');
 const { testConnection, getEmailSettings } = require('../utils/email');
+const { getXeroConnection, saveXeroConnection } = require('../utils/xero');
 const pool = require('../db/pool');
 
 router.get('/', authenticate, c.get);
@@ -231,6 +232,30 @@ router.put('/integrations', authenticate, requireRole('admin'), async (req, res)
     );
     res.json(req.body);
   } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Xero connection status — never returns the stored access/refresh tokens.
+router.get('/xero', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  try {
+    const conn = await getXeroConnection();
+    res.json({
+      connected: !!conn,
+      tenant_name: conn?.tenantName || null,
+      connected_at: conn?.connectedAt || null,
+      default_account_code: conn?.defaultAccountCode || null,
+      default_tax_type: conn?.defaultTaxType || null,
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/xero', authenticate, requireRole('admin'), async (req, res) => {
+  const { default_account_code, default_tax_type } = req.body;
+  try {
+    const conn = await getXeroConnection();
+    if (!conn) return res.status(400).json({ error: 'Xero is not connected' });
+    const updated = await saveXeroConnection({ defaultAccountCode: default_account_code, defaultTaxType: default_tax_type });
+    res.json({ default_account_code: updated.defaultAccountCode, default_tax_type: updated.defaultTaxType });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
 module.exports = router;

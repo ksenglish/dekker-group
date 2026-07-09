@@ -23,6 +23,8 @@ const scanRoutes = require('./routes/scan');
 const presenterRoutes = require('./routes/presenter');
 const leadRoutes = require('./routes/leads');
 const emailTemplateRoutes = require('./routes/emailTemplates');
+const xeroRoutes = require('./routes/xero');
+const xeroWebhookRoutes = require('./routes/xero-webhook');
 
 const app = express();
 // SERVER_PORT takes priority so a PORT already exported for the client dev
@@ -57,6 +59,12 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/leads/webhook')) return publicCors(req, res, next);
   return restrictedCors(req, res, next);
 });
+// Xero webhook needs the raw request bytes for HMAC signature verification,
+// so it's mounted with its own body parser ahead of the shared express.json()
+// below — the handler always sends a response itself, so this request never
+// reaches the generic JSON parser.
+app.use('/api/xero/webhook', express.raw({ type: 'application/json' }), xeroWebhookRoutes);
+
 app.use(express.json({ limit: '15mb' }));
 app.use(cookieParser());
 
@@ -76,6 +84,7 @@ app.use('/api/scan', scanRoutes);
 app.use('/api/presenter', presenterRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);
+app.use('/api/xero', xeroRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {

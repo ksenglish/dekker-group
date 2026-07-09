@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Settings.module.css';
@@ -12,7 +13,9 @@ const DEFAULT_STATUS_COLOURS = {
 };
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('My Account');
+  const [searchParams] = useSearchParams();
+  // Supports deep-linking to a tab, e.g. /settings?tab=Integrations from the Xero OAuth callback
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'My Account');
   const [theme, setTheme] = useState(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -723,17 +726,145 @@ function BillingRatesTab() {
 }
 
 function IntegrationsTab() {
+  const [xeroStatus, setXeroStatus] = useState(null); // { connected, tenant_name, connected_at, default_account_code, default_tax_type }
+  const [xeroLoading, setXeroLoading] = useState(true);
+  const [xeroFlash, setXeroFlash] = useState('');
+  const [accounts, setAccounts] = useState([]);
+  const [taxRates, setTaxRates] = useState([]);
+  const [defaultAccountCode, setDefaultAccountCode] = useState('');
+  const [defaultTaxType, setDefaultTaxType] = useState('');
+  const [xeroSaving, setXeroSaving] = useState(false);
+  const [xeroSaved, setXeroSaved] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  function loadXeroStatus() {
+    setXeroLoading(true);
+    return api.get('/settings/xero').then(r => {
+      setXeroStatus(r.data);
+      setDefaultAccountCode(r.data.default_account_code || '');
+      setDefaultTaxType(r.data.default_tax_type || '');
+      if (r.data.connected) {
+        api.get('/xero/accounts').then(res => setAccounts(res.data)).catch(() => {});
+        api.get('/xero/tax-rates').then(res => setTaxRates(res.data)).catch(() => {});
+      }
+    }).finally(() => setXeroLoading(false));
+  }
+
+  useEffect(() => {
+    loadXeroStatus();
+    const params = new URLSearchParams(window.location.search);
+    const xero = params.get('xero');
+    if (xero === 'connected') setXeroFlash('Connected to Xero.');
+    else if (xero === 'error') setXeroFlash('Failed to connect to Xero — please try again.');
+    if (xero) {
+      params.delete('xero');
+      const qs = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function saveXeroDefaults() {
+    setXeroSaving(true);
+    try {
+      await api.put('/settings/xero', { default_account_code: defaultAccountCode, default_tax_type: defaultTaxType });
+      setXeroSaved(true); setTimeout(() => setXeroSaved(false), 3000);
+    } finally { setXeroSaving(false); }
+  }
+
+  async function disconnectXero() {
+    if (!confirm('Disconnect Dekker App from Xero?')) return;
+    setDisconnecting(true);
+    try {
+      await api.post('/xero/disconnect');
+      await loadXeroStatus();
+    } finally { setDisconnecting(false); }
+  }
+
   return (
-    <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600 }}>Integrations</h2>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600 }}>Xero</h2>
+        </div>
+        <div style={{ padding: 24 }}>
+          {xeroFlash && (
+            <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8, fontSize: 13,
+              background: xeroFlash.startsWith('Failed') ? '#fef2f2' : '#f0fdf4',
+              border: `1px solid ${xeroFlash.startsWith('Failed') ? '#fecaca' : '#bbf7d0'}`,
+              color: xeroFlash.startsWith('Failed') ? '#dc2626' : '#15803d' }}>
+              {xeroFlash}
+            </div>
+          )}
+          {xeroLoading ? (
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Loading…</p>
+          ) : !xeroStatus?.connected ? (
+            <>
+              <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 14 }}>
+                Not connected. Connect Dekker App to Xero to push invoices, pull payment status back, and keep customer contacts in sync.
+              </p>
+              <a href="/api/xero/connect" className={styles.btnPrimary} style={{ display: 'inline-block', textDecoration: 'none' }}>
+                Connect to Xero
+              </a>
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, marginBottom: 20 }}>
+                <span style={{ fontSize: 20 }}>✓</span>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>Connected — {xeroStatus.tenant_name}</div>
+                  {xeroStatus.connected_at && (
+                    <div style={{ fontSize: 13, color: '#16a34a' }}>
+                      Since {new Date(xeroStatus.connected_at).toLocaleDateString('en-NZ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className={styles.formGrid}>
+                <div className={styles.field}>
+                  <label>Default account code</label>
+                  <select value={defaultAccountCode} onChange={e => setDefaultAccountCode(e.target.value)}>
+                    <option value="">Select an account…</option>
+                    {accounts.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+                  </select>
+                </div>
+                <div className={styles.field}>
+                  <label>Default tax rate</label>
+                  <select value={defaultTaxType} onChange={e => setDefaultTaxType(e.target.value)}>
+                    <option value="">Select a tax rate…</option>
+                    {taxRates.map(r => <option key={r.taxType} value={r.taxType}>{r.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 8 }}>
+                Used for every line item when an invoice is pushed to Xero.
+              </p>
+
+              <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+                <button className={styles.btnSecondary} onClick={disconnectXero} disabled={disconnecting}>
+                  {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+                </button>
+                <button className={styles.btnPrimary} onClick={saveXeroDefaults} disabled={xeroSaving || !defaultAccountCode || !defaultTaxType}>
+                  {xeroSaving ? 'Saving…' : xeroSaved ? '✓ Saved' : 'Save'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-      <div style={{ padding: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
-          <span style={{ fontSize: 20 }}>🗺</span>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>Map — OpenStreetMap (Free)</div>
-            <div style={{ fontSize: 13, color: '#16a34a' }}>No API key required. Powered by Leaflet + OpenStreetMap.</div>
+
+      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600 }}>Other Integrations</h2>
+        </div>
+        <div style={{ padding: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+            <span style={{ fontSize: 20 }}>🗺</span>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>Map — OpenStreetMap (Free)</div>
+              <div style={{ fontSize: 13, color: '#16a34a' }}>No API key required. Powered by Leaflet + OpenStreetMap.</div>
+            </div>
           </div>
         </div>
       </div>

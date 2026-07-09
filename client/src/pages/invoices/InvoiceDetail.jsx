@@ -18,6 +18,7 @@ export default function InvoiceDetail() {
   const [payForm, setPayForm] = useState({ amount: '', method: 'bank_transfer', reference: '', paid_at: new Date().toISOString().slice(0, 10) });
   const [addingPayment, setAddingPayment] = useState(false);
   const [showPayForm, setShowPayForm] = useState(false);
+  const [pushingXero, setPushingXero] = useState(false);
 
   useEffect(() => {
     api.get(`/invoices/${id}`).then(r => setInvoice(r.data)).finally(() => setLoading(false));
@@ -86,6 +87,16 @@ export default function InvoiceDetail() {
     finally { setEmailing(false); }
   }
 
+  async function handlePushToXero() {
+    setPushingXero(true);
+    try {
+      const { data } = await api.post(`/invoices/${id}/push-to-xero`);
+      setInvoice(i => ({ ...i, ...data }));
+      flash('success', `Pushed to Xero as ${data.xero_invoice_number || 'a draft invoice'}`);
+    } catch (err) { flash('error', err.response?.data?.error || 'Failed to push to Xero'); }
+    finally { setPushingXero(false); }
+  }
+
   if (loading) return <div className={styles.page}><div className={styles.loading}>Loading…</div></div>;
   if (!invoice) return <div className={styles.page}><div className={styles.empty}>Invoice not found.</div></div>;
 
@@ -107,6 +118,9 @@ export default function InvoiceDetail() {
               {emailing ? 'Sending…' : '✉ Email to Customer'}
             </button>
           )}
+          <button className={styles.btnSecondary} onClick={handlePushToXero} disabled={pushingXero}>
+            {pushingXero ? 'Pushing…' : invoice.xero_invoice_id ? '🔄 Re-push to Xero' : '💳 Push to Xero'}
+          </button>
           {invoice.status !== 'paid' && (
             <button className={styles.btnPrimary} onClick={handleMarkPaid} disabled={saving}>✓ Mark as Paid</button>
           )}
@@ -239,6 +253,12 @@ export default function InvoiceDetail() {
                   style={{ fontSize: 12, padding: '3px 6px', border: '1px solid var(--color-border)', borderRadius: 4, fontFamily: 'inherit', outline: 'none' }} />
               </div>
               {invoice.paid_at && <div className={styles.summaryRow}><span>Paid</span><strong>{new Date(invoice.paid_at).toLocaleDateString('en-NZ')}</strong></div>}
+              {invoice.xero_synced_at && (
+                <div className={styles.summaryRow}>
+                  <span>Xero</span>
+                  <strong style={{ color: '#16a34a' }}>✓ Synced {new Date(invoice.xero_synced_at).toLocaleDateString('en-NZ')}</strong>
+                </div>
+              )}
               <div className={styles.summaryRow}><span>Total</span><strong className={styles.totalHighlight}>${(invoice.total/100).toFixed(2)}</strong></div>
             </div>
           </div>
