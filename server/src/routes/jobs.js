@@ -109,16 +109,25 @@ function formatJobNumber(job) {
 router.post('/:id/arcsite-sync', requireRole('admin', 'office'), async (req, res) => {
   try {
     const pool = require('../db/pool');
-    const { rows: [job] } = await pool.query('SELECT * FROM jobs WHERE id=$1', [req.params.id]);
+    // site_address comes from the linked customer_sites row (matching how the
+    // rest of the app resolves it) — the raw jobs.site_address column is only
+    // ever populated by the Tradify CSV importer and is null otherwise.
+    const { rows: [job] } = await pool.query(
+      `SELECT j.*, s.address AS site_address
+       FROM jobs j LEFT JOIN customer_sites s ON s.id = j.site_id
+       WHERE j.id=$1`,
+      [req.params.id]
+    );
     if (!job) return res.status(404).json({ error: 'Job not found' });
     if (!job.customer_id) return res.status(400).json({ error: 'Job must have a customer before syncing to ArcSite' });
 
     const { rows: [customer] } = await pool.query('SELECT * FROM customers WHERE id=$1', [job.customer_id]);
 
+    const jobNumber = formatJobNumber(job);
     const project = {
-      name: job.description || `Job ${formatJobNumber(job)}`,
+      name: job.site_address ? `${jobNumber} - ${job.site_address}` : (job.description || `Job ${jobNumber}`),
       owner: process.env.ARCSITE_OWNER_EMAIL,
-      job_number: formatJobNumber(job),
+      job_number: jobNumber,
       customer: {
         name: customer?.name,
         phone: customer?.phone,
