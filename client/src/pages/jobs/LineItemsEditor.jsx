@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import styles from './Jobs.module.css';
 import ProductSearch from '../../components/products/ProductSearch';
 
+const GST_RATE = 0.15;
+
 export default function LineItemsEditor({ items: initialItems, onSave, readonly }) {
   const [items, setItems] = useState([]);
   const [dirty, setDirty] = useState(false);
@@ -10,7 +12,9 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
   useEffect(() => {
     setItems(initialItems.map(i => ({
       ...i,
-      unit_price: (i.unit_price / 100).toFixed(2),
+      // Stored excl. GST (cents) — shown/edited here incl. GST, since that's
+      // the figure the team quotes customers.
+      unit_price: ((i.unit_price / 100) * (1 + GST_RATE)).toFixed(2),
     })));
     setDirty(false);
   }, [initialItems]);
@@ -35,21 +39,20 @@ async function handleSave() {
     await onSave(items.map(i => ({
       description: i.description,
       quantity: parseFloat(i.quantity) || 1,
-      unit_price: parseFloat(i.unit_price) || 0,
+      // Convert the incl.-GST figure the team edits back to excl. GST for storage.
+      unit_price: (parseFloat(i.unit_price) || 0) / (1 + GST_RATE),
       product_id: i.product_id || null,
     })));
     setDirty(false);
     setSaving(false);
   }
 
-  const subtotal = items.reduce((s, i) => s + (parseFloat(i.unit_price) || 0) * (parseFloat(i.quantity) || 0), 0);
-
   return (
     <div>
       <div className={styles.lineItemsHeader}>
         <div>Description</div>
         <div>Qty</div>
-        <div>Unit Price (NZD)</div>
+        <div>Unit Price (NZD, incl. GST)</div>
         <div>Line Total</div>
         {!readonly && <div />}
       </div>
@@ -75,7 +78,8 @@ async function handleSave() {
                   setItems(its => its.map((row, j) => j !== idx ? row : {
                     ...row,
                     description,
-                    ...(unit_price !== null ? { unit_price: unit_price.toFixed(2) } : {}),
+                    // unit_price from ProductSearch is the product's excl.-GST price
+                    ...(unit_price !== null ? { unit_price: (unit_price * (1 + GST_RATE)).toFixed(2) } : {}),
                     product_id: product_id ?? row.product_id,
                   }));
                   setDirty(true);

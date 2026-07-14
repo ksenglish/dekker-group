@@ -720,7 +720,7 @@ export default function JobDetail() {
               />
               {job.line_items?.length > 0 && (
                 <div className={styles.totals}>
-                  <div className={styles.totalRow}><span>Subtotal</span><span>${(subtotal / 100).toFixed(2)}</span></div>
+                  <div className={styles.totalRow}><span>Subtotal Excl. GST</span><span>${(subtotal / 100).toFixed(2)}</span></div>
                   <div className={styles.totalRow}><span>GST (15%)</span><span>${(gst / 100).toFixed(2)}</span></div>
                   <div className={`${styles.totalRow} ${styles.totalFinal}`}><span>Total</span><span>${(total / 100).toFixed(2)}</span></div>
                 </div>
