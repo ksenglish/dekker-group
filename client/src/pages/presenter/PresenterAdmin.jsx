@@ -313,6 +313,77 @@ function RootDropZone({ currentNode, activeSection }) {
   );
 }
 
+// ── Move-product picker: expandable section/subcategory tree ─────────────────
+function CategoryTreeNode({ type, id, name, depth, onMoveHere }) {
+  const [expanded, setExpanded] = useState(false);
+  const [children, setChildren] = useState(null); // null = not loaded yet
+  const [loading, setLoading] = useState(false);
+
+  async function toggleExpand() {
+    if (!expanded && children === null) {
+      setLoading(true);
+      try {
+        const url = type === 'section' ? `/presenter/sections/${id}/subcategories` : `/presenter/subcategories/${id}/subcategories`;
+        const { data } = await api.get(url);
+        setChildren(data);
+      } finally { setLoading(false); }
+    }
+    setExpanded(e => !e);
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', paddingLeft: 8 + depth * 18, borderBottom: '1px solid var(--color-border)' }}>
+        <button type="button" onClick={toggleExpand}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', width: 18, fontSize: 12, color: 'var(--color-text-muted)' }}>
+          {loading ? '…' : expanded ? '▾' : '▸'}
+        </button>
+        <span style={{ flex: 1, fontSize: 13 }}>{name}</span>
+        <button type="button" onClick={() => onMoveHere(type, id)}
+          style={{ fontSize: 11, padding: '3px 8px', border: '1px solid var(--color-border)', borderRadius: 4, background: 'white', cursor: 'pointer' }}>
+          Move here
+        </button>
+      </div>
+      {expanded && children && children.map(c => (
+        <CategoryTreeNode key={c.id} type="subcat" id={c.id} name={c.name} depth={depth + 1} onMoveHere={onMoveHere} />
+      ))}
+    </div>
+  );
+}
+
+function MoveProductModal({ product, sections, onClose, onMoved }) {
+  const [error, setError] = useState('');
+
+  async function handleMoveHere(type, id) {
+    setError('');
+    try {
+      const body = type === 'section' ? { section_id: id, subcategory_id: null } : { subcategory_id: id };
+      const { data } = await api.patch(`/presenter/products/${product.id}/move`, body);
+      onMoved(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Move failed');
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'white', borderRadius: 10, width: '100%', maxWidth: 420, maxHeight: '80vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <strong style={{ fontSize: 14 }}>Move "{product.name}"</strong>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16 }}>✕</button>
+        </div>
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {sections.map(s => (
+            <CategoryTreeNode key={s.id} type="section" id={s.id} name={`${s.icon} ${s.name}`} depth={0} onMoveHere={handleMoveHere} />
+          ))}
+        </div>
+        {error && <div style={{ padding: '10px 18px', color: '#dc2626', fontSize: 12 }}>{error}</div>}
+      </div>
+    </div>
+  );
+}
+
 export default function PresenterAdmin() {
   const [sections, setSections] = useState([]);
   const [activeSection, setActiveSection] = useState(null);
@@ -329,6 +400,7 @@ export default function PresenterAdmin() {
   const [showSectionForm, setShowSectionForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dragging, setDragging] = useState(false);
+  const [movingProduct, setMovingProduct] = useState(null);
 
   const currentNode = subcatStack[subcatStack.length - 1] || null;
 
@@ -490,6 +562,11 @@ export default function PresenterAdmin() {
       setProducts(p => [...p, product]);
     }
     setShowProductForm(false); setEditingProduct(null);
+  }
+
+  function handleProductMoved(movedProduct) {
+    setProducts(p => p.filter(x => x.id !== movedProduct.id));
+    setMovingProduct(null);
   }
 
   if (loading) return <div className={styles.page}><p>Loading…</p></div>;
@@ -691,6 +768,7 @@ export default function PresenterAdmin() {
                   </div>
                   <div className={styles.productRowActions}>
                     <button className={styles.btnSmall} onClick={() => { setEditingProduct(p); setShowProductForm(false); }}>Edit</button>
+                    <button className={styles.btnSmall} onClick={() => setMovingProduct(p)}>Move</button>
                     <button className={styles.deleteSmall} onClick={() => deleteProduct(p.id)}>✕</button>
                   </div>
                 </div>
@@ -700,6 +778,15 @@ export default function PresenterAdmin() {
         </div>
 
       </div>
+
+      {movingProduct && (
+        <MoveProductModal
+          product={movingProduct}
+          sections={sections}
+          onClose={() => setMovingProduct(null)}
+          onMoved={handleProductMoved}
+        />
+      )}
     </div>
   );
 }

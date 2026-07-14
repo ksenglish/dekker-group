@@ -297,6 +297,29 @@ router.put('/products/:id', requireRole('admin', 'office'), async (req, res) => 
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Move a product to a different section/subcategory (including a brand-new
+// subcategory). section_id is always derived from the target subcategory
+// when one is given — mirrors the subcategory /parent reparent endpoint —
+// so a product's section_id and subcategory_id can never end up inconsistent.
+router.patch('/products/:id/move', requireRole('admin', 'office'), async (req, res) => {
+  const { subcategory_id, section_id } = req.body; // subcategory_id: null/omitted = move to section root
+  try {
+    let targetSectionId = section_id || null;
+    if (subcategory_id) {
+      const { rows: [sc] } = await pool.query('SELECT section_id FROM presenter_subcategories WHERE id=$1', [subcategory_id]);
+      if (!sc) return res.status(404).json({ error: 'Subcategory not found' });
+      targetSectionId = sc.section_id;
+    }
+    if (!targetSectionId) return res.status(400).json({ error: 'section_id is required' });
+    const { rows } = await pool.query(
+      `UPDATE presenter_products SET section_id=$1, subcategory_id=$2 WHERE id=$3 RETURNING *`,
+      [targetSectionId, subcategory_id || null, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Product not found' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.delete('/products/:id', requireRole('admin', 'office'), async (req, res) => {
   try {
     await pool.query('DELETE FROM presenter_products WHERE id=$1', [req.params.id]);
