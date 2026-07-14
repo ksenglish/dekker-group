@@ -735,6 +735,115 @@ function SmartVentBalancedPressureCalculator({ onPick }) {
   );
 }
 
+// ── BDVAir Positive Pressure lookup table ─────────────────────────────────────
+// Source: "BDVAir Positive Pressure Table.xlsx" (House Size / Outlets / Model / Unit Buy Price / Unit with Mark Up)
+// "F Upgrade" rows (0 outlets) and BDV EC2/EC3 have no price in the source table.
+const BDVAIR_PP_TABLE = [
+  { houseMin: 1,   houseMax: 210, outlets: 0,  model: 'BDV EC1F Upgrade', exGst: null },
+  { houseMin: 1,   houseMax: 210, outlets: 2,  model: 'BDV EC2',          exGst: null },
+  { houseMin: 1,   houseMax: 210, outlets: 3,  model: 'BDV EC3',          exGst: null },
+  { houseMin: 1,   houseMax: 210, outlets: 4,  model: 'BDV EC4',          exGst: 2349.84 },
+  { houseMin: 1,   houseMax: 210, outlets: 5,  model: 'BDV EC5',          exGst: 2412.11 },
+  { houseMin: 1,   houseMax: 210, outlets: 6,  model: 'BDV EC6',          exGst: 2622.89 },
+  { houseMin: 1,   houseMax: 210, outlets: 7,  model: 'BDV EC7',          exGst: 2842.44 },
+  { houseMin: 211, houseMax: 420, outlets: 0,  model: 'BDV EC2F Upgrade', exGst: null },
+  { houseMin: 211, houseMax: 420, outlets: 8,  model: 'BDV EC8',          exGst: 3053.21 },
+  { houseMin: 211, houseMax: 420, outlets: 9,  model: 'BDV EC9',          exGst: 3263.99 },
+  { houseMin: 211, houseMax: 420, outlets: 10, model: 'BDV EC10',         exGst: 4114.90 },
+  { houseMin: 211, houseMax: 420, outlets: 11, model: 'BDV EC11',         exGst: 4325.67 },
+  { houseMin: 211, houseMax: 420, outlets: 12, model: 'BDV EC12',         exGst: 4536.44 },
+];
+const BDVAIR_MAX_HOUSE = Math.max(...BDVAIR_PP_TABLE.map(r => r.houseMax));
+const BDVAIR_MAX_OUTLETS = Math.max(...BDVAIR_PP_TABLE.map(r => r.outlets));
+
+function BDVAirPositivePressureCalculator({ onPick }) {
+  const [m2, setM2] = useState('');
+  const [outlets, setOutlets] = useState('');
+  const [priceListProducts, setPriceListProducts] = useState([]);
+  const [showBrochure, setShowBrochure] = useState(false);
+  const [fullPriceProduct, setFullPriceProduct] = useState(null);
+
+  useEffect(() => {
+    api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
+  }, []);
+
+  const houseSize = parseInt(m2) || 0;
+  // Some models (the "F Upgrade" SKUs) sit at 0 outlets, unlike the other
+  // SmartVent calculators — treat an empty field as "no entry" rather than 0
+  // so it doesn't accidentally match those rows.
+  const numOutlets = outlets === '' ? null : (parseInt(outlets) || 0);
+
+  const exactMatch = houseSize > 0 && numOutlets !== null
+    ? BDVAIR_PP_TABLE.find(r => houseSize >= r.houseMin && houseSize <= r.houseMax && numOutlets === r.outlets)
+    : null;
+  const outletOnlyMatch = !exactMatch && numOutlets !== null
+    ? BDVAIR_PP_TABLE.find(r => numOutlets === r.outlets)
+    : null;
+  const tableMatch = exactMatch || outletOnlyMatch;
+
+  const priceProduct = tableMatch
+    ? priceListProducts.find(p =>
+        (p.description || '').trim().toLowerCase() === tableMatch.model.trim().toLowerCase() ||
+        p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase()
+      )
+    : null;
+
+  const exGst  = priceProduct ? priceProduct.unit_price / 100 : (tableMatch?.exGst ?? null);
+  const incGst = exGst != null ? Math.round(exGst * 1.15 * 100) / 100 : null;
+
+  return (
+    <div className={styles.calc}>
+      <h3 className={styles.calcTitle}>BDVAir Positive Pressure Calculator</h3>
+      <div className={styles.calcGrid}>
+        <div className={styles.calcField}>
+          <label>House Size (m²)</label>
+          <input type="number" value={m2} onChange={e => setM2(e.target.value)}
+            placeholder="e.g. 150" min="0" max={BDVAIR_MAX_HOUSE} />
+        </div>
+        <div className={styles.calcField}>
+          <label>Number of Outlets</label>
+          <input type="number" value={outlets} onChange={e => setOutlets(e.target.value)}
+            placeholder="e.g. 4" min="0" max={BDVAIR_MAX_OUTLETS} />
+        </div>
+      </div>
+      {houseSize > BDVAIR_MAX_HOUSE && (
+        <div className={styles.calcNote}>House size exceeds BDVAir Positive Pressure range (max {BDVAIR_MAX_HOUSE} m²). Please contact us for a custom solution.</div>
+      )}
+      {tableMatch && (
+        <div className={styles.calcResult}>
+          <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
+          {exGst != null && <>
+            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          </>}
+          {!priceProduct && exGst != null && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
+          {exGst == null && <div className={styles.calcNote} style={{ marginTop: 10 }}>No price on file for "{tableMatch.model}" — contact the office to price this unit.</div>}
+          {priceProduct && onPick && (
+            <button className={styles.addToJobBtn} onClick={() => onPick(priceProduct)}>
+              + Add {tableMatch.model} to Job
+            </button>
+          )}
+          {priceProduct && (
+            <button className={styles.brochureBtn} onClick={() => {
+              if (fullPriceProduct) { setShowBrochure(true); return; }
+              api.get(`/products/${priceProduct.id}`).then(r => {
+                setFullPriceProduct(r.data);
+                if (r.data.brochure_base64) setShowBrochure(true);
+                else alert('No brochure uploaded for this product.');
+              }).catch(() => {});
+            }}>
+              📄 View Product Brochure
+            </button>
+          )}
+        </div>
+      )}
+      {showBrochure && fullPriceProduct?.brochure_base64 && (
+        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
+      )}
+    </div>
+  );
+}
+
 function Calculator({ product, onPick, jobId }) {
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} jobId={jobId} />;
@@ -743,6 +852,7 @@ function Calculator({ product, onPick, jobId }) {
   if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
   if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} />;
   if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onPick={onPick} />;
+  if (type === 'bdvair_positive_pressure') return <BDVAirPositivePressureCalculator onPick={onPick} />;
   return <UnitCalculator product={product} />;
 }
 
