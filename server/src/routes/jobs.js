@@ -71,6 +71,10 @@ router.get('/:id/notes', c.listNotes);
 router.post('/:id/notes', c.createNote);
 router.delete('/:id/notes/:noteId', requireRole('admin', 'office'), c.deleteNote);
 
+// Op Form — completed by whoever's on site, so any authenticated team member can fill it in
+router.get('/:id/op-form', c.getOpForm);
+router.put('/:id/op-form', c.saveOpForm);
+
 // Email customer from job
 router.post('/:id/email', requireRole('admin', 'office'), async (req, res) => {
   try {

@@ -1,4 +1,5 @@
 .page { padding: 32px; max-width: 1300px; }
+.pageWide { max-width: none; }
 
 .pageHeader {
   display: flex;
@@ -242,7 +243,7 @@
   color: white;
 }
 
-.tabActive:hover { background: var(--color-primary-dark); }
+.tabActive:hover { background: var(--color-primary-dark); color: white; }
 
 .tabCount {
   background: rgba(255 255 255 / 0.25);

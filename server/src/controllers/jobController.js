@@ -65,7 +65,9 @@ async function get(req, res) {
       `SELECT j.*,
               c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email,
               s.address AS site_address, s.label AS site_label,
-              (SELECT MIN(sc.scheduled_date) FROM schedules sc WHERE sc.job_id=j.id) AS scheduled_date
+              (SELECT MIN(sc.scheduled_date) FROM schedules sc WHERE sc.job_id=j.id) AS scheduled_date,
+              (SELECT COUNT(*) FROM job_attachments a WHERE a.job_id=j.id) AS attachment_count,
+              EXISTS (SELECT 1 FROM job_op_forms f WHERE f.job_id=j.id) AS has_op_form
        FROM jobs j
        LEFT JOIN customers c ON c.id = j.customer_id
        LEFT JOIN customer_sites s ON s.id = j.site_id
@@ -272,4 +274,35 @@ async function deleteNote(req, res) {
   }
 }
 
-module.exports = { list, get, create, update, updateStatus, remove, updateLineItems, listNotes, createNote, deleteNote };
+async function getOpForm(req, res) {
+  try {
+    const { rows } = await pool.query('SELECT * FROM job_op_forms WHERE job_id=$1', [req.params.id]);
+    res.json(rows[0] || null);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+async function saveOpForm(req, res) {
+  const { site_safety_confirmed, work_completed_to_spec, customer_walkthrough_done, notes, technician_name } = req.body;
+  if (!technician_name?.trim()) return res.status(400).json({ error: 'Technician name is required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO job_op_forms (job_id, site_safety_confirmed, work_completed_to_spec, customer_walkthrough_done, notes, technician_name, completed_by, signed_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),NOW())
+       ON CONFLICT (job_id) DO UPDATE SET
+         site_safety_confirmed=$2, work_completed_to_spec=$3, customer_walkthrough_done=$4,
+         notes=$5, technician_name=$6, completed_by=$7, updated_at=NOW()
+       RETURNING *`,
+      [req.params.id, !!site_safety_confirmed, !!work_completed_to_spec, !!customer_walkthrough_done, notes || null, technician_name.trim(), req.user.id]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+module.exports = {
+  list, get, create, update, updateStatus, remove, updateLineItems, listNotes, createNote, deleteNote,
+  getOpForm, saveOpForm,
+};

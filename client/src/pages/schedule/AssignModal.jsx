@@ -39,7 +39,7 @@ function guessApptType(role) {
   return '';
 }
 
-export default function AssignModal({ date, jobId: initialJobId, userId: initialUserId, techMap, techRoles = {}, onClose, onAssigned }) {
+export default function AssignModal({ date, jobId: initialJobId, userId: initialUserId, techMap = {}, techRoles = {}, onClose, onAssigned, lockJob = false, lockedJobLabel = '' }) {
   const [jobs, setJobs] = useState([]);
   const [jobTechs, setJobTechs] = useState([]); // team members on the selected job
   const [form, setForm] = useState({
@@ -55,10 +55,11 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (lockJob) return;
     api.get('/jobs', { params: { limit: 500 } }).then(r => {
       setJobs(r.data.jobs.filter(j => j.status !== 'complete' && j.status !== 'cancelled'));
     });
-  }, []);
+  }, [lockJob]);
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
   function selectUser(id) {
@@ -121,18 +122,22 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
             {/* Job selector */}
             <div className={styles.field}>
               <label>Job *</label>
-              <select value={form.job_id} onChange={e => { set('job_id', e.target.value); selectUser(''); }}>
-                <option value="">Select a job…</option>
-                {jobs.map(j => (
-                  <option key={j.id} value={j.id}>
-                    {formatJobNumber(j)}{j.customer_name ? ` — ${j.customer_name}` : ''}{j.type ? ` (${j.type})` : ''}
-                  </option>
-                ))}
-              </select>
+              {lockJob ? (
+                <input value={lockedJobLabel} disabled style={{ background: '#f8fafc', color: 'var(--color-text-muted)' }} />
+              ) : (
+                <select value={form.job_id} onChange={e => { set('job_id', e.target.value); selectUser(''); }}>
+                  <option value="">Select a job…</option>
+                  {jobs.map(j => (
+                    <option key={j.id} value={j.id}>
+                      {formatJobNumber(j)}{j.customer_name ? ` — ${j.customer_name}` : ''}{j.type ? ` (${j.type})` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {/* Show job description if available */}
-            {selectedJob?.description && (
+            {!lockJob && selectedJob?.description && (
               <p className={styles.jobHint}>{selectedJob.description}</p>
             )}
 

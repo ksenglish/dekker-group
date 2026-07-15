@@ -7,60 +7,8 @@ import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
 import SalesPresenter from '../presenter/SalesPresenter';
+import AssignModal from '../schedule/AssignModal';
 import styles from './Jobs.module.css';
-
-// ── Job Email Modal ───────────────────────────────────────────────────────────
-function JobEmailModal({ job, onClose, onSent }) {
-  const [subject, setSubject] = useState(`Re: Job ${formatJobNumber(job)}`);
-  const [body, setBody] = useState('');
-  const [sending, setSending] = useState(false);
-  const [err, setErr] = useState('');
-
-  async function send(e) {
-    e.preventDefault();
-    if (!body.trim()) return;
-    setSending(true); setErr('');
-    try {
-      await api.post(`/jobs/${job.id}/email`, { subject, body });
-      onSent();
-      onClose();
-    } catch (e) { setErr(e.response?.data?.error || 'Send failed'); setSending(false); }
-  }
-
-  return (
-    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className={styles.modal}>
-        <div className={styles.modalHeader}>
-          <h2>Email Customer</h2>
-          <button className={styles.modalClose} onClick={onClose}>✕</button>
-        </div>
-        <form onSubmit={send} className={styles.modalBody}>
-          <div className={styles.field}>
-            <label>To</label>
-            <input value={job.customer_email} disabled style={{ background: '#f8fafc', color: 'var(--color-text-muted)' }} />
-          </div>
-          <div className={styles.field}>
-            <label>Subject</label>
-            <input value={subject} onChange={e => setSubject(e.target.value)} required />
-          </div>
-          <div className={styles.field}>
-            <label>Message</label>
-            <textarea rows={8} value={body} onChange={e => setBody(e.target.value)}
-              placeholder={`Hi ${job.customer_name?.split(' ')[0] || 'there'},\n\n`} required
-              style={{ resize: 'vertical' }} />
-          </div>
-          {err && <div className={styles.errorBanner}>{err}</div>}
-          <div className={styles.formActions}>
-            <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
-            <button type="submit" className={styles.btnPrimary} disabled={sending || !body.trim()}>
-              {sending ? 'Sending…' : '✉ Send Email'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
 
 // ── Live Timer ────────────────────────────────────────────────────────────────
 function JobTimer({ jobId, onTimeSaved }) {
@@ -359,6 +307,256 @@ function JobTimesheets({ jobId, user }) {
   );
 }
 
+// ── Schedule tab ──────────────────────────────────────────────────────────────
+function JobScheduleTab({ jobId, job, user }) {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+
+  function load() {
+    setLoading(true);
+    api.get('/schedules', { params: { job: jobId } }).then(r => setEntries(r.data)).finally(() => setLoading(false));
+  }
+  useEffect(load, [jobId]);
+
+  function fmtTime(t) {
+    if (!t) return '';
+    const [h, m] = t.split(':').map(Number);
+    const hour12 = h % 12 === 0 ? 12 : h % 12;
+    return `${hour12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`;
+  }
+
+  return (
+    <div className={styles.card}>
+      {user?.role !== 'field_tech' && (
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
+          <button className={styles.btnPrimary} onClick={() => setShowModal(true)}>+ New Appointment</button>
+        </div>
+      )}
+      {loading ? <div className={styles.emptySmall}>Loading…</div> :
+       entries.length === 0 ? <div className={styles.emptySmall}>No appointments scheduled yet.</div> : (
+        entries.map(e => (
+          <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--color-border)' }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>
+                {new Date(e.scheduled_date).toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })}
+                {e.start_time ? ` · ${fmtTime(e.start_time)}` : ''}{e.end_time ? `–${fmtTime(e.end_time)}` : ''}
+              </div>
+              {e.notes && <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>{e.notes}</div>}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>{e.tech_name}</div>
+              <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'capitalize' }}>{e.appointment_type || '—'}</div>
+            </div>
+          </div>
+        ))
+      )}
+      {showModal && (
+        <AssignModal
+          jobId={jobId}
+          lockJob
+          lockedJobLabel={`${formatJobNumber(job)}${job.customer_name ? ' — ' + job.customer_name : ''}`}
+          onClose={() => setShowModal(false)}
+          onAssigned={() => { setShowModal(false); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Quotes tab ────────────────────────────────────────────────────────────────
+const QUOTE_STATUS_COLOURS = { draft: '#6b7280', sent: '#0891b2', accepted: '#16a34a', declined: '#dc2626', cancelled: '#6b7280' };
+function fmtQuoteNum(q) { return q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : `Q-${q.id.slice(0, 6).toUpperCase()}`; }
+
+function JobQuotesTab({ job, user }) {
+  const [quotes, setQuotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get('/quotes', { params: { job: job.id } }).then(r => setQuotes(r.data)).finally(() => setLoading(false));
+  }, [job.id]);
+
+  async function handleCreate() {
+    setCreating(true);
+    try {
+      const { data } = await api.post('/quotes', { job_id: job.id, customer_id: job.customer_id });
+      navigate(`/quotes/${data.id}`);
+    } catch {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className={styles.card}>
+      {user?.role !== 'field_tech' && (
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
+          <button className={styles.btnPrimary} onClick={handleCreate} disabled={creating}>
+            {creating ? 'Creating…' : '+ Create Quote'}
+          </button>
+        </div>
+      )}
+      {loading ? <div className={styles.emptySmall}>Loading…</div> :
+       quotes.length === 0 ? <div className={styles.emptySmall}>No quotes for this job yet.</div> : (
+        quotes.map(q => (
+          <Link key={q.id} to={`/quotes/${q.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--color-border)', textDecoration: 'none', color: 'inherit' }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{fmtQuoteNum(q)}</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{new Date(q.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>${(q.total / 100).toFixed(2)}</div>
+              <span className={styles.statusBadge} style={{ background: (QUOTE_STATUS_COLOURS[q.status] || '#6b7280') + '18', color: QUOTE_STATUS_COLOURS[q.status] || '#6b7280' }}>
+                {q.status}
+              </span>
+            </div>
+          </Link>
+        ))
+      )}
+    </div>
+  );
+}
+
+// ── Invoices tab ──────────────────────────────────────────────────────────────
+const INVOICE_STATUS_COLOURS = { draft: '#6b7280', sent: '#0891b2', paid: '#16a34a', overdue: '#dc2626', cancelled: '#6b7280' };
+function fmtInvNum(inv) { return inv.invoice_number ? `INV-${String(inv.invoice_number).padStart(4, '0')}` : `INV-${inv.id.slice(0, 6).toUpperCase()}`; }
+
+function JobInvoicesTab({ jobId }) {
+  const [invoices, setInvoices] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/invoices', { params: { job: jobId } }).then(r => setInvoices(r.data)).finally(() => setLoading(false));
+  }, [jobId]);
+
+  return (
+    <div className={styles.card}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', fontSize: 12, color: 'var(--color-text-muted)' }}>
+        Invoices are created by converting an accepted quote on the Quotes tab.
+      </div>
+      {loading ? <div className={styles.emptySmall}>Loading…</div> :
+       invoices.length === 0 ? <div className={styles.emptySmall}>No invoices for this job yet.</div> : (
+        invoices.map(inv => {
+          const status = inv.is_overdue ? 'overdue' : inv.status;
+          return (
+            <Link key={inv.id} to={`/invoices/${inv.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--color-border)', textDecoration: 'none', color: 'inherit' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{fmtInvNum(inv)}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{new Date(inv.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>${(inv.total / 100).toFixed(2)}</div>
+                <span className={styles.statusBadge} style={{ background: (INVOICE_STATUS_COLOURS[status] || '#6b7280') + '18', color: INVOICE_STATUS_COLOURS[status] || '#6b7280' }}>
+                  {status}
+                </span>
+              </div>
+            </Link>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ── Op Form tab ───────────────────────────────────────────────────────────────
+function JobOpForm({ jobId, user }) {
+  const [form, setForm] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({
+    site_safety_confirmed: false, work_completed_to_spec: false, customer_walkthrough_done: false,
+    notes: '', technician_name: user?.name || '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get(`/jobs/${jobId}/op-form`).then(r => {
+      setForm(r.data);
+      if (!r.data) { setEditing(true); }
+      else {
+        setDraft({
+          site_safety_confirmed: r.data.site_safety_confirmed,
+          work_completed_to_spec: r.data.work_completed_to_spec,
+          customer_walkthrough_done: r.data.customer_walkthrough_done,
+          notes: r.data.notes || '',
+          technician_name: r.data.technician_name,
+        });
+      }
+    }).finally(() => setLoading(false));
+  }, [jobId]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const { data } = await api.put(`/jobs/${jobId}/op-form`, draft);
+      setForm(data);
+      setEditing(false);
+    } finally { setSaving(false); }
+  }
+
+  if (loading) return <div className={styles.card}><div className={styles.emptySmall}>Loading…</div></div>;
+
+  if (!editing && form) {
+    return (
+      <div className={styles.card}>
+        <div className={styles.detailGrid}>
+          <div className={styles.detailItem}><span>Site Safety Confirmed</span><strong>{form.site_safety_confirmed ? '✅ Yes' : '❌ No'}</strong></div>
+          <div className={styles.detailItem}><span>Work Completed to Spec</span><strong>{form.work_completed_to_spec ? '✅ Yes' : '❌ No'}</strong></div>
+          <div className={styles.detailItem}><span>Customer Walkthrough Done</span><strong>{form.customer_walkthrough_done ? '✅ Yes' : '❌ No'}</strong></div>
+          <div className={styles.detailItem}><span>Completed By</span><strong>{form.technician_name}</strong></div>
+          <div className={styles.detailItem}><span>Signed</span><strong>{new Date(form.signed_at).toLocaleString('en-NZ')}</strong></div>
+          {form.notes && (
+            <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
+              <span>Notes</span><strong style={{ fontWeight: 400, whiteSpace: 'pre-wrap' }}>{form.notes}</strong>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
+          <button className={styles.btnSecondary} onClick={() => setEditing(true)}>Edit</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.card}>
+      <form onSubmit={handleSubmit} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label className={styles.techCheckItem} style={{ padding: 0 }}>
+          <input type="checkbox" checked={draft.site_safety_confirmed}
+            onChange={e => setDraft(d => ({ ...d, site_safety_confirmed: e.target.checked }))} />
+          Site safety confirmed
+        </label>
+        <label className={styles.techCheckItem} style={{ padding: 0 }}>
+          <input type="checkbox" checked={draft.work_completed_to_spec}
+            onChange={e => setDraft(d => ({ ...d, work_completed_to_spec: e.target.checked }))} />
+          Work completed to spec
+        </label>
+        <label className={styles.techCheckItem} style={{ padding: 0 }}>
+          <input type="checkbox" checked={draft.customer_walkthrough_done}
+            onChange={e => setDraft(d => ({ ...d, customer_walkthrough_done: e.target.checked }))} />
+          Customer walkthrough done
+        </label>
+        <div className={styles.field}>
+          <label>Completed By *</label>
+          <input value={draft.technician_name} onChange={e => setDraft(d => ({ ...d, technician_name: e.target.value }))} required />
+        </div>
+        <div className={styles.field}>
+          <label>Notes</label>
+          <textarea rows={3} value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))} />
+        </div>
+        <div className={styles.formActions}>
+          {form && <button type="button" className={styles.btnSecondary} onClick={() => setEditing(false)}>Cancel</button>}
+          <button type="submit" className={styles.btnPrimary} disabled={saving || !draft.technician_name.trim()}>
+            {saving ? 'Saving…' : form ? 'Save Changes' : '✓ Submit Op Form'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 const PIPELINE = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete'];
 const STATUS_COLOURS = {
   new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
@@ -379,10 +577,9 @@ export default function JobDetail() {
   const [noteText, setNoteText] = useState('');
   // Supports deep-linking to a tab, e.g. /jobs/:id?tab=line_items from the "Edit" button on a quote
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'details');
-  const [creatingQuote, setCreatingQuote] = useState(false);
-  const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailFlash, setEmailFlash] = useState('');
   const [showPresenter, setShowPresenter] = useState(false);
+  const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [syncingArcSite, setSyncingArcSite] = useState(false);
   const [pullingDrawings, setPullingDrawings] = useState(false);
   const [attachmentsRefreshKey, setAttachmentsRefreshKey] = useState(0);
@@ -475,6 +672,8 @@ export default function JobDetail() {
   const subtotal = (job?.line_items || []).reduce((s, i) => s + (i.unit_price * i.quantity), 0);
   const gst = Math.round(subtotal * 0.15);
   const total = subtotal + gst;
+  const hasPhotos = parseInt(job?.attachment_count) > 0;
+  const hasOpForm = !!job?.has_op_form;
 
   if (loading) return <div className={styles.page}><div className={styles.loading}>Loading…</div></div>;
 
@@ -495,7 +694,7 @@ export default function JobDetail() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} ${styles.pageWide}`}>
       {/* Header */}
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumb} style={{ marginBottom: 0 }}>
@@ -503,10 +702,9 @@ export default function JobDetail() {
           <span>Job {formatJobNumber(job)}</span>
         </div>
         <div className={styles.headerActions}>
-          {job.customer_email && user?.role !== 'field_tech' && (
-            <button className={styles.btnSecondary} onClick={() => setShowEmailModal(true)}>✉ Email Customer</button>
+          {user?.role !== 'field_tech' && (
+            <button className={styles.btnSecondary} onClick={() => setShowAppointmentModal(true)}>📅 New Appointment</button>
           )}
-          <button className={styles.btnSecondary} onClick={() => navigate(`/schedule?job=${id}`)}>📅 Schedule</button>
           <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
           {user?.role !== 'field_tech' && (
             <button className={styles.btnSecondary} onClick={handleArcSiteSync} disabled={syncingArcSite}>
@@ -574,12 +772,19 @@ export default function JobDetail() {
         <div className={styles.flashBanner} onAnimationEnd={() => setEmailFlash('')}>{emailFlash}</div>
       )}
 
-      {/* Email modal */}
-      {showEmailModal && (
-        <JobEmailModal
-          job={{ ...job, id, customer_email: job.customer_email, customer_name: job.customer_name }}
-          onClose={() => setShowEmailModal(false)}
-          onSent={() => setEmailFlash(`Email sent to ${job.customer_name}`)}
+      {/* New Appointment modal */}
+      {showAppointmentModal && (
+        <AssignModal
+          jobId={id}
+          lockJob
+          lockedJobLabel={`${formatJobNumber(job)}${job.customer_name ? ' — ' + job.customer_name : ''}`}
+          onClose={() => setShowAppointmentModal(false)}
+          onAssigned={async () => {
+            setShowAppointmentModal(false);
+            setEmailFlash('Appointment added to schedule');
+            const { data: updated } = await api.get(`/jobs/${id}`);
+            setJob(updated);
+          }}
         />
       )}
 
@@ -621,7 +826,7 @@ export default function JobDetail() {
         <div className={styles.detailMain}>
           {/* Tabs */}
           <div className={styles.tabs}>
-            {['details', 'line_items', 'costs', 'timesheets', 'photos', 'notes'].map(t => (
+            {['details', 'line_items', 'costs', 'timesheets', 'photos', 'forms', 'notes', 'schedule', 'quotes', 'invoices'].map(t => (
               <button key={t} className={`${styles.tab} ${activeTab === t ? styles.tabActive : ''}`} onClick={() => setActiveTab(t)}>
                 {t === 'line_items' ? 'Line Items' : t.charAt(0).toUpperCase() + t.slice(1)}
                 {t === 'notes' && job.notes?.length > 0 && <span className={styles.tabCount}>{job.notes.length}</span>}
@@ -736,6 +941,10 @@ export default function JobDetail() {
 
           {activeTab === 'timesheets' && <JobTimesheets jobId={id} user={user} />}
           {activeTab === 'photos' && <JobAttachments key={attachmentsRefreshKey} jobId={id} user={user} />}
+          {activeTab === 'forms' && <JobOpForm jobId={id} user={user} />}
+          {activeTab === 'schedule' && <JobScheduleTab jobId={id} job={job} user={user} />}
+          {activeTab === 'quotes' && <JobQuotesTab job={job} user={user} />}
+          {activeTab === 'invoices' && <JobInvoicesTab jobId={id} />}
 
           {activeTab === 'notes' && (
             <div className={styles.card}>
@@ -775,31 +984,21 @@ export default function JobDetail() {
                 </span>
               </div>
               <div className={styles.summaryItem}>
-                <span>Created</span><strong>{new Date(job.created_at).toLocaleDateString('en-NZ')}</strong>
+                <span>Total Revenue (incl. GST)</span><strong>${(total / 100).toFixed(2)}</strong>
               </div>
-              {job.line_items?.length > 0 && (
-                <div className={styles.summaryItem}>
-                  <span>Total (incl. GST)</span><strong>${(total / 100).toFixed(2)}</strong>
-                </div>
-              )}
+              <div className={styles.summaryItem}>
+                <span>Photos</span>
+                <strong style={{ color: hasPhotos ? '#16a34a' : '#dc2626' }}>
+                  {hasPhotos ? 'Photos Attached' : 'No Photos Attached'}
+                </strong>
+              </div>
+              <div className={styles.summaryItem}>
+                <span>Op Forms</span>
+                <strong style={{ color: hasOpForm ? '#16a34a' : '#dc2626' }}>
+                  {hasOpForm ? 'Op Forms Completed' : 'Op Forms Not Completed'}
+                </strong>
+              </div>
             </div>
-            {canEdit && job.line_items?.length > 0 && (
-              <div className={styles.cardFooter}>
-                <button className={styles.btnPrimary} style={{ width: '100%' }} disabled={creatingQuote}
-                  onClick={async () => {
-                    setCreatingQuote(true);
-                    try {
-                      const { data } = await api.post('/quotes', { job_id: job.id, customer_id: job.customer_id });
-                      navigate(`/quotes/${data.id}`);
-                    } catch (err) {
-                      alert(err.response?.data?.error || 'Failed to create quote');
-                      setCreatingQuote(false);
-                    }
-                  }}>
-                  {creatingQuote ? 'Creating…' : 'Create Quote'}
-                </button>
-              </div>
-            )}
             {job.customer_email && (
               <div className={styles.cardFooter}>
                 <a href={`mailto:${job.customer_email}`} className={styles.contactLink}>✉ {job.customer_email}</a>

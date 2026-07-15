@@ -2,7 +2,7 @@ const pool = require('../db/pool');
 const { normaliseRole } = require('../middleware/auth');
 
 async function list(req, res) {
-  const { from, to, tech, appointment_type } = req.query;
+  const { from, to, tech, appointment_type, job } = req.query;
   const conditions = ['1=1'];
   const params = [];
   let p = 1;
@@ -11,9 +11,12 @@ async function list(req, res) {
   if (to)   { conditions.push(`s.scheduled_date <= $${p}`); params.push(to);   p++; }
   if (tech) { conditions.push(`s.user_id = $${p}`);         params.push(tech); p++; }
   if (appointment_type) { conditions.push(`s.appointment_type = $${p}`); params.push(appointment_type); p++; }
+  if (job)  { conditions.push(`s.job_id = $${p}`);          params.push(job);  p++; }
 
-  // Non-admin users only see their own appointments
-  if (normaliseRole(req.user.role) !== 'admin') {
+  // Non-admin users only see their own appointments — unless viewing one
+  // job's full schedule (e.g. the job's Schedule tab), which any team
+  // member on the job should be able to see in full.
+  if (!job && normaliseRole(req.user.role) !== 'admin') {
     conditions.push(`s.user_id = $${p}`);
     params.push(req.user.id); p++;
   }
