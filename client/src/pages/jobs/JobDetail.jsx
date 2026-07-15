@@ -13,6 +13,7 @@ import styles from './Jobs.module.css';
 // ── Live Timer ────────────────────────────────────────────────────────────────
 function JobTimer({ jobId, onTimeSaved }) {
   const STORAGE_KEY = `timer_${jobId}`;
+  const RATE_STORAGE_KEY = `timer_rate_${jobId}`;
   const [startTs, setStartTs] = useState(() => {
     try { return parseInt(localStorage.getItem(STORAGE_KEY)) || null; } catch { return null; }
   });
@@ -21,6 +22,17 @@ function JobTimer({ jobId, onTimeSaved }) {
   const [saving, setSaving] = useState(false);
   const [desc, setDesc] = useState('');
   const [showSave, setShowSave] = useState(false);
+  const [billingRates, setBillingRates] = useState([]);
+  const [billingRateId, setBillingRateId] = useState(() => {
+    try { return localStorage.getItem(RATE_STORAGE_KEY) || ''; } catch { return ''; }
+  });
+
+  useEffect(() => {
+    api.get('/settings/billing-rates').then(r => {
+      setBillingRates(r.data);
+      setBillingRateId(cur => cur || r.data[0]?.id || '');
+    }).catch(() => {});
+  }, []);
 
   // Clear any stale save state on mount
   useEffect(() => { setShowSave(false); setEndTs(null); }, []);
@@ -36,6 +48,7 @@ function JobTimer({ jobId, onTimeSaved }) {
   function start() {
     const ts = Date.now();
     localStorage.setItem(STORAGE_KEY, String(ts));
+    localStorage.setItem(RATE_STORAGE_KEY, billingRateId);
     setStartTs(ts);
     setEndTs(null);
     setShowSave(false);
@@ -54,6 +67,7 @@ function JobTimer({ jobId, onTimeSaved }) {
 
   function discard() {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(RATE_STORAGE_KEY);
     setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
   }
 
@@ -68,7 +82,9 @@ function JobTimer({ jobId, onTimeSaved }) {
         job_id: jobId, hours, description: desc || 'Time tracked via timer',
         date: new Date(endTs).toISOString().slice(0, 10),
         start_time: startTime, end_time: endTime,
+        source: 'timer', billing_rate_id: billingRateId || null,
       });
+      localStorage.removeItem(RATE_STORAGE_KEY);
       setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
       onTimeSaved && onTimeSaved(hours);
     } catch (err) {
@@ -91,13 +107,23 @@ function JobTimer({ jobId, onTimeSaved }) {
   return (
     <div className={styles.timerBar}>
       {!startTs && !showSave && (
-        <button className={styles.timerBtnBig} onClick={start}>▶ Start Timer</button>
+        <>
+          {billingRates.length > 0 && (
+            <select value={billingRateId} onChange={e => setBillingRateId(e.target.value)} className={styles.timerRateSelect}>
+              {billingRates.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+            </select>
+          )}
+          <button className={styles.timerBtnBig} onClick={start}>▶ Start Timer</button>
+        </>
       )}
       {isRunning && (
         <>
           <div className={styles.timerRunning}>
             <span className={styles.timerDot} />
             Started at {fmtTime(startTs)} · {fmtElapsed(elapsed)} elapsed
+            {billingRates.find(r => r.id === billingRateId) && (
+              <span className={styles.manualBadge}>{billingRates.find(r => r.id === billingRateId).label}</span>
+            )}
           </div>
           <button className={styles.timerBtnBigStop} onClick={stop}>⏹ Stop Timer</button>
         </>
@@ -234,9 +260,12 @@ function JobAttachments({ jobId, user }) {
 function JobTimesheets({ jobId, user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [hours, setHours] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [billingRates, setBillingRates] = useState([]);
+  const [billingRateId, setBillingRateId] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -245,14 +274,36 @@ function JobTimesheets({ jobId, user }) {
       .finally(() => setLoading(false));
   }, [jobId]);
 
+  useEffect(() => {
+    api.get('/settings/billing-rates').then(r => {
+      setBillingRates(r.data);
+      setBillingRateId(cur => cur || r.data[0]?.id || '');
+    }).catch(() => {});
+  }, []);
+
+  // Hours are derived from the start/end time fields, rounded to the nearest quarter hour
+  const computedHours = (() => {
+    if (!startTime || !endTime) return 0;
+    const [sh, sm] = startTime.split(':').map(Number);
+    const [eh, em] = endTime.split(':').map(Number);
+    const mins = (eh * 60 + em) - (sh * 60 + sm);
+    if (mins <= 0) return 0;
+    return Math.max(0.25, Math.round(mins / 15) * 0.25);
+  })();
+
   async function logTime(e) {
     e.preventDefault();
-    if (!hours || parseFloat(hours) <= 0) return;
+    if (computedHours <= 0) return;
     setSaving(true);
     try {
-      const { data } = await api.post('/timesheets', { job_id: jobId, hours, description, date });
+      const start_time = new Date(`${date}T${startTime}:00`).toISOString();
+      const end_time = new Date(`${date}T${endTime}:00`).toISOString();
+      const { data } = await api.post('/timesheets', {
+        job_id: jobId, hours: computedHours, description, date,
+        start_time, end_time, source: 'manual', billing_rate_id: billingRateId || null,
+      });
       setEntries(es => [data, ...es]);
-      setHours(''); setDescription('');
+      setStartTime(''); setEndTime(''); setDescription('');
     } finally { setSaving(false); }
   }
 
@@ -267,11 +318,18 @@ function JobTimesheets({ jobId, user }) {
     <div className={styles.card}>
       <form onSubmit={logTime} className={styles.timesheetForm}>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} className={styles.tsInput} />
-        <input type="number" min="0.25" max="24" step="0.25" placeholder="Hours" value={hours}
-          onChange={e => setHours(e.target.value)} className={styles.tsInput} style={{ width: 80 }} />
+        <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={styles.tsInput} />
+        <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>to</span>
+        <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className={styles.tsInput} />
+        {billingRates.length > 0 && (
+          <select value={billingRateId} onChange={e => setBillingRateId(e.target.value)} className={styles.tsInput}>
+            {billingRates.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+          </select>
+        )}
         <input placeholder="Description (optional)" value={description}
           onChange={e => setDescription(e.target.value)} className={styles.tsInput} style={{ flex: 1 }} />
-        <button className={styles.btnPrimary} disabled={saving || !hours}>
+        {computedHours > 0 && <span style={{ fontSize: 12, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{computedHours.toFixed(2)}h</span>}
+        <button className={styles.btnPrimary} disabled={saving || computedHours <= 0}>
           {saving ? '…' : 'Log'}
         </button>
       </form>
@@ -287,19 +345,26 @@ function JobTimesheets({ jobId, user }) {
             <span>Description</span>
             <span />
           </div>
-          {entries.map(e => (
-            <div key={e.id} className={styles.tsRow}>
-              <span className={styles.tsDate}>{e.date ? new Date(String(e.date).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' }) : '—'}</span>
-              <span className={styles.tsName}>{e.user_name}</span>
-              <span className={styles.tsTime}>{e.start_time ? new Date(e.start_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
-              <span className={styles.tsTime}>{e.end_time ? new Date(e.end_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
-              <span className={styles.tsHours}>{parseFloat(e.hours).toFixed(2)}h</span>
-              <span className={styles.tsDesc}>{e.description || '—'}</span>
-              {(user.role !== 'field_tech' || e.user_id === user.id) && (
-                <button className={styles.deleteBtn} style={{ position: 'static' }} onClick={() => del(e.id)}>✕</button>
-              )}
-            </div>
-          ))}
+          {entries.map(e => {
+            const rateLabel = billingRates.find(r => r.id === e.billing_rate_id)?.label;
+            return (
+              <div key={e.id} className={styles.tsRow}>
+                <span className={styles.tsDate}>{e.date ? new Date(String(e.date).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' }) : '—'}</span>
+                <span className={styles.tsName}>{e.user_name}</span>
+                <span className={styles.tsTime}>{e.start_time ? new Date(e.start_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                <span className={styles.tsTime}>{e.end_time ? new Date(e.end_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
+                <span className={styles.tsHours}>{parseFloat(e.hours).toFixed(2)}h</span>
+                <span className={styles.tsDesc}>
+                  {e.description || '—'}
+                  {e.source === 'manual' && <span className={styles.manualBadge}>Manual Entry</span>}
+                  {rateLabel && <span className={styles.manualBadge}>{rateLabel}</span>}
+                </span>
+                {(user.role !== 'field_tech' || e.user_id === user.id) && (
+                  <button className={styles.deleteBtn} style={{ position: 'static' }} onClick={() => del(e.id)}>✕</button>
+                )}
+              </div>
+            );
+          })}
           <div className={styles.tsTotal}>Total: <strong>{total.toFixed(2)}h</strong></div>
         </>
       )}

@@ -32,14 +32,14 @@ async function list(req, res) {
 }
 
 async function create(req, res) {
-  const { job_id, date, hours, description, start_time, end_time } = req.body;
+  const { job_id, date, hours, description, start_time, end_time, source, billing_rate_id } = req.body;
   const user_id = req.user.role === 'field_tech' ? req.user.id : (req.body.user_id || req.user.id);
   if (!hours || hours <= 0) return res.status(400).json({ error: 'Hours must be greater than 0' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO timesheets (job_id, user_id, date, hours, description, start_time, end_time)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [job_id || null, user_id, date || new Date().toISOString().slice(0,10), hours, description || null, start_time || null, end_time || null]
+      `INSERT INTO timesheets (job_id, user_id, date, hours, description, start_time, end_time, source, billing_rate_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [job_id || null, user_id, date || new Date().toISOString().slice(0,10), hours, description || null, start_time || null, end_time || null, source === 'timer' ? 'timer' : 'manual', billing_rate_id || null]
     );
     // Fetch with joins
     const { rows: full } = await pool.query(
