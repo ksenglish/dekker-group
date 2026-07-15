@@ -654,6 +654,10 @@ function SecurityTab() {
   );
 }
 
+function newRateId() {
+  return 'rate_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
 function BillingRatesTab() {
   const [rates, setRates] = useState([]);
   const [saved, setSaved] = useState(false);
@@ -663,15 +667,31 @@ function BillingRatesTab() {
     api.get('/settings/billing-rates').then(r => setRates(r.data));
   }, []);
 
+  function setLabel(id, val) {
+    setRates(rs => rs.map(r => r.id === id ? { ...r, label: val } : r));
+    setSaved(false);
+  }
+
   function setRate(id, val) {
     setRates(rs => rs.map(r => r.id === id ? { ...r, rate: parseFloat(val) || 0 } : r));
+    setSaved(false);
+  }
+
+  function addRate() {
+    setRates(rs => [...rs, { id: newRateId(), label: '', rate: 0 }]);
+    setSaved(false);
+  }
+
+  function deleteRate(id) {
+    if (!confirm('Delete this billing rate? Timesheet entries already using it will keep showing its old label.')) return;
+    setRates(rs => rs.filter(r => r.id !== id));
     setSaved(false);
   }
 
   async function save() {
     setSaving(true);
     try {
-      await api.put('/settings/billing-rates', rates);
+      await api.put('/settings/billing-rates', rates.filter(r => r.label.trim()));
       setSaved(true); setTimeout(() => setSaved(false), 3000);
     } catch { alert('Save failed'); }
     finally { setSaving(false); }
@@ -686,14 +706,18 @@ function BillingRatesTab() {
         </div>
         <div style={{ padding: '20px' }}>
           <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20 }}>
-            Set hourly charge-out rates for each billing category. These are used to calculate job costs in timesheets and reports.
+            Set hourly charge-out rates for each billing category. These are used to calculate job costs in timesheets and reports,
+            and are offered as options when logging time on a job.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {rates.map(r => (
-              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 160px 1fr', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#f8fafc', borderRadius: 8 }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 500 }}>{r.label}</div>
-                </div>
+              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '1fr 160px 1fr 32px', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#f8fafc', borderRadius: 8 }}>
+                <input
+                  value={r.label}
+                  onChange={e => setLabel(r.id, e.target.value)}
+                  placeholder="Rate name"
+                  style={{ padding: '7px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 14, outline: 'none', fontFamily: 'inherit', fontWeight: 500 }}
+                />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>$</span>
                   <input
@@ -708,10 +732,20 @@ function BillingRatesTab() {
                 <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
                   {r.rate > 0 ? `$${(r.rate * 1.15).toFixed(2)}/hr incl. GST` : ''}
                 </div>
+                <button onClick={() => deleteRate(r.id)} title="Delete rate" style={{
+                  background: 'none', border: 'none', cursor: 'pointer', fontSize: 16,
+                  color: 'var(--color-text-muted)', padding: 4, justifySelf: 'center',
+                }}>✕</button>
               </div>
             ))}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+            <button onClick={addRate} style={{
+              padding: '8px 16px', background: 'none', color: 'var(--color-primary)',
+              border: '1px solid var(--color-primary)', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500, cursor: 'pointer'
+            }}>
+              + Add Rate
+            </button>
             <button onClick={save} disabled={saving} style={{
               padding: '9px 20px', background: 'var(--color-primary)', color: 'white',
               border: 'none', borderRadius: 'var(--radius)', fontSize: 14, fontWeight: 500, cursor: 'pointer'
