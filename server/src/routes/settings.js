@@ -108,38 +108,77 @@ router.put('/job-types', authenticate, requireRole('admin', 'office'), async (re
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-// Job Status Colours — used to colour appointments on the Schedule by the job's status
-const JOB_STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
-const DEFAULT_STATUS_COLOURS = {
-  new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
-  in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
-};
+// Job Statuses — ordered, admin-editable list. "protected" statuses drive
+// automation elsewhere (jobController's recurring-job/quote-prompt logic,
+// quoteController's quoted/invoiced auto-transitions, invoiceController's
+// paid->complete transition, scheduleController's scheduled auto-transition,
+// JobDetail's timer visibility) and can be recoloured/relabelled/reordered
+// but never deleted or have their key changed. Custom statuses added on top
+// can be freely added, reordered, relabelled and deleted.
+const PROTECTED_STATUS_KEYS = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
+const DEFAULT_STATUSES = [
+  { key: 'new',         label: 'New',         color: '#1e40af', protected: true },
+  { key: 'quoted',      label: 'Quoted',      color: '#7c3aed', protected: true },
+  { key: 'scheduled',   label: 'Scheduled',   color: '#0891b2', protected: true },
+  { key: 'in_progress', label: 'In Progress', color: '#d97706', protected: true },
+  { key: 'invoiced',    label: 'Invoiced',    color: '#9333ea', protected: true },
+  { key: 'complete',    label: 'Complete',    color: '#16a34a', protected: true },
+  { key: 'cancelled',   label: 'Cancelled',   color: '#6b7280', protected: true },
+];
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
-router.get('/job-status-colours', authenticate, async (req, res) => {
+router.get('/job-statuses', authenticate, async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='job_status_colours'`);
-    res.json({ ...DEFAULT_STATUS_COLOURS, ...(rows[0]?.value || {}) });
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
+    if (rows[0]?.value) return res.json(rows[0].value);
+    // First load — carry over any colours already saved under the old
+    // job_status_colours key so nobody loses their existing customisation.
+    const { rows: legacy } = await pool.query(`SELECT value FROM settings WHERE key='job_status_colours'`);
+    const legacyColours = legacy[0]?.value || {};
+    res.json(DEFAULT_STATUSES.map(s => ({ ...s, color: legacyColours[s.key] || s.color })));
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
-router.put('/job-status-colours', authenticate, requireRole('admin', 'office'), async (req, res) => {
+router.put('/job-statuses', authenticate, requireRole('admin', 'office'), async (req, res) => {
   try {
-    const colours = req.body;
-    if (typeof colours !== 'object' || Array.isArray(colours) || colours === null) {
-      return res.status(400).json({ error: 'Object of status -> hex colour required' });
+    const statuses = req.body;
+    if (!Array.isArray(statuses) || statuses.length === 0) return res.status(400).json({ error: 'Array required' });
+    const seenKeys = new Set();
+    for (const s of statuses) {
+      if (!s.key || typeof s.key !== 'string') return res.status(400).json({ error: 'Every status needs a key' });
+      if (seenKeys.has(s.key)) return res.status(400).json({ error: `Duplicate status key "${s.key}"` });
+      seenKeys.add(s.key);
+      if (!s.label || !s.label.trim()) return res.status(400).json({ error: 'Every status needs a label' });
+      if (!HEX_RE.test(s.color || '')) return res.status(400).json({ error: `Invalid colour for "${s.label}" — must be a hex value like #1e40af` });
     }
-    for (const [status, colour] of Object.entries(colours)) {
-      if (!JOB_STATUSES.includes(status)) return res.status(400).json({ error: `Unknown status "${status}"` });
-      if (!HEX_RE.test(colour)) return res.status(400).json({ error: `Invalid colour for "${status}" — must be a hex value like #1e40af` });
-    }
-    const merged = { ...DEFAULT_STATUS_COLOURS, ...colours };
+    // Protected keys from the currently-saved list (or defaults, on first
+    // save) must still all be present — recolour/relabel/reorder freely, but
+    // deleting or renaming the key of one isn't allowed.
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
+    const current = rows[0]?.value || DEFAULT_STATUSES;
+    const requiredKeys = current.filter(s => s.protected).map(s => s.key);
+    const missing = requiredKeys.filter(k => !seenKeys.has(k));
+    if (missing.length) return res.status(400).json({ error: `These statuses can't be deleted: ${missing.join(', ')}` });
+    const cleaned = statuses.map(s => ({
+      key: s.key, label: s.label.trim(), color: s.color,
+      protected: requiredKeys.includes(s.key),
+    }));
     await pool.query(
-      `INSERT INTO settings (key, value, updated_at) VALUES ('job_status_colours', $1, NOW())
+      `INSERT INTO settings (key, value, updated_at) VALUES ('job_statuses', $1, NOW())
        ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
-      [JSON.stringify(merged)]
+      [JSON.stringify(cleaned)]
     );
-    res.json(merged);
+    res.json(cleaned);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Legacy flat {status: hexColour} shape — kept for the Schedule page's
+// appointment colouring, now just derived from job_statuses.
+router.get('/job-status-colours', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
+    const list = rows[0]?.value || DEFAULT_STATUSES;
+    res.json(Object.fromEntries(list.map(s => [s.key, s.color])));
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 

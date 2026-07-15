@@ -622,11 +622,6 @@ function JobOpForm({ jobId, user }) {
   );
 }
 
-const PIPELINE = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete'];
-const STATUS_COLOURS = {
-  new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
-  in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
-};
 const PRIORITY_COLOURS = { low: '#6b7280', medium: '#d97706', high: '#dc2626' };
 
 export default function JobDetail() {
@@ -648,11 +643,22 @@ export default function JobDetail() {
   const [syncingArcSite, setSyncingArcSite] = useState(false);
   const [pullingDrawings, setPullingDrawings] = useState(false);
   const [attachmentsRefreshKey, setAttachmentsRefreshKey] = useState(0);
+  const [jobStatuses, setJobStatuses] = useState([]);
 
   useEffect(() => {
     if (isNew) return;
     api.get(`/jobs/${id}`).then(r => { setJob(r.data); setLoading(false); });
   }, [id]);
+
+  useEffect(() => {
+    api.get('/settings/job-statuses').then(r => setJobStatuses(r.data)).catch(() => {});
+  }, []);
+
+  // Admin-configurable, ordered — excludes 'cancelled', which gets its own
+  // separate trailing button and banner treatment below.
+  const pipelineStatuses = jobStatuses.filter(s => s.key !== 'cancelled');
+  const statusColor = key => jobStatuses.find(s => s.key === key)?.color || '#6b7280';
+  const statusLabel = key => jobStatuses.find(s => s.key === key)?.label || key.replace('_', ' ');
 
   async function handleStatusChange(status) {
     const { data } = await api.patch(`/jobs/${id}/status`, { status });
@@ -793,20 +799,20 @@ export default function JobDetail() {
       {/* Status pipeline */}
       {job.status !== 'cancelled' ? (
         <div className={styles.pipeline}>
-          {PIPELINE.map((s, i) => {
-            const idx = PIPELINE.indexOf(job.status);
+          {pipelineStatuses.map((s, i) => {
+            const idx = pipelineStatuses.findIndex(p => p.key === job.status);
             const done = i < idx;
             const active = i === idx;
             return (
               <button
-                key={s}
+                key={s.key}
                 className={`${styles.pipelineStep} ${done ? styles.pipelineDone : ''} ${active ? styles.pipelineActive : ''}`}
-                onClick={() => user?.role !== 'field_tech' && handleStatusChange(s)}
-                style={active ? { borderColor: STATUS_COLOURS[s], color: STATUS_COLOURS[s] } : {}}
-                title={`Move to ${s.replace('_', ' ')}`}
+                onClick={() => user?.role !== 'field_tech' && handleStatusChange(s.key)}
+                style={active ? { borderColor: s.color, color: s.color } : {}}
+                title={`Move to ${s.label}`}
               >
-                <span className={styles.pipelineDot} style={active ? { background: STATUS_COLOURS[s] } : done ? { background: '#16a34a' } : {}} />
-                {s.replace('_', ' ')}
+                <span className={styles.pipelineDot} style={active ? { background: s.color } : done ? { background: '#16a34a' } : {}} />
+                {s.label}
               </button>
             );
           })}
@@ -1044,8 +1050,8 @@ export default function JobDetail() {
               </div>
               <div className={styles.summaryItem}>
                 <span>Status</span>
-                <span className={styles.statusBadge} style={{ background: STATUS_COLOURS[job.status] + '18', color: STATUS_COLOURS[job.status] }}>
-                  {job.status.replace('_', ' ')}
+                <span className={styles.statusBadge} style={{ background: statusColor(job.status) + '18', color: statusColor(job.status) }}>
+                  {statusLabel(job.status)}
                 </span>
               </div>
               <div className={styles.summaryItem}>

@@ -171,9 +171,14 @@ async function update(req, res) {
 
 async function updateStatus(req, res) {
   const { status } = req.body;
-  const valid = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
-  if (!valid.includes(status)) return res.status(400).json({ error: 'Invalid status' });
   try {
+    // Validate against the live, admin-configurable status list (settings
+    // key 'job_statuses') rather than a fixed array, so custom statuses
+    // added in Settings are accepted here too.
+    const { rows: settingsRows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
+    const configured = settingsRows[0]?.value || ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'].map(key => ({ key }));
+    const validKeys = configured.map(s => s.key);
+    if (!validKeys.includes(status)) return res.status(400).json({ error: 'Invalid status' });
     const { rows } = await pool.query(
       'UPDATE jobs SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
       [status, req.params.id]

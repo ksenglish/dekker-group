@@ -1,16 +1,37 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Settings.module.css';
 
 const TABS = ['My Account', 'Security', 'Quote Theme', 'Terms & Conditions', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
 
-const JOB_STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
-const DEFAULT_STATUS_COLOURS = {
-  new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
-  in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
-};
+// ── Sortable job status row (drag to reorder) ─────────────────────────────────
+function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: s.key });
+  const style = {
+    transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1,
+    display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px',
+    background: '#f8fafc', borderRadius: 6, border: '1px solid var(--color-border)',
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <span {...listeners} {...attributes} style={{ cursor: 'grab', color: 'var(--color-text-muted)', fontSize: 16, touchAction: 'none' }} title="Drag to reorder">⠿</span>
+      <input type="color" value={s.color} onChange={e => onColorChange(s.key, e.target.value)}
+        style={{ width: 36, height: 28, padding: 0, border: '1px solid var(--color-border)', borderRadius: 4, cursor: 'pointer', background: 'none' }} />
+      <input value={s.label} onChange={e => onLabelChange(s.key, e.target.value)}
+        style={{ flex: 1, padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 14, fontWeight: 500 }} />
+      <input value={s.color} onChange={e => onColorChange(s.key, e.target.value)}
+        style={{ width: 90, padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }} />
+      {s.protected
+        ? <span style={{ fontSize: 14, width: 20, textAlign: 'center' }} title="Built-in status — drives automation elsewhere, can't be deleted">🔒</span>
+        : <button onClick={() => onDelete(s.key)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16, lineHeight: 1, width: 20 }}>✕</button>}
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [searchParams] = useSearchParams();
@@ -1043,36 +1064,77 @@ function JobTypesTab() {
   const EMPTY_TPL = { name: '', type: '', description: '', priority: 'medium', is_recurring: false, recurrence_interval: 'annual' };
   const [tplForm, setTplForm] = useState(EMPTY_TPL);
 
-  const [statusColours, setStatusColours] = useState(DEFAULT_STATUS_COLOURS);
-  const [savingColours, setSavingColours] = useState(false);
-  const [coloursSaved, setColoursSaved] = useState(false);
+  const [statuses, setStatuses] = useState([]);
+  const [savingStatuses, setSavingStatuses] = useState(false);
+  const [statusesSaved, setStatusesSaved] = useState(false);
+  const [newStatusLabel, setNewStatusLabel] = useState('');
+  const statusSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   useEffect(() => {
     api.get('/settings/job-types').then(r => setJobTypes(r.data)).catch(() => {});
     api.get('/settings/job-templates').then(r => setTemplates(r.data)).catch(() => {});
-    api.get('/settings/job-status-colours').then(r => setStatusColours(r.data)).catch(() => {});
+    api.get('/settings/job-statuses').then(r => setStatuses(r.data)).catch(() => {});
   }, []);
 
-  function setStatusColour(status, hex) {
-    setStatusColours(c => ({ ...c, [status]: hex }));
-    setColoursSaved(false);
+  function setStatusLabel(key, label) {
+    setStatuses(ss => ss.map(s => s.key === key ? { ...s, label } : s));
+    setStatusesSaved(false);
   }
 
-  async function saveStatusColours() {
-    setSavingColours(true);
+  function setStatusColor(key, color) {
+    setStatuses(ss => ss.map(s => s.key === key ? { ...s, color } : s));
+    setStatusesSaved(false);
+  }
+
+  function slugifyStatus(label) {
+    const base = label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'status';
+    let key = base, n = 2;
+    while (statuses.some(s => s.key === key)) { key = `${base}_${n}`; n++; }
+    return key;
+  }
+
+  function addStatus() {
+    const label = newStatusLabel.trim();
+    if (!label) return;
+    setStatuses(ss => [...ss, { key: slugifyStatus(label), label, color: '#64748b', protected: false }]);
+    setNewStatusLabel('');
+    setStatusesSaved(false);
+  }
+
+  async function deleteStatus(key) {
     try {
-      const { data } = await api.put('/settings/job-status-colours', statusColours);
-      setStatusColours(data);
-      setColoursSaved(true);
-      setTimeout(() => setColoursSaved(false), 3000);
-    } catch (e) {
-      alert(e.response?.data?.error || 'Failed to save colours');
-    } finally { setSavingColours(false); }
+      const { data } = await api.get('/jobs', { params: { status: key, limit: 1 } });
+      if (data.total > 0) {
+        alert(`${data.total} job${data.total === 1 ? '' : 's'} currently ${data.total === 1 ? 'has' : 'have'} this status. Move ${data.total === 1 ? 'it' : 'them'} to a different status first.`);
+        return;
+      }
+    } catch { /* if the check itself fails, fall through — the server still rejects deleting protected keys */ }
+    if (!confirm('Delete this status?')) return;
+    setStatuses(ss => ss.filter(s => s.key !== key));
+    setStatusesSaved(false);
   }
 
-  function resetStatusColours() {
-    setStatusColours(DEFAULT_STATUS_COLOURS);
-    setColoursSaved(false);
+  function handleStatusDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setStatuses(ss => {
+      const oldIdx = ss.findIndex(s => s.key === active.id);
+      const newIdx = ss.findIndex(s => s.key === over.id);
+      return arrayMove(ss, oldIdx, newIdx);
+    });
+    setStatusesSaved(false);
+  }
+
+  async function saveStatuses() {
+    setSavingStatuses(true);
+    try {
+      const { data } = await api.put('/settings/job-statuses', statuses);
+      setStatuses(data);
+      setStatusesSaved(true);
+      setTimeout(() => setStatusesSaved(false), 3000);
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to save statuses');
+    } finally { setSavingStatuses(false); }
   }
 
   async function addType() {
@@ -1144,32 +1206,36 @@ function JobTypesTab() {
         </div>
       </div>
 
-      {/* Job Status Colours */}
+      {/* Job Statuses */}
       <div className={styles.card} style={{ marginTop: 24 }}>
-        <div className={styles.cardHeader}><h2>Job Status Colours</h2></div>
+        <div className={styles.cardHeader}><h2>Job Statuses</h2></div>
         <div className={styles.cardBody}>
           <p className={styles.hint} style={{ marginBottom: 12 }}>
-            Set a colour for each job status. Appointments on the Schedule are coloured to match the status of their job.
+            Drag to reorder, recolour, or rename any status — the order here sets the order of the pipeline on a job's
+            page. 🔒 statuses drive automation elsewhere (quoting, invoicing, recurring jobs, the timer) so they can't
+            be deleted, but you can add your own statuses alongside them for anything else you want to track.
           </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {JOB_STATUSES.map(s => (
-              <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid var(--color-border)' }}>
-                <input type="color" value={statusColours[s] || DEFAULT_STATUS_COLOURS[s]}
-                  onChange={e => setStatusColour(s, e.target.value)}
-                  style={{ width: 36, height: 28, padding: 0, border: '1px solid var(--color-border)', borderRadius: 4, cursor: 'pointer', background: 'none' }} />
-                <span style={{ fontSize: 14, fontWeight: 500, textTransform: 'capitalize', flex: 1 }}>{s.replace('_', ' ')}</span>
-                <input value={statusColours[s] || DEFAULT_STATUS_COLOURS[s]}
-                  onChange={e => setStatusColour(s, e.target.value)}
-                  style={{ width: 90, padding: '6px 8px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }} />
+          <DndContext sensors={statusSensors} collisionDetection={closestCenter} onDragEnd={handleStatusDragEnd}>
+            <SortableContext items={statuses.map(s => s.key)} strategy={verticalListSortingStrategy}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                {statuses.map(s => (
+                  <SortableStatusRow key={s.key} s={s} onLabelChange={setStatusLabel} onColorChange={setStatusColor} onDelete={deleteStatus} />
+                ))}
               </div>
-            ))}
+            </SortableContext>
+          </DndContext>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <input value={newStatusLabel} onChange={e => setNewStatusLabel(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addStatus()}
+              placeholder="New status name…"
+              style={{ flex: 1, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13 }} />
+            <button className={styles.btnSecondary} onClick={addStatus} disabled={!newStatusLabel.trim()}>+ Add Status</button>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className={styles.btnPrimary} onClick={saveStatusColours} disabled={savingColours}>
-              {savingColours ? 'Saving…' : 'Save Colours'}
+            <button className={styles.btnPrimary} onClick={saveStatuses} disabled={savingStatuses}>
+              {savingStatuses ? 'Saving…' : 'Save Statuses'}
             </button>
-            <button className={styles.btnSecondary} onClick={resetStatusColours} disabled={savingColours}>Reset to Defaults</button>
-            {coloursSaved && <span style={{ color: '#16a34a', fontSize: 13, fontWeight: 500 }}>✓ Saved</span>}
+            {statusesSaved && <span style={{ color: '#16a34a', fontSize: 13, fontWeight: 500 }}>✓ Saved</span>}
           </div>
         </div>
       </div>
