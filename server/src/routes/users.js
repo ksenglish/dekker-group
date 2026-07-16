@@ -20,8 +20,10 @@ function validDiaries(diaries) {
   return Array.isArray(diaries) && diaries.every(d => VALID_DIARIES.includes(d));
 }
 
-// Get all users (admin only)
-router.get('/', authenticate, requireRole('admin'), async (req, res) => {
+// Get all users — any authenticated role can read the team roster (needed by
+// the Schedule page to render team-member columns/names for every role, not
+// just admin); create/update/delete/invite/unlock stay admin-only below.
+router.get('/', authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
       'SELECT id, name, email, role, diaries, default_billing_rate_id, is_active, created_at FROM users ORDER BY name'
