@@ -46,14 +46,20 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
     email: user?.email || '',
     role: user?.role || 'operations',
     diaries: user ? (user.diaries || []) : diariesFromRole('operations'),
+    default_billing_rate_id: user?.default_billing_rate_id || '',
     password: '',
     confirmPassword: '',
     is_active: user?.is_active !== false,
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [billingRates, setBillingRates] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const isNew = !user;
+
+  useEffect(() => {
+    api.get('/settings/billing-rates').then(r => setBillingRates(r.data)).catch(() => {});
+  }, []);
 
   function toggleDiary(d) {
     setForm(f => ({
@@ -70,7 +76,10 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
     if (form.password && form.password.length < 8) return setErr('Password must be at least 8 characters');
     setSaving(true); setErr('');
     try {
-      const payload = { name: form.name, email: form.email, role: form.role, diaries: form.diaries, is_active: form.is_active };
+      const payload = {
+        name: form.name, email: form.email, role: form.role, diaries: form.diaries,
+        default_billing_rate_id: form.default_billing_rate_id || null, is_active: form.is_active,
+      };
       if (form.password) payload.password = form.password;
       const { data } = user
         ? await api.put(`/users/${user.id}`, payload)
@@ -125,6 +134,14 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
                   </label>
                 ))}
               </div>
+            </div>
+            <div className={styles.field} style={{ gridColumn: '1/-1' }}>
+              <label>Default Billing Rate</label>
+              <p className={styles.hint}>Pre-selected when this person logs time on a job — they can still change it per entry.</p>
+              <select value={form.default_billing_rate_id} onChange={e => set('default_billing_rate_id', e.target.value)}>
+                <option value="">No default</option>
+                {billingRates.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
             </div>
             <div className={styles.field}>
               <label>{isNew ? 'Password *' : 'New Password'}</label>

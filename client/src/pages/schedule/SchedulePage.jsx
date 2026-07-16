@@ -61,13 +61,16 @@ function formatDayTitle(date) {
 export default function SchedulePage() {
   const { user } = useAuth();
   const calRef = useRef(null);
+  const jumpDateRef = useRef(null);
   const [searchParams] = useSearchParams();
   const [techMap, setTechMap] = useState({});
   const [techRoles, setTechRoles] = useState({});
   const [techDiaries, setTechDiaries] = useState({});
   const [statusColours, setStatusColours] = useState(DEFAULT_STATUS_COLOURS);
+  // Sales/operations/subcontractor are locked to their own diary — no switcher, no "All"
+  const lockedDiary = ['sales', 'operations', 'subcontractor'].includes(user?.role) ? user.role : null;
   const [filterTech, setFilterTech] = useState('');
-  const [filterDiary, setFilterDiary] = useState(''); // '' (all) | one of DIARIES
+  const [filterDiary, setFilterDiary] = useState(() => lockedDiary || ''); // '' (all) | one of DIARIES
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
   const [notesDraft, setNotesDraft] = useState('');
@@ -305,6 +308,20 @@ export default function SchedulePage() {
     loadNotes();
   }
 
+  function openJumpToDate() {
+    const el = jumpDateRef.current;
+    if (!el) return;
+    if (el.showPicker) el.showPicker();
+    else el.click();
+  }
+
+  function handleJumpToDate(e) {
+    const val = e.target.value;
+    if (!val) return;
+    if (isDayView) setDayDate(new Date(`${val}T00:00:00`));
+    else calRef.current?.getApi()?.gotoDate(val);
+  }
+
   const canEdit = user?.role !== 'field_tech';
 
   return (
@@ -312,7 +329,6 @@ export default function SchedulePage() {
       <div className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>Schedule</h1>
-          <p className={styles.pageSubtitle}>Click an empty slot to add a note · Drag or resize appointments to adjust</p>
         </div>
         <div className={styles.headerActions}>
           {Object.keys(techMap).length > 0 && (
@@ -324,23 +340,25 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      <div className={styles.typeFilterRow}>
-        <span className={styles.typeFilterLabel}>Diary:</span>
-        <div className={styles.typeFilterGroup}>
-          <button
-            className={`${styles.typeFilterBtn} ${!filterDiary ? styles.typeFilterBtnActive : ''}`}
-            onClick={() => setFilterDiary('')}
-          >All</button>
-          {DIARIES.map(d => (
+      {!lockedDiary && (
+        <div className={styles.typeFilterRow}>
+          <span className={styles.typeFilterLabel}>Diary:</span>
+          <div className={styles.typeFilterGroup}>
             <button
-              key={d}
-              className={`${styles.typeFilterBtn} ${filterDiary === d ? styles.typeFilterBtnActive : ''}`}
-              style={filterDiary === d ? { borderColor: DIARY_COLOURS[d], color: DIARY_COLOURS[d], background: DIARY_COLOURS[d] + '12' } : {}}
-              onClick={() => setFilterDiary(d)}
-            >{DIARY_LABEL[d]}</button>
-          ))}
+              className={`${styles.typeFilterBtn} ${!filterDiary ? styles.typeFilterBtnActive : ''}`}
+              onClick={() => setFilterDiary('')}
+            >All</button>
+            {DIARIES.map(d => (
+              <button
+                key={d}
+                className={`${styles.typeFilterBtn} ${filterDiary === d ? styles.typeFilterBtnActive : ''}`}
+                style={filterDiary === d ? { borderColor: DIARY_COLOURS[d], color: DIARY_COLOURS[d], background: DIARY_COLOURS[d] + '12' } : {}}
+                onClick={() => setFilterDiary(d)}
+              >{DIARY_LABEL[d]}</button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className={styles.legend}>
         {JOB_STATUSES.map(s => (
@@ -353,8 +371,17 @@ export default function SchedulePage() {
           <span className={styles.legendDot} style={{ background: NOTE_COLOUR.background, border: `1px solid ${NOTE_COLOUR.border}` }} />
           <span>📝 Note</span>
         </div>
-        <span className={styles.legendHint}>Paler = upcoming · Full colour = underway or past</span>
       </div>
+
+      {/* Hidden native date input driving the "jump to date" calendar icon in both toolbars below */}
+      <input
+        ref={jumpDateRef}
+        type="date"
+        onChange={handleJumpToDate}
+        style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
 
       {/* Day view gets its own small toolbar since FullCalendar's native one (used for
           Month/Week below) is hidden along with the rest of FullCalendar while Day is active */}
@@ -364,6 +391,7 @@ export default function SchedulePage() {
             <button className={styles.calNavBtn} onClick={() => setDayDate(d => shiftDay(d, -1))}>‹</button>
             <button className={styles.calNavBtn} onClick={() => setDayDate(d => shiftDay(d, 1))}>›</button>
             <button className={styles.calTodayBtn} onClick={() => setDayDate(new Date())}>Today</button>
+            <button className={styles.calNavBtn} onClick={openJumpToDate} title="Jump to date">📅</button>
           </div>
           <div className={styles.calToolbarTitle}>{formatDayTitle(dayDate)}</div>
           <div className={styles.calToolbarViews}>
@@ -378,9 +406,10 @@ export default function SchedulePage() {
             ref={calRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
             initialView="dayGridMonth"
-            headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,dayViewBtn' }}
+            headerToolbar={{ left: 'prev,next today jumpToDate', center: 'title', right: 'dayGridMonth,timeGridWeek,dayViewBtn' }}
             customButtons={{
               dayViewBtn: { text: 'Day', click: () => { setDayDate(calRef.current?.getApi()?.getDate() || new Date()); setIsDayView(true); } },
+              jumpToDate: { text: '📅', click: openJumpToDate },
             }}
             height="100%"
             expandRows

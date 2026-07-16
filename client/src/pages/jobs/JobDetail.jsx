@@ -11,7 +11,7 @@ import AssignModal from '../schedule/AssignModal';
 import styles from './Jobs.module.css';
 
 // ── Live Timer ────────────────────────────────────────────────────────────────
-function JobTimer({ jobId, onTimeSaved }) {
+function JobTimer({ jobId, onTimeSaved, user }) {
   const STORAGE_KEY = `timer_${jobId}`;
   const RATE_STORAGE_KEY = `timer_rate_${jobId}`;
   const [startTs, setStartTs] = useState(() => {
@@ -30,7 +30,7 @@ function JobTimer({ jobId, onTimeSaved }) {
   useEffect(() => {
     api.get('/settings/billing-rates').then(r => {
       setBillingRates(r.data);
-      setBillingRateId(cur => cur || r.data[0]?.id || '');
+      setBillingRateId(cur => cur || user?.default_billing_rate_id || r.data[0]?.id || '');
     }).catch(() => {});
   }, []);
 
@@ -277,7 +277,7 @@ function JobTimesheets({ jobId, user }) {
   useEffect(() => {
     api.get('/settings/billing-rates').then(r => {
       setBillingRates(r.data);
-      setBillingRateId(cur => cur || r.data[0]?.id || '');
+      setBillingRateId(cur => cur || user?.default_billing_rate_id || r.data[0]?.id || '');
     }).catch(() => {});
   }, []);
 
@@ -837,7 +837,7 @@ export default function JobDetail() {
 
       {/* Timer bar */}
       {job.status !== 'cancelled' && job.status !== 'complete' && (
-        <JobTimer jobId={id} onTimeSaved={() => setEmailFlash('Time entry saved!')} />
+        <JobTimer jobId={id} user={user} onTimeSaved={() => setEmailFlash('Time entry saved!')} />
       )}
       {emailFlash && (
         <div className={styles.flashBanner} onAnimationEnd={() => setEmailFlash('')}>{emailFlash}</div>

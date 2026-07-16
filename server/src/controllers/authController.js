@@ -91,7 +91,7 @@ async function completeLogin(user, res) {
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
-  res.json({ accessToken, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  res.json({ accessToken, user: { id: user.id, name: user.name, email: user.email, role: user.role, default_billing_rate_id: user.default_billing_rate_id } });
 }
 
 // ── Auth handlers ─────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ async function login(req, res) {
     }
 
     const { rows } = await pool.query(
-      'SELECT id, name, email, password_hash, role, COALESCE(is_active, true) AS is_active FROM users WHERE email = $1',
+      'SELECT id, name, email, password_hash, role, default_billing_rate_id, COALESCE(is_active, true) AS is_active FROM users WHERE email = $1',
       [normalEmail]
     );
     const user = rows[0];
@@ -208,7 +208,7 @@ async function verifyOtp(req, res) {
     await clearFailures(`otp:${userId}`);
     await pool.query('DELETE FROM login_otps WHERE expires_at < NOW()').catch(() => {});
 
-    const userResult = await pool.query('SELECT id, name, email, role FROM users WHERE id=$1', [userId]);
+    const userResult = await pool.query('SELECT id, name, email, role, default_billing_rate_id FROM users WHERE id=$1', [userId]);
     const user = userResult.rows[0];
     if (!user) return res.status(401).json({ error: 'User not found' });
 
@@ -278,7 +278,7 @@ async function refresh(req, res) {
       [token, decoded.id]
     );
     if (!rows.length) return res.status(401).json({ error: 'Invalid refresh token' });
-    const userResult = await pool.query('SELECT id, name, email, role FROM users WHERE id = $1', [decoded.id]);
+    const userResult = await pool.query('SELECT id, name, email, role, default_billing_rate_id FROM users WHERE id = $1', [decoded.id]);
     const user = userResult.rows[0];
     if (!user) return res.status(401).json({ error: 'User not found' });
     const accessToken = signAccessToken({ id: user.id, email: user.email, role: user.role, name: user.name });
@@ -298,7 +298,7 @@ async function logout(req, res) {
 
 async function me(req, res) {
   try {
-    const { rows } = await pool.query('SELECT id, name, email, role, created_at FROM users WHERE id = $1', [req.user.id]);
+    const { rows } = await pool.query('SELECT id, name, email, role, default_billing_rate_id, created_at FROM users WHERE id = $1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'User not found' });
     res.json(rows[0]);
   } catch { res.status(500).json({ error: 'Server error' }); }

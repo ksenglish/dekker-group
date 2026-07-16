@@ -24,7 +24,7 @@ function validDiaries(diaries) {
 router.get('/', authenticate, requireRole('admin'), async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, email, role, diaries, is_active, created_at FROM users ORDER BY name'
+      'SELECT id, name, email, role, diaries, default_billing_rate_id, is_active, created_at FROM users ORDER BY name'
     );
     res.json(rows);
   } catch {
@@ -34,7 +34,7 @@ router.get('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // Create user (admin only)
 router.post('/', authenticate, requireRole('admin'), async (req, res) => {
-  const { name, email, password, role, diaries } = req.body;
+  const { name, email, password, role, diaries, default_billing_rate_id } = req.body;
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required' });
   }
@@ -47,8 +47,8 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
   try {
     const password_hash = await bcrypt.hash(password, 12);
     const { rows } = await pool.query(
-      'INSERT INTO users (name, email, password_hash, role, diaries) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role, diaries, created_at',
-      [name, email.toLowerCase().trim(), password_hash, role, diaries !== undefined ? diaries : diariesFromRole(role)]
+      'INSERT INTO users (name, email, password_hash, role, diaries, default_billing_rate_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, email, role, diaries, default_billing_rate_id, created_at',
+      [name, email.toLowerCase().trim(), password_hash, role, diaries !== undefined ? diaries : diariesFromRole(role), default_billing_rate_id || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -59,29 +59,30 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // Update user (admin only)
 router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
-  const { name, email, role, password, is_active, diaries } = req.body;
+  const { name, email, role, password, is_active, diaries, default_billing_rate_id } = req.body;
   if (req.params.id === req.user.id && is_active === false)
     return res.status(400).json({ error: 'You cannot deactivate your own account' });
   if (diaries !== undefined && !validDiaries(diaries)) {
     return res.status(400).json({ error: 'Invalid diaries' });
   }
   try {
-    // Keep existing diaries when the request doesn't include them
-    const { rows: existingRows } = await pool.query('SELECT diaries FROM users WHERE id=$1', [req.params.id]);
+    // Keep existing diaries/rate when the request doesn't include them
+    const { rows: existingRows } = await pool.query('SELECT diaries, default_billing_rate_id FROM users WHERE id=$1', [req.params.id]);
     if (!existingRows[0]) return res.status(404).json({ error: 'User not found' });
     const finalDiaries = diaries !== undefined ? diaries : existingRows[0].diaries;
+    const finalRateId = default_billing_rate_id !== undefined ? (default_billing_rate_id || null) : existingRows[0].default_billing_rate_id;
 
     if (password) {
       const password_hash = await bcrypt.hash(password, 12);
       const { rows } = await pool.query(
-        'UPDATE users SET name=$1, email=$2, role=$3, password_hash=$4, is_active=$5, diaries=$6, updated_at=NOW() WHERE id=$7 RETURNING id, name, email, role, diaries, is_active, created_at',
-        [name, email.toLowerCase().trim(), role, password_hash, is_active !== false, finalDiaries, req.params.id]
+        'UPDATE users SET name=$1, email=$2, role=$3, password_hash=$4, is_active=$5, diaries=$6, default_billing_rate_id=$7, updated_at=NOW() WHERE id=$8 RETURNING id, name, email, role, diaries, default_billing_rate_id, is_active, created_at',
+        [name, email.toLowerCase().trim(), role, password_hash, is_active !== false, finalDiaries, finalRateId, req.params.id]
       );
       return res.json(rows[0]);
     }
     const { rows } = await pool.query(
-      'UPDATE users SET name=$1, email=$2, role=$3, is_active=$4, diaries=$5, updated_at=NOW() WHERE id=$6 RETURNING id, name, email, role, diaries, is_active, created_at',
-      [name, email.toLowerCase().trim(), role, is_active !== false, finalDiaries, req.params.id]
+      'UPDATE users SET name=$1, email=$2, role=$3, is_active=$4, diaries=$5, default_billing_rate_id=$6, updated_at=NOW() WHERE id=$7 RETURNING id, name, email, role, diaries, default_billing_rate_id, is_active, created_at',
+      [name, email.toLowerCase().trim(), role, is_active !== false, finalDiaries, finalRateId, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) {
