@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const c = require('../controllers/invoiceController');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireRawRole } = require('../middleware/auth');
 const xero = require('../utils/xero');
 
 router.use(authenticate);
-router.use(requireRole('admin', 'office'));
+// Raw role check — sales/operations must NOT get in via the sales/operations
+// -> office equivalence that requireRole normally applies.
+router.use(requireRawRole('admin', 'office'));
 
 router.get('/', c.list);
 router.get('/:id', c.get);

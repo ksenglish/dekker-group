@@ -3,7 +3,11 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const pool = require('../db/pool');
 
 router.use(authenticate);
-router.use(requireRole('admin', 'office'));
+// subcontractor added explicitly — sales/operations already pass via
+// requireRole's office equivalence. Every endpoint below already scopes
+// non-admin raw roles to their own jobs/timesheets, so this just grants
+// subcontractors that same "my own stuff" view instead of a 403.
+router.use(requireRole('admin', 'office', 'subcontractor'));
 
 // Monthly revenue (last 12 months) — filtered to user's jobs for non-admin
 router.get('/revenue', async (req, res) => {

@@ -1,13 +1,18 @@
 const pool = require('../db/pool');
 
+// Raw roles (deliberately not normaliseRole — that would elevate sales/
+// operations back to office-equivalent, which is exactly what this scoping
+// needs to avoid) that only ever see/edit their own timesheet entries.
+const SELF_ONLY_ROLES = ['field_tech', 'sales', 'operations', 'subcontractor'];
+
 async function list(req, res) {
   const { job_id, user_id, from, to } = req.query;
   const conditions = [];
   const params = [];
   let p = 1;
 
-  // Field techs can only see their own entries
-  if (req.user.role === 'field_tech') {
+  // Field techs, sales, operations and subcontractors can only see their own entries
+  if (SELF_ONLY_ROLES.includes(req.user.role)) {
     conditions.push(`t.user_id = $${p}`); params.push(req.user.id); p++;
   } else {
     if (user_id) { conditions.push(`t.user_id = $${p}`); params.push(user_id); p++; }
@@ -33,7 +38,7 @@ async function list(req, res) {
 
 async function create(req, res) {
   const { job_id, date, hours, description, start_time, end_time, source, billing_rate_id } = req.body;
-  const user_id = req.user.role === 'field_tech' ? req.user.id : (req.body.user_id || req.user.id);
+  const user_id = SELF_ONLY_ROLES.includes(req.user.role) ? req.user.id : (req.body.user_id || req.user.id);
   if (!hours || hours <= 0) return res.status(400).json({ error: 'Hours must be greater than 0' });
   try {
     const { rows } = await pool.query(
@@ -55,13 +60,13 @@ async function update(req, res) {
   const { job_id, date, hours, description, user_id } = req.body;
   const { id } = req.params;
   try {
-    // Field techs can only edit their own
+    // Field techs, sales, operations and subcontractors can only edit their own
     const { rows: [existing] } = await pool.query('SELECT * FROM timesheets WHERE id=$1', [id]);
     if (!existing) return res.status(404).json({ error: 'Not found' });
-    if (req.user.role === 'field_tech' && existing.user_id !== req.user.id)
+    if (SELF_ONLY_ROLES.includes(req.user.role) && existing.user_id !== req.user.id)
       return res.status(403).json({ error: 'Forbidden' });
 
-    const newUserId = req.user.role === 'field_tech' ? req.user.id : (user_id || existing.user_id);
+    const newUserId = SELF_ONLY_ROLES.includes(req.user.role) ? req.user.id : (user_id || existing.user_id);
     const { rows } = await pool.query(
       `UPDATE timesheets SET job_id=$1, user_id=$2, date=$3, hours=$4, description=$5, updated_at=NOW()
        WHERE id=$6 RETURNING *`,
@@ -80,7 +85,7 @@ async function remove(req, res) {
   try {
     const { rows: [existing] } = await pool.query('SELECT * FROM timesheets WHERE id=$1', [req.params.id]);
     if (!existing) return res.status(404).json({ error: 'Not found' });
-    if (req.user.role === 'field_tech' && existing.user_id !== req.user.id)
+    if (SELF_ONLY_ROLES.includes(req.user.role) && existing.user_id !== req.user.id)
       return res.status(403).json({ error: 'Forbidden' });
     await pool.query('DELETE FROM timesheets WHERE id=$1', [req.params.id]);
     res.json({ message: 'Deleted' });
@@ -92,7 +97,7 @@ async function summary(req, res) {
   const conditions = [];
   const params = [];
   let p = 1;
-  if (req.user.role === 'field_tech') { conditions.push(`t.user_id=$${p}`); params.push(req.user.id); p++; }
+  if (SELF_ONLY_ROLES.includes(req.user.role)) { conditions.push(`t.user_id=$${p}`); params.push(req.user.id); p++; }
   else if (user_id) { conditions.push(`t.user_id=$${p}`); params.push(user_id); p++; }
   if (from) { conditions.push(`t.date>=$${p}`); params.push(from); p++; }
   if (to)   { conditions.push(`t.date<=$${p}`); params.push(to); p++; }

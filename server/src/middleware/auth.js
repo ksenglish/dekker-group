@@ -33,6 +33,19 @@ function requireRole(...roles) {
   };
 }
 
+// Like requireRole, but checks only the exact raw role — no sales/operations
+// -> office or subcontractor -> field_tech equivalence. Use where sales/
+// operations/subcontractor must be excluded even though they'd otherwise
+// pass via that normalisation (e.g. Invoices, Leads).
+function requireRawRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    next();
+  };
+}
+
 // Accepts either a user JWT or the AUTOMATION_API_KEY env var in X-API-Key header
 function authenticateAutomation(req, res, next) {
   const apiKey = req.headers['x-api-key'];
@@ -43,4 +56,4 @@ function authenticateAutomation(req, res, next) {
   return authenticate(req, res, next);
 }
 
-module.exports = { authenticate, requireRole, normaliseRole, authenticateAutomation };
+module.exports = { authenticate, requireRole, requireRawRole, normaliseRole, authenticateAutomation };

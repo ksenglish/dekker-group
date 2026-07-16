@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireRole, requireRawRole } = require('../middleware/auth');
 const { sendMail } = require('../utils/email');
 
 const LEAD_STATUSES = ['new', 'contacted', 'converted', 'dismissed'];
@@ -122,7 +122,7 @@ router.post('/webhook/wix', async (req, res) => {
 // ── Authenticated endpoints (admin + office staff) ────────────────────────────
 router.use(authenticate);
 
-router.get('/', requireRole('admin', 'office'), async (req, res) => {
+router.get('/', requireRawRole('admin', 'office'), async (req, res) => {
   const { status } = req.query;
   const params = [];
   let where = '';
@@ -138,7 +138,7 @@ router.get('/', requireRole('admin', 'office'), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
-router.patch('/:id/status', requireRole('admin', 'office'), async (req, res) => {
+router.patch('/:id/status', requireRawRole('admin', 'office'), async (req, res) => {
   const { status } = req.body;
   if (!LEAD_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
   try {
@@ -152,7 +152,7 @@ router.patch('/:id/status', requireRole('admin', 'office'), async (req, res) => 
 });
 
 // Convert a lead into a customer (links the new customer back to the lead)
-router.post('/:id/convert', requireRole('admin', 'office'), async (req, res) => {
+router.post('/:id/convert', requireRawRole('admin', 'office'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

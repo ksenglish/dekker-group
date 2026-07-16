@@ -29,7 +29,7 @@ const NAV_ITEMS = [
   { to: '/jobs', label: 'Jobs', icon: '🔧' },
   { to: '/schedule', label: 'Schedule', icon: '📅' },
   { to: '/quotes', label: 'Quotes', icon: '📋' },
-  { to: '/invoices', label: 'Invoices', icon: '💰' },
+  { to: '/invoices', label: 'Invoices', icon: '💰', officeOnly: true },
   { to: '/products', label: 'Price List', icon: '🏷' },
   { to: '/map', label: 'Map', icon: '🗺' },
   { to: '/timesheets', label: 'Timesheets', icon: '⏱' },
@@ -70,7 +70,9 @@ export default function AppShell() {
 
         <nav className={styles.nav}>
           {NAV_ITEMS.filter(item =>
-            !item.officeOnly || ['admin', 'sales', 'operations', 'office'].includes(user?.role)
+            // sales/operations deliberately excluded here — unlike most of the
+            // app they don't get office-equivalent access to these tabs.
+            !item.officeOnly || ['admin', 'office'].includes(user?.role)
           ).map(item => (
             <NavLink
               key={item.to}
