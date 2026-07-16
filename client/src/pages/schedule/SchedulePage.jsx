@@ -67,10 +67,16 @@ export default function SchedulePage() {
   const [techRoles, setTechRoles] = useState({});
   const [techDiaries, setTechDiaries] = useState({});
   const [statusColours, setStatusColours] = useState(DEFAULT_STATUS_COLOURS);
-  // Sales/operations/subcontractor are locked to their own diary — no switcher, no "All"
+  // Sales/operations/subcontractor don't get the diary switcher — the backend
+  // already restricts what /schedules returns for them to their own
+  // appointments, so filterDiary stays '' (all of what the server sent back)
+  // rather than being locked to a diary key; techDiaries is never populated
+  // for these roles anyway (GET /users is admin-only), so locking filterDiary
+  // to a truthy value here would make every appointment fail the inDiary
+  // check below and show nothing.
   const lockedDiary = ['sales', 'operations', 'subcontractor'].includes(user?.role) ? user.role : null;
   const [filterTech, setFilterTech] = useState('');
-  const [filterDiary, setFilterDiary] = useState(() => lockedDiary || ''); // '' (all) | one of DIARIES
+  const [filterDiary, setFilterDiary] = useState(''); // '' (all) | one of DIARIES
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
   const [notesDraft, setNotesDraft] = useState('');
