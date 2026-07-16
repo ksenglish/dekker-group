@@ -298,8 +298,11 @@ export default function SchedulePage() {
   }
 
   // One column per team member for the Day view — filtered to match the
-  // team-member dropdown and the selected diary
+  // team-member dropdown and the selected diary. Sales/operations/
+  // subcontractor only ever get their own single column, regardless of the
+  // (hidden, for them) diary/team filters.
   const resources = Object.entries(techMap)
+    .filter(([id]) => !lockedDiary || id === user.id)
     .filter(([id]) => !filterTech || id === filterTech)
     .filter(([id]) => inDiary(id))
     .map(([id, name]) => ({ id, title: name }));
@@ -337,7 +340,7 @@ export default function SchedulePage() {
           <h1 className={styles.pageTitle}>Schedule</h1>
         </div>
         <div className={styles.headerActions}>
-          {Object.keys(techMap).length > 0 && (
+          {!lockedDiary && Object.keys(techMap).length > 0 && (
             <select className={styles.filterSelect} value={filterTech} onChange={e => setFilterTech(e.target.value)}>
               <option value="">All team members</option>
               {Object.entries(techMap).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
