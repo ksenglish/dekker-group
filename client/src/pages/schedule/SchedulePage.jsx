@@ -474,7 +474,6 @@ export default function SchedulePage() {
               <div className={styles.eventRow}><span>Date</span><strong>{new Date(selectedEvent.scheduled_date).toLocaleDateString('en-NZ')}</strong></div>
               {selectedEvent.start_time && <div className={styles.eventRow}><span>Time</span><strong>{selectedEvent.start_time}{selectedEvent.end_time ? ` – ${selectedEvent.end_time}` : ''}</strong></div>}
               {selectedEvent.site_address && <div className={styles.eventRow}><span>Address</span><strong>{selectedEvent.site_address}</strong></div>}
-              {selectedEvent.description && <div className={styles.eventRow}><span>Job Description</span><strong>{selectedEvent.description}</strong></div>}
               <div className={styles.eventRow}><span>Status</span>
                 <strong style={{ textTransform:'capitalize', color: statusColours[selectedEvent.status] || DEFAULT_STATUS_COLOURS[selectedEvent.status] }}>
                   {selectedEvent.status?.replace('_',' ')}

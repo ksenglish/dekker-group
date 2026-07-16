@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import styles from './Schedule.module.css';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 
 // A free, self-built "one column per team member" Day view — replaces
 // FullCalendar's resource-timegrid plugin, which requires a paid Premium
@@ -8,6 +9,10 @@ const DAY_START_HOUR = 7;
 const DAY_END_HOUR = 20.5; // 8:30pm, matches the old slotMaxTime
 const PX_PER_HOUR = 60;
 const TOTAL_HEIGHT = (DAY_END_HOUR - DAY_START_HOUR) * PX_PER_HOUR;
+// Short appointments get stretched to this height so Job #/Name/Address/Notes all
+// have room to render — capped per-event to the gap before the next tile in its lane
+// (see assignLanes) so stretching never overlaps a back-to-back appointment.
+const MIN_DETAIL_HEIGHT = 46;
 const HOURS = Array.from({ length: Math.ceil(DAY_END_HOUR) - DAY_START_HOUR }, (_, i) => DAY_START_HOUR + i);
 
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -32,14 +37,21 @@ function snap15(mins) { return Math.round(mins / 15) * 15; }
 function assignLanes(events) {
   const sorted = [...events].sort((a, b) => a.startMin - b.startMin);
   const laneEnds = [];
+  const laneEvents = [];
   const placed = sorted.map(ev => {
     let lane = laneEnds.findIndex(end => end <= ev.startMin);
-    if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+    if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); laneEvents.push([]); }
     laneEnds[lane] = ev.endMin;
+    laneEvents[lane].push(ev);
     return { ...ev, lane };
   });
   const totalLanes = laneEnds.length || 1;
-  return placed.map(ev => ({ ...ev, totalLanes }));
+  return placed.map(ev => {
+    const nextInLane = laneEvents[ev.lane][laneEvents[ev.lane].indexOf(ev) + 1];
+    // How far this tile can stretch before it would run into the next one below it
+    const availableMin = nextInLane ? nextInLane.startMin - ev.startMin : Infinity;
+    return { ...ev, totalLanes, availableMin };
+  });
 }
 
 export default function DayColumnsView({ date, events, resources, canEdit, onEventClick, onSlotClick, onSaveMove }) {
@@ -142,10 +154,14 @@ function DayEvent({ appt, canEdit, onClick, onSaveMove, dayKey }) {
   const elRef = useRef(null);
   const [drag, setDrag] = useState(null); // { top, height } while actively dragging/resizing — overrides computed position
   const isNote = appt.extendedProps.type === 'note';
+  const jobNumber = !isNote && formatJobNumber(appt.extendedProps);
+  const customerName = !isNote && appt.extendedProps.customer_name;
   const address = !isNote && appt.extendedProps.site_address;
+  const notes = !isNote && appt.extendedProps.notes;
 
   const top = drag?.top ?? minToPx(appt.startMin);
-  const height = drag?.height ?? Math.max(18, minToPx(appt.endMin - appt.startMin));
+  const stretchTo = isNote ? 18 : Math.min(MIN_DETAIL_HEIGHT, minToPx(appt.availableMin ?? Infinity));
+  const height = drag?.height ?? Math.max(18, stretchTo, minToPx(appt.endMin - appt.startMin));
   const width = 100 / appt.totalLanes;
   const left = appt.lane * width;
 
@@ -226,11 +242,18 @@ function DayEvent({ appt, canEdit, onClick, onSaveMove, dayKey }) {
         background: appt.backgroundColor, borderColor: appt.borderColor, color: appt.textColor,
         cursor: isNote ? 'pointer' : 'grab',
       }}
-      title={address ? `${appt.title}\n${address}` : appt.title}
+      title={isNote ? appt.title : [appt.title, address, notes].filter(Boolean).join('\n')}
       onMouseDown={isNote ? undefined : startMove}
       onClick={isNote ? onClick : undefined}>
-      <span className={styles.dayEventTitle}>{appt.title}</span>
-      {address && <span className={styles.dayEventAddress}>📍 {address}</span>}
+      {isNote ? (
+        <span className={styles.dayEventTitle}>{appt.title}</span>
+      ) : (
+        <>
+          <span className={styles.dayEventTitle}>{jobNumber}{customerName ? ` ${customerName}` : ''}</span>
+          {address && <span className={styles.dayEventAddress}>📍 {address}</span>}
+          {notes && <span className={styles.dayEventNotes}>📝 {notes}</span>}
+        </>
+      )}
       {canEdit && <div className={styles.dayEventResizeHandle} onMouseDown={startResize} />}
     </div>
   );

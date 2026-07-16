@@ -362,6 +362,16 @@
   opacity: 0.85;
 }
 
+.dayEventNotes {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
 .dayEventResizeHandle {
   position: absolute;
   left: 0;
@@ -446,6 +456,8 @@
   outline: none;
   font-family: inherit;
   resize: vertical;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 .notesSection textarea:focus {
@@ -460,6 +472,8 @@
   color: var(--color-text);
   white-space: pre-wrap;
   margin: 0;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 .modalFooter {
@@ -550,3 +564,53 @@
 }
 
 .btnDanger:hover { background: #fee2e2; }
+
+/* ── Mobile — fit header/filters/legend on screen, only the calendar scrolls ── */
+@media (max-width: 768px) {
+  .page {
+    height: calc(100vh - 64px); /* 64px = AppShell's fixed bottom nav */
+    display: flex;
+    flex-direction: column;
+    padding: 10px 10px 6px;
+    overflow: hidden;
+  }
+
+  .pageHeader { margin-bottom: 8px; flex-shrink: 0; }
+  .pageTitle { font-size: 19px; }
+
+  .typeFilterRow { margin-bottom: 8px; flex-wrap: nowrap; flex-shrink: 0; }
+  .typeFilterGroup {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .typeFilterGroup::-webkit-scrollbar { display: none; }
+  .typeFilterBtn { flex-shrink: 0; }
+
+  .legend {
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-shrink: 0;
+  }
+  .legend::-webkit-scrollbar { display: none; }
+  .legendItem { flex-shrink: 0; }
+
+  .calToolbar { margin-bottom: 8px; flex-shrink: 0; }
+  .calToolbarTitle { font-size: 15px; }
+
+  .calendarWrap {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+
+  /* Day view — let the whole grid (header + columns) pan sideways together
+     when there are more team members than fit on screen */
+  .dayView { overflow-x: auto; overflow-y: hidden; }
+  .dayColumnHeader, .dayAllDayCell, .dayColumn { min-width: 120px; }
+}
