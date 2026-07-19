@@ -57,7 +57,7 @@ async function create(req, res) {
 }
 
 async function update(req, res) {
-  const { job_id, date, hours, description, user_id, start_time, end_time } = req.body;
+  const { job_id, date, hours, description, user_id, start_time, end_time, billing_rate_id } = req.body;
   const { id } = req.params;
   try {
     // Field techs, sales, operations and subcontractors can only edit their own
@@ -69,9 +69,9 @@ async function update(req, res) {
     const newUserId = SELF_ONLY_ROLES.includes(req.user.role) ? req.user.id : (user_id || existing.user_id);
     const { rows } = await pool.query(
       `UPDATE timesheets SET job_id=$1, user_id=$2, date=$3, hours=$4, description=$5,
-         start_time=$6, end_time=$7, updated_at=NOW()
-       WHERE id=$8 RETURNING *`,
-      [job_id || null, newUserId, date, hours, description || null, start_time || null, end_time || null, id]
+         start_time=$6, end_time=$7, billing_rate_id=$8, updated_at=NOW()
+       WHERE id=$9 RETURNING *`,
+      [job_id || null, newUserId, date, hours, description || null, start_time || null, end_time || null, billing_rate_id || null, id]
     );
     const { rows: full } = await pool.query(
       `SELECT t.*, u.name AS user_name, j.description AS job_title, j.job_number, j.external_ref

@@ -47,6 +47,16 @@ function toIso(date, hhmm) {
   return new Date(`${date}T${hhmm}:00`).toISOString();
 }
 
+// An entry only counts as billable if it has a job attached AND its billing
+// rate (when one's set) actually charges — e.g. Travel is often logged at
+// $0/hr against a job, so it shouldn't count as billable hours.
+function isBillable(entry, billingRates) {
+  if (!entry.job_id) return false;
+  if (!entry.billing_rate_id) return true;
+  const rate = billingRates.find(r => r.id === entry.billing_rate_id);
+  return rate ? parseFloat(rate.rate) > 0 : true;
+}
+
 // Job # — Customer — Site address, for the searchable job picker
 function jobLabel(j) {
   if (!j) return '';
@@ -103,7 +113,7 @@ function JobPicker({ jobs, value, onChange }) {
   );
 }
 
-function EntryModal({ entry, prefillUser, prefillDate, jobs, users, currentUser, onSave, onClose }) {
+function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates, currentUser, onSave, onClose }) {
   const isAdmin = isAdminRole(currentUser.role);
   const [form, setForm] = useState({
     job_id: entry?.job_id || '',
@@ -113,6 +123,7 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, currentUser,
     description: entry?.description || '',
     start_time: toHHMM(entry?.start_time),
     end_time: toHHMM(entry?.end_time),
+    billing_rate_id: entry?.billing_rate_id || '',
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -186,6 +197,17 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, currentUser,
               <JobPicker jobs={jobs} value={form.job_id} onChange={v => set('job_id', v)} />
             </div>
             <div className={styles.field} style={{ gridColumn: '1/-1' }}>
+              <label>Billing Rate (optional)</label>
+              <select value={form.billing_rate_id} onChange={e => set('billing_rate_id', e.target.value)}>
+                <option value="">— Select —</option>
+                {billingRates.map(r => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}{parseFloat(r.rate) > 0 ? ` — $${r.rate}/hr` : ' — non-billable'}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.field} style={{ gridColumn: '1/-1' }}>
               <label>Description</label>
               <textarea rows={3} value={form.description} onChange={e => set('description', e.target.value)}
                 placeholder="What work was done?" />
@@ -223,6 +245,7 @@ export default function TimesheetsPage() {
   const [entries, setEntries] = useState([]);
   const [users, setUsers] = useState([]);
   const [jobs, setJobs] = useState([]);
+  const [billingRates, setBillingRates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // null | { entry?, prefillUser?, prefillDate? }
   const [listView, setListView] = useState(false);
@@ -240,6 +263,7 @@ export default function TimesheetsPage() {
       setUsers(uRes.data);
     };
     init();
+    api.get('/settings/billing-rates').then(r => setBillingRates(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => { load(); }, [weekFrom]);
@@ -274,7 +298,7 @@ export default function TimesheetsPage() {
     return entries.filter(e => e.user_id === userId).reduce((s, e) => s + parseFloat(e.hours || 0), 0);
   }
   function billableTotalForUser(userId) {
-    return entries.filter(e => e.user_id === userId && e.job_id).reduce((s, e) => s + parseFloat(e.hours || 0), 0);
+    return entries.filter(e => e.user_id === userId && isBillable(e, billingRates)).reduce((s, e) => s + parseFloat(e.hours || 0), 0);
   }
   function initials(name) {
     return (name || '').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
@@ -287,7 +311,7 @@ export default function TimesheetsPage() {
   }
 
   const grandTotal = entries.reduce((s, e) => s + parseFloat(e.hours || 0), 0);
-  const billableTotal = entries.filter(e => e.job_id).reduce((s, e) => s + parseFloat(e.hours || 0), 0);
+  const billableTotal = entries.filter(e => isBillable(e, billingRates)).reduce((s, e) => s + parseFloat(e.hours || 0), 0);
 
   return (
     <div className={styles.page}>
@@ -403,7 +427,7 @@ export default function TimesheetsPage() {
                                     ? <div className={styles.detailEmpty}>—</div>
                                     : dayEntries.map(e => (
                                       <div key={e.id}
-                                        className={`${styles.entryPill} ${e.job_id ? styles.entryPillBillable : styles.entryPillNonBillable}`}
+                                        className={`${styles.entryPill} ${isBillable(e, billingRates) ? styles.entryPillBillable : styles.entryPillNonBillable}`}
                                         onClick={() => setModal({ entry: e })}
                                         title={e.description || ''}>
                                         <span className={styles.entryPillJob}>{e.job_id ? formatJobNumber(e) : 'General'}</span>
@@ -435,6 +459,7 @@ export default function TimesheetsPage() {
           prefillDate={modal.prefillDate}
           jobs={jobs}
           users={isAdmin ? users : [user]}
+          billingRates={billingRates}
           currentUser={user}
           onSave={onSaved}
           onClose={() => setModal(null)}
