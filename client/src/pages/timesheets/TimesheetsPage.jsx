@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../lib/permissions';
@@ -129,10 +129,13 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
   const [err, setErr] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  // Auto-fill Hours from Start/Finish once both are set, as long as the user
-  // hasn't already typed a value — never overwrite a manual/prefilled entry.
+  // Recompute Hours whenever the user amends Start/Finish time (both set).
+  // Skips the very first run so opening the modal doesn't clobber a
+  // prefilled/manually-set Hours value before anything's actually changed.
+  const mountedRef = useRef(false);
   useEffect(() => {
-    if (form.hours || !form.start_time || !form.end_time) return;
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    if (!form.start_time || !form.end_time) return;
     const [sh, sm] = form.start_time.split(':').map(Number);
     const [eh, em] = form.end_time.split(':').map(Number);
     const mins = (eh * 60 + em) - (sh * 60 + sm);
@@ -202,7 +205,7 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
                 <option value="">— Select —</option>
                 {billingRates.map(r => (
                   <option key={r.id} value={r.id}>
-                    {r.label}{parseFloat(r.rate) > 0 ? ` — $${r.rate}/hr` : ' — non-billable'}
+                    {r.label}{parseFloat(r.rate) > 0 ? '' : ' — non-billable'}
                   </option>
                 ))}
               </select>
