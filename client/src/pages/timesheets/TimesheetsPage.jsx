@@ -160,6 +160,15 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
     } catch (e) { setErr(e.response?.data?.error || 'Save failed'); setSaving(false); }
   }
 
+  async function handleDelete() {
+    if (!confirm('Delete this time entry? This cannot be undone.')) return;
+    setSaving(true); setErr('');
+    try {
+      await api.delete(`/timesheets/${entry.id}`);
+      onSave();
+    } catch (e) { setErr(e.response?.data?.error || 'Delete failed'); setSaving(false); }
+  }
+
   return (
     <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.modal}>
@@ -217,6 +226,10 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
             </div>
           </div>
           <div className={styles.modalFooter}>
+            {entry && (
+              <button type="button" className={styles.btnDanger} onClick={handleDelete} disabled={saving}
+                style={{ marginRight: 'auto' }}>Delete</button>
+            )}
             <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
             <button type="submit" className={styles.btnPrimary} disabled={saving}>
               {saving ? 'Saving…' : 'Save Entry'}

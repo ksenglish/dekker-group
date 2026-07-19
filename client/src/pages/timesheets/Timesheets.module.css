@@ -148,6 +148,9 @@
 .btnPrimary:disabled { opacity: 0.6; cursor: not-allowed; }
 .btnSecondary { padding: 9px 16px; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; }
 .btnSecondary:hover { background: #f1f5f9; }
+.btnDanger { padding: 9px 16px; background: #fef2f2; color: var(--color-error); border: 1px solid #fecaca; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; }
+.btnDanger:hover:not(:disabled) { background: #fee2e2; }
+.btnDanger:disabled { opacity: 0.6; cursor: not-allowed; }
 
 @media (max-width: 768px) {
   .page { padding: 12px; }
