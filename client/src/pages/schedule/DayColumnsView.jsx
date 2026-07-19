@@ -61,6 +61,22 @@ export default function DayColumnsView({ date, events, resources, canEdit, onEve
     return () => clearInterval(id);
   }, []);
 
+  // dayScrollArea's vertical scrollbar eats a few pixels that dayHeaderRow
+  // (which never scrolls vertically) doesn't account for, so the day columns
+  // drift out of alignment with their headers the further right you go.
+  // Measure it and pad the header row to match.
+  const scrollAreaRef = useRef(null);
+  const [scrollbarWidth, setScrollbarWidth] = useState(0);
+  useEffect(() => {
+    function measure() {
+      const el = scrollAreaRef.current;
+      if (el) setScrollbarWidth(el.offsetWidth - el.clientWidth);
+    }
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [resources.length]);
+
   const isToday = dateStr(date) === dateStr(now);
   const nowOffsetPx = isToday ? minToPx((now.getHours() * 60 + now.getMinutes()) - DAY_START_HOUR * 60) : null;
 
@@ -78,13 +94,13 @@ export default function DayColumnsView({ date, events, resources, canEdit, onEve
 
   return (
     <div className={styles.dayView}>
-      <div className={styles.dayHeaderRow}>
+      <div className={styles.dayHeaderRow} style={{ paddingRight: scrollbarWidth }}>
         <div className={styles.dayTimeGutterHeader} />
         {resources.map(r => (
           <div key={r.id} className={styles.dayColumnHeader}>{r.title}</div>
         ))}
       </div>
-      <div className={styles.dayScrollArea}>
+      <div className={styles.dayScrollArea} ref={scrollAreaRef}>
         <div className={styles.dayAllDayRow}>
           <div className={styles.dayTimeGutterLabel}>all-day</div>
           {resources.map(r => (
