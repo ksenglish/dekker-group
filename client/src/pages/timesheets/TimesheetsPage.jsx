@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../lib/permissions';
@@ -226,6 +226,7 @@ export default function TimesheetsPage() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // null | { entry?, prefillUser?, prefillDate? }
   const [listView, setListView] = useState(false);
+  const [expandedUser, setExpandedUser] = useState(null);
 
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekFrom, i));
 
@@ -359,33 +360,64 @@ export default function TimesheetsPage() {
               {staffList.map(u => {
                 const weekTotal = weekTotalForUser(u.id);
                 const billable = billableTotalForUser(u.id);
+                const expanded = expandedUser === u.id;
                 return (
-                  <tr key={u.id} className={styles.staffRow}>
-                    <td className={styles.staffCell}>
-                      <div className={styles.avatar} style={{ background: avatarColour(u.id) }}>
-                        {initials(u.name)}
-                      </div>
-                      <span className={styles.staffName}>{u.name}</span>
-                    </td>
-                    {weekDates.map(d => {
-                      const hrs = hoursForUserDay(u.id, d);
-                      const dayEntries = entries.filter(e => e.user_id === u.id && e.date?.slice(0,10) === d);
-                      return (
-                        <td key={d} className={`${styles.dayCell} ${hrs > 0 ? styles.dayCellFilled : ''}`}
-                          onClick={() => hrs > 0 && setModal({ entry: dayEntries[0] })}
-                          title={dayEntries.map(e => `${parseFloat(e.hours).toFixed(2)}h${e.job_number ? ` ${formatJobNumber(e)}` : ''}${e.description ? ` — ${e.description}` : ''}`).join('\n')}>
-                          {hrs > 0 ? fmtHours(hrs) : ''}
+                  <Fragment key={u.id}>
+                    <tr className={styles.staffRow}>
+                      <td className={styles.staffCell} onClick={() => setExpandedUser(x => x === u.id ? null : u.id)} style={{ cursor: 'pointer' }}>
+                        <span className={styles.expandChevron}>{expanded ? '▾' : '▸'}</span>
+                        <div className={styles.avatar} style={{ background: avatarColour(u.id) }}>
+                          {initials(u.name)}
+                        </div>
+                        <span className={styles.staffName}>{u.name}</span>
+                      </td>
+                      {weekDates.map(d => {
+                        const hrs = hoursForUserDay(u.id, d);
+                        const dayEntries = entries.filter(e => e.user_id === u.id && e.date?.slice(0,10) === d);
+                        return (
+                          <td key={d} className={`${styles.dayCell} ${hrs > 0 ? styles.dayCellFilled : ''}`}
+                            onClick={() => hrs > 0 && setModal({ entry: dayEntries[0] })}
+                            title={dayEntries.map(e => `${parseFloat(e.hours).toFixed(2)}h${e.job_number ? ` ${formatJobNumber(e)}` : ''}${e.description ? ` — ${e.description}` : ''}`).join('\n')}>
+                            {hrs > 0 ? fmtHours(hrs) : ''}
+                          </td>
+                        );
+                      })}
+                      <td className={styles.weekTotalCell}>{weekTotal > 0 ? fmtHours(weekTotal) : <span className={styles.muted}>0:00</span>}</td>
+                      <td className={styles.billableCell}>{billable > 0 ? fmtHours(billable) : <span className={styles.muted}>0:00</span>}</td>
+                      <td className={styles.addBtnCell}>
+                        <button className={styles.addRowBtn}
+                          onClick={() => setModal({ prefillUser: u.id, prefillDate: weekFrom })}
+                          title={`Log time for ${u.name}`}>+</button>
+                      </td>
+                    </tr>
+                    {expanded && (
+                      <tr className={styles.detailRow}>
+                        <td colSpan={weekDates.length + 4} className={styles.detailCell}>
+                          <div className={styles.detailDays}>
+                            {weekDates.map((d, i) => {
+                              const dayEntries = entries.filter(e => e.user_id === u.id && e.date?.slice(0, 10) === d);
+                              return (
+                                <div key={d} className={styles.detailDay}>
+                                  <div className={styles.detailDayHeader}>{DAYS[i]} {new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}</div>
+                                  {dayEntries.length === 0
+                                    ? <div className={styles.detailEmpty}>—</div>
+                                    : dayEntries.map(e => (
+                                      <div key={e.id}
+                                        className={`${styles.entryPill} ${e.job_id ? styles.entryPillBillable : styles.entryPillNonBillable}`}
+                                        onClick={() => setModal({ entry: e })}
+                                        title={e.description || ''}>
+                                        <span className={styles.entryPillJob}>{e.job_id ? formatJobNumber(e) : 'General'}</span>
+                                        <span className={styles.entryPillHours}>{fmtHours(e.hours)}</span>
+                                      </div>
+                                    ))}
+                                </div>
+                              );
+                            })}
+                          </div>
                         </td>
-                      );
-                    })}
-                    <td className={styles.weekTotalCell}>{weekTotal > 0 ? fmtHours(weekTotal) : <span className={styles.muted}>0:00</span>}</td>
-                    <td className={styles.billableCell}>{billable > 0 ? fmtHours(billable) : <span className={styles.muted}>0:00</span>}</td>
-                    <td className={styles.addBtnCell}>
-                      <button className={styles.addRowBtn}
-                        onClick={() => setModal({ prefillUser: u.id, prefillDate: weekFrom })}
-                        title={`Log time for ${u.name}`}>+</button>
-                    </td>
-                  </tr>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
               {staffList.length === 0 && (
