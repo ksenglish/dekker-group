@@ -226,12 +226,15 @@
   color: white;
 }
 
-/* Custom Day view — one column per team member, no third-party licence required */
+/* Custom Day view — one column per team member, no third-party licence required.
+   Horizontal scroll lives on this outer container (not dayScrollArea below) so
+   the header row and the grid body always pan together in lockstep. */
 .dayView {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .dayHeaderRow {
@@ -255,7 +258,7 @@
   border-left: 1px solid var(--color-border);
 }
 
-.dayScrollArea { flex: 1; overflow-y: auto; }
+.dayScrollArea { flex: 1; overflow-y: auto; overflow-x: hidden; }
 
 .dayAllDayRow {
   display: flex;
@@ -609,8 +612,7 @@
     height: auto;
   }
 
-  /* Day view — let the whole grid (header + columns) pan sideways together
-     when there are more team members than fit on screen */
-  .dayView { overflow-x: auto; overflow-y: hidden; }
+  /* Day view — narrower columns on small screens (horizontal scroll itself
+     is handled by the unconditional .dayView rule above) */
   .dayColumnHeader, .dayAllDayCell, .dayColumn { min-width: 120px; }
 }

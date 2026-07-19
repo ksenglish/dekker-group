@@ -301,9 +301,12 @@ export default function TimesheetsPage() {
 
   function shiftWeek(n) { setWeekFrom(w => addDays(w, n * 7)); }
 
-  // Build grid data: per user, per day
+  // Build grid data: per user, per day — subcontractors and anyone without an
+  // assigned role don't get a row of their own in the all-staff grid
   const staffList = isAdmin
-    ? users.length > 0 ? users : [...new Map(entries.map(e => [e.user_id, { id: e.user_id, name: e.user_name }])).values()]
+    ? users.length > 0
+      ? users.filter(u => u.role && u.role !== 'subcontractor')
+      : [...new Map(entries.map(e => [e.user_id, { id: e.user_id, name: e.user_name }])).values()]
     : [user];
 
   function hoursForUserDay(userId, dateStr) {
