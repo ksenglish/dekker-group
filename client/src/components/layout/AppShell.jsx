@@ -165,6 +165,7 @@ export default function AppShell() {
           { to: '/quotes',    icon: '📋', label: 'Quotes', hideForOperations: true },
           { to: '/customers', icon: '👥', label: 'Customers' },
           { to: '/products',  icon: '🏷', label: 'Price List', hideForOperations: true },
+          { to: '/timesheets', icon: '⏱', label: 'Timesheets' },
           { to: '/presenter', icon: '🎯', label: 'Presenter', hideForOperations: true },
         ], user?.role).map(item => (
           <NavLink key={item.to} to={item.to} end={item.exact}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { isAdmin as isAdminRole } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Timesheets.module.css';
 
@@ -34,7 +35,7 @@ function weekLabel(from) {
 }
 
 function EntryModal({ entry, prefillUser, prefillDate, jobs, users, currentUser, onSave, onClose }) {
-  const isAdmin = currentUser.role !== 'field_tech';
+  const isAdmin = isAdminRole(currentUser.role);
   const [form, setForm] = useState({
     job_id: entry?.job_id || '',
     user_id: entry?.user_id || prefillUser || currentUser.id,
@@ -125,7 +126,7 @@ function exportCsv(entries, from, to) {
 
 export default function TimesheetsPage() {
   const { user } = useAuth();
-  const isAdmin = user.role !== 'field_tech';
+  const isAdmin = isAdminRole(user.role);
   const [weekFrom, setWeekFrom] = useState(weekStart());
   const [entries, setEntries] = useState([]);
   const [users, setUsers] = useState([]);
