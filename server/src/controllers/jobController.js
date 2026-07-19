@@ -171,6 +171,11 @@ async function update(req, res) {
 
 async function updateStatus(req, res) {
   const { status } = req.body;
+  // Cancelling a job is Admin-only — Sales/Operations can move a job through
+  // the rest of the pipeline, but not cancel it.
+  if (status === 'cancelled' && normaliseRole(req.user.role) !== 'admin') {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
   try {
     // Validate against the live, admin-configurable status list (settings
     // key 'job_statuses') rather than a fixed array, so custom statuses

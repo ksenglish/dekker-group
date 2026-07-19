@@ -818,7 +818,7 @@ export default function JobDetail() {
               </button>
             );
           })}
-          {canAct(user?.role) && (
+          {isAdmin(user?.role) && (
             <button
               className={`${styles.pipelineStep} ${job.status === 'cancelled' ? styles.pipelineActive : ''}`}
               onClick={() => handleStatusChange('cancelled')}
