@@ -34,6 +34,75 @@ function weekLabel(from) {
   return `${f.toLocaleDateString('en-NZ', { day: 'numeric', month: 'long' })} – ${fmt(t)}`;
 }
 
+// ISO timestamp -> local "HH:MM" for a <input type="time">
+function toHHMM(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// "HH:MM" + a date string -> full ISO timestamp for the backend
+function toIso(date, hhmm) {
+  if (!hhmm) return null;
+  return new Date(`${date}T${hhmm}:00`).toISOString();
+}
+
+// Job # — Customer — Site address, for the searchable job picker
+function jobLabel(j) {
+  if (!j) return '';
+  return [formatJobNumber(j) || j.title, j.customer_name, j.site_address].filter(Boolean).join(' — ');
+}
+
+// Search/pick-a-job combobox — filters the pre-loaded job list as you type
+function JobPicker({ jobs, value, onChange }) {
+  const selectedJob = jobs.find(j => j.id === value);
+  const [query, setQuery] = useState(jobLabel(selectedJob));
+  const [open, setOpen] = useState(false);
+
+  // Keep the input text in sync if the selected job changes from outside
+  useEffect(() => { setQuery(jobLabel(jobs.find(j => j.id === value))); }, [value, jobs]);
+
+  const q = query.trim().toLowerCase();
+  const matches = q
+    ? jobs.filter(j => jobLabel(j).toLowerCase().includes(q)).slice(0, 50)
+    : jobs.slice(0, 50);
+
+  function pick(job) {
+    onChange(job?.id || '');
+    setQuery(jobLabel(job));
+    setOpen(false);
+  }
+
+  return (
+    <div className={styles.jobPicker}>
+      <input
+        value={query}
+        placeholder="Search by job #, customer, or site address…"
+        onFocus={() => setOpen(true)}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onBlur={() => setTimeout(() => {
+          setOpen(false);
+          setQuery(jobLabel(jobs.find(j => j.id === value)));
+        }, 150)}
+      />
+      {open && (
+        <div className={styles.jobDropdown}>
+          <div className={styles.jobOption} onMouseDown={() => pick(null)}>
+            <span className={styles.jobOptionMuted}>No job / general</span>
+          </div>
+          {matches.length === 0 && <div className={styles.jobOptionEmpty}>No jobs match "{query}"</div>}
+          {matches.map(j => (
+            <div key={j.id} className={styles.jobOption} onMouseDown={() => pick(j)}>
+              <span className={styles.jobOptionNumber}>{formatJobNumber(j) || j.title}</span>
+              <span className={styles.jobOptionMeta}>{[j.customer_name, j.site_address].filter(Boolean).join(' — ')}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EntryModal({ entry, prefillUser, prefillDate, jobs, users, currentUser, onSave, onClose }) {
   const isAdmin = isAdminRole(currentUser.role);
   const [form, setForm] = useState({
@@ -42,19 +111,37 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, currentUser,
     date: entry?.date?.slice(0, 10) || prefillDate || new Date().toISOString().slice(0, 10),
     hours: entry?.hours || '',
     description: entry?.description || '',
+    start_time: toHHMM(entry?.start_time),
+    end_time: toHHMM(entry?.end_time),
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Auto-fill Hours from Start/Finish once both are set, as long as the user
+  // hasn't already typed a value — never overwrite a manual/prefilled entry.
+  useEffect(() => {
+    if (form.hours || !form.start_time || !form.end_time) return;
+    const [sh, sm] = form.start_time.split(':').map(Number);
+    const [eh, em] = form.end_time.split(':').map(Number);
+    const mins = (eh * 60 + em) - (sh * 60 + sm);
+    if (mins <= 0) return;
+    set('hours', String(Math.max(0.25, Math.round(mins / 15) * 0.25)));
+  }, [form.start_time, form.end_time]);
 
   async function save(e) {
     e.preventDefault();
     if (!form.hours || parseFloat(form.hours) <= 0) return setErr('Hours must be greater than 0');
     setSaving(true); setErr('');
     try {
+      const payload = {
+        ...form,
+        start_time: toIso(form.date, form.start_time),
+        end_time: toIso(form.date, form.end_time),
+      };
       const { data } = entry
-        ? await api.put(`/timesheets/${entry.id}`, form)
-        : await api.post('/timesheets', form);
+        ? await api.put(`/timesheets/${entry.id}`, payload)
+        : await api.post('/timesheets', payload);
       onSave(data);
     } catch (e) { setErr(e.response?.data?.error || 'Save failed'); setSaving(false); }
   }
@@ -86,12 +173,17 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, currentUser,
               <input type="number" min="0.25" max="24" step="0.25" value={form.hours}
                 onChange={e => set('hours', e.target.value)} placeholder="e.g. 4.5" />
             </div>
+            <div className={styles.field}>
+              <label>Start Time (optional)</label>
+              <input type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} />
+            </div>
+            <div className={styles.field}>
+              <label>Finish Time (optional)</label>
+              <input type="time" value={form.end_time} onChange={e => set('end_time', e.target.value)} />
+            </div>
             <div className={styles.field} style={{ gridColumn: '1/-1' }}>
               <label>Job (optional)</label>
-              <select value={form.job_id} onChange={e => set('job_id', e.target.value)}>
-                <option value="">No job / general</option>
-                {jobs.map(j => <option key={j.id} value={j.id}>{j.job_number ? `${formatJobNumber(j)} — ` : ''}{j.title}</option>)}
-              </select>
+              <JobPicker jobs={jobs} value={form.job_id} onChange={v => set('job_id', v)} />
             </div>
             <div className={styles.field} style={{ gridColumn: '1/-1' }}>
               <label>Description</label>
@@ -140,7 +232,7 @@ export default function TimesheetsPage() {
   useEffect(() => {
     const init = async () => {
       const [jRes, uRes] = await Promise.all([
-        api.get('/jobs'),
+        api.get('/jobs', { params: { limit: 500 } }),
         isAdmin ? api.get('/users') : Promise.resolve({ data: [] }),
       ]);
       setJobs(jRes.data?.jobs || jRes.data || []);

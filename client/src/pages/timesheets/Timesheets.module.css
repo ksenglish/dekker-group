@@ -112,6 +112,21 @@
 }
 .error { background: #fef2f2; border: 1px solid #fecaca; color: var(--color-error); padding: 10px 14px; border-radius: var(--radius); font-size: 13px; }
 
+/* Job search combobox (Timesheets log/edit modal) */
+.jobPicker { position: relative; }
+.jobPicker input { width: 100%; box-sizing: border-box; }
+.jobDropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 10;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); max-height: 240px; overflow-y: auto;
+}
+.jobOption { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; cursor: pointer; }
+.jobOption:hover { background: #f1f5f9; }
+.jobOptionNumber { font-size: 13px; font-weight: 600; }
+.jobOptionMeta { font-size: 12px; color: var(--color-text-muted); }
+.jobOptionMuted { font-size: 13px; color: var(--color-text-muted); font-style: italic; }
+.jobOptionEmpty { padding: 10px 12px; font-size: 13px; color: var(--color-text-muted); }
+
 .btnPrimary { padding: 9px 16px; background: var(--color-primary); color: white; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 500; cursor: pointer; }
 .btnPrimary:hover:not(:disabled) { background: var(--color-primary-dark); }
 .btnPrimary:disabled { opacity: 0.6; cursor: not-allowed; }
