@@ -12,7 +12,7 @@ router.get('/', c.list);
 router.post('/', requireRole('admin', 'office'), c.create);
 router.post('/import', requireRole('admin', 'office'), c.importCsv);
 router.get('/:id', c.get);
-router.put('/:id', requireRole('admin', 'office'), c.update);
+router.put('/:id', requireRole('admin'), c.update);
 router.delete('/:id', requireRole('admin'), c.remove);
 
 // Sites

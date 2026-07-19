@@ -7,6 +7,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { isAdmin, canAct } from '../../lib/permissions';
 import AssignModal from './AssignModal';
 import AddNoteModal from './AddNoteModal';
 import DayColumnsView from './DayColumnsView';
@@ -255,7 +256,7 @@ export default function SchedulePage() {
   // Clicking an empty slot opens the "add note" tool — job appointments are only
   // ever created from the job itself (its own Schedule button, via the ?job= flow below)
   function openAddNote(dateStr, resourceId, time) {
-    if (user?.role === 'field_tech') return;
+    if (!canAct(user?.role)) return;
     setAddNoteTarget({ date: dateStr, time, userId: resourceId || user?.id });
   }
 
@@ -331,7 +332,7 @@ export default function SchedulePage() {
     else calRef.current?.getApi()?.gotoDate(val);
   }
 
-  const canEdit = user?.role !== 'field_tech';
+  const canEdit = canAct(user?.role);
 
   return (
     <div className={styles.page}>
@@ -500,7 +501,7 @@ export default function SchedulePage() {
 
             <div className={styles.modalFooter}>
               <Link to={`/jobs/${selectedEvent.job_id}`} className={styles.btnSecondary} onClick={() => setSelectedEvent(null)}>View Job</Link>
-              {canEdit && selectedEvent.schedId && (
+              {isAdmin(user?.role) && selectedEvent.schedId && (
                 <button className={styles.btnDanger} onClick={async () => {
                   if (!confirm('Remove this appointment from the schedule?')) return;
                   await api.delete(`/schedules/${selectedEvent.schedId}`);

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { isAdmin, canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
@@ -393,7 +394,7 @@ function JobScheduleTab({ jobId, job, user }) {
 
   return (
     <div className={styles.card}>
-      {user?.role !== 'field_tech' && (
+      {canAct(user?.role) && (
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
           <button className={styles.btnPrimary} onClick={() => setShowModal(true)}>+ New Appointment</button>
         </div>
@@ -739,7 +740,6 @@ export default function JobDetail() {
     }
   }
 
-  const canEdit = user?.role !== 'field_tech';
   const subtotal = (job?.line_items || []).reduce((s, i) => s + (i.unit_price * i.quantity), 0);
   const gst = Math.round(subtotal * 0.15);
   const total = subtotal + gst;
@@ -773,24 +773,26 @@ export default function JobDetail() {
           <span>Job {formatJobNumber(job)}</span>
         </div>
         <div className={styles.headerActions}>
-          {user?.role !== 'field_tech' && (
+          {canAct(user?.role) && (
             <button className={styles.btnSecondary} onClick={() => setShowAppointmentModal(true)}>📅 New Appointment</button>
           )}
-          <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
-          {user?.role !== 'field_tech' && (
+          {user?.role !== 'operations' && (
+            <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
+          )}
+          {user?.role !== 'field_tech' && user?.role !== 'operations' && (
             <button className={styles.btnSecondary} onClick={handleArcSiteSync} disabled={syncingArcSite}>
               {syncingArcSite ? 'Syncing…' : job.arcsite_project_id ? '🔄 Re-sync ArcSite' : '📐 Send to ArcSite'}
             </button>
           )}
-          {user?.role !== 'field_tech' && job.arcsite_project_id && (
+          {user?.role !== 'field_tech' && user?.role !== 'operations' && job.arcsite_project_id && (
             <button className={styles.btnSecondary} onClick={handlePullDrawings} disabled={pullingDrawings}>
               {pullingDrawings ? 'Pulling…' : '📥 Pull Drawing'}
             </button>
           )}
-          {user?.role !== 'field_tech' && (
+          {isAdmin(user?.role) && (
             <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
           )}
-          {user?.role !== 'field_tech' && (
+          {isAdmin(user?.role) && (
             <button className={styles.btnDanger} onClick={handleDelete}>Delete Job</button>
           )}
         </div>
@@ -807,7 +809,7 @@ export default function JobDetail() {
               <button
                 key={s.key}
                 className={`${styles.pipelineStep} ${done ? styles.pipelineDone : ''} ${active ? styles.pipelineActive : ''}`}
-                onClick={() => user?.role !== 'field_tech' && handleStatusChange(s.key)}
+                onClick={() => canAct(user?.role) && handleStatusChange(s.key)}
                 style={active ? { borderColor: s.color, color: s.color } : {}}
                 title={`Move to ${s.label}`}
               >
@@ -816,7 +818,7 @@ export default function JobDetail() {
               </button>
             );
           })}
-          {user?.role !== 'field_tech' && (
+          {canAct(user?.role) && (
             <button
               className={`${styles.pipelineStep} ${job.status === 'cancelled' ? styles.pipelineActive : ''}`}
               onClick={() => handleStatusChange('cancelled')}
@@ -829,7 +831,7 @@ export default function JobDetail() {
       ) : (
         <div className={styles.cancelledBanner}>
           This job is cancelled.
-          {user?.role !== 'field_tech' && (
+          {canAct(user?.role) && (
             <button onClick={() => handleStatusChange('new')} className={styles.reopenBtn}>Reopen as New</button>
           )}
         </div>
@@ -992,7 +994,7 @@ export default function JobDetail() {
               <LineItemsEditor
                 items={job.line_items || []}
                 onSave={handleSaveLineItems}
-                readonly={user?.role === 'field_tech'}
+                readonly={!canAct(user?.role)}
               />
               {job.line_items?.length > 0 && (
                 <div className={styles.totals}>
@@ -1006,7 +1008,7 @@ export default function JobDetail() {
 
           {activeTab === 'costs' && (
             <div className={styles.card}>
-              <JobCosts jobId={id} readonly={user?.role === 'field_tech'} />
+              <JobCosts jobId={id} readonly={!canAct(user?.role)} />
             </div>
           )}
 

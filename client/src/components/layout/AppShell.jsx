@@ -28,14 +28,21 @@ const NAV_ITEMS = [
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/jobs', label: 'Jobs', icon: '🔧' },
   { to: '/schedule', label: 'Schedule', icon: '📅' },
-  { to: '/quotes', label: 'Quotes', icon: '📋' },
+  { to: '/quotes', label: 'Quotes', icon: '📋', hideForOperations: true },
   { to: '/invoices', label: 'Invoices', icon: '💰', officeOnly: true },
-  { to: '/products', label: 'Price List', icon: '🏷' },
+  { to: '/products', label: 'Price List', icon: '🏷', hideForOperations: true },
   { to: '/map', label: 'Map', icon: '🗺' },
   { to: '/timesheets', label: 'Timesheets', icon: '⏱' },
   { to: '/reports', label: 'Reports', icon: '📊' },
-  { to: '/presenter', label: 'Sales Presenter', icon: '🎯' },
+  { to: '/presenter', label: 'Sales Presenter', icon: '🎯', hideForOperations: true },
 ];
+
+function visibleNavItems(items, role) {
+  return items.filter(item =>
+    (!item.officeOnly || ['admin', 'office'].includes(role)) &&
+    (!item.hideForOperations || role !== 'operations')
+  );
+}
 
 const ADMIN_ITEMS = [
   { to: '/users', label: 'Users', icon: '👤' },
@@ -69,11 +76,9 @@ export default function AppShell() {
         </div>
 
         <nav className={styles.nav}>
-          {NAV_ITEMS.filter(item =>
-            // sales/operations deliberately excluded here — unlike most of the
-            // app they don't get office-equivalent access to these tabs.
-            !item.officeOnly || ['admin', 'office'].includes(user?.role)
-          ).map(item => (
+          {/* sales/operations deliberately excluded from officeOnly items — unlike
+              most of the app they don't get office-equivalent access to those tabs. */}
+          {visibleNavItems(NAV_ITEMS, user?.role).map(item => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -153,15 +158,15 @@ export default function AppShell() {
 
       {/* Mobile bottom navigation */}
       <nav className={styles.bottomNav}>
-        {[
+        {visibleNavItems([
           { to: '/',          icon: '⊞', label: 'Home',      exact: true },
           { to: '/jobs',      icon: '🔧', label: 'Jobs' },
           { to: '/schedule',  icon: '📅', label: 'Schedule' },
-          { to: '/quotes',    icon: '📋', label: 'Quotes' },
+          { to: '/quotes',    icon: '📋', label: 'Quotes', hideForOperations: true },
           { to: '/customers', icon: '👥', label: 'Customers' },
-          { to: '/products',  icon: '🏷', label: 'Price List' },
-          { to: '/presenter', icon: '🎯', label: 'Presenter' },
-        ].map(item => (
+          { to: '/products',  icon: '🏷', label: 'Price List', hideForOperations: true },
+          { to: '/presenter', icon: '🎯', label: 'Presenter', hideForOperations: true },
+        ], user?.role).map(item => (
           <NavLink key={item.to} to={item.to} end={item.exact}
             className={({ isActive }) =>
               `${styles.bottomNavItem} ${isActive ? styles.bottomNavItemActive : ''}`

@@ -8,7 +8,7 @@ router.use(authenticate);
 router.get('/', c.list);
 router.post('/', requireRole('admin', 'office'), c.create);
 router.put('/:id', requireRole('admin', 'office'), c.update);
-router.delete('/:id', requireRole('admin', 'office'), c.remove);
+router.delete('/:id', requireRole('admin'), c.remove);
 
 // Quick reschedule a job's due_date via drag
 router.patch('/jobs/:jobId/reschedule', requireRole('admin', 'office'), c.reschedule);

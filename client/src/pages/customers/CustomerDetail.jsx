@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { isAdmin, canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import AddressAutocomplete from '../../components/AddressAutocomplete';
 import styles from './Customers.module.css';
@@ -202,10 +203,10 @@ export default function CustomerDetail() {
         </div>
         {!isNew && (
           <div className={styles.headerActions}>
-            {!editMode && tab === 'info' && (
+            {!editMode && tab === 'info' && isAdmin(user?.role) && (
               <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
             )}
-            {user?.role === 'admin' && (
+            {isAdmin(user?.role) && (
               <button className={styles.btnDanger} onClick={handleDelete}>Delete</button>
             )}
           </div>
@@ -383,10 +384,12 @@ export default function CustomerDetail() {
         {/* ── JOBS ── */}
         {tab === 'jobs' && (
           <div className={styles.tabPanel}>
-            <div className={styles.tabToolbar}>
-              <button className={styles.btnSecondary} onClick={openTemplates}>New Job from Template</button>
-              <Link to={`/jobs/new?customer=${id}`} className={styles.btnPrimary}>+ New Job</Link>
-            </div>
+            {canAct(user?.role) && (
+              <div className={styles.tabToolbar}>
+                <button className={styles.btnSecondary} onClick={openTemplates}>New Job from Template</button>
+                <Link to={`/jobs/new?customer=${id}`} className={styles.btnPrimary}>+ New Job</Link>
+              </div>
+            )}
             {jobs.length === 0 && <p className={styles.emptyState}>No jobs for this customer yet.</p>}
             {jobs.map(job => (
               <Link key={job.id} to={`/jobs/${job.id}`} className={styles.listRow}>

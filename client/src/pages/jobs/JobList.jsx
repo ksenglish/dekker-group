@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Jobs.module.css';
 
@@ -88,8 +89,12 @@ export default function JobList() {
           {user?.role === 'admin' && (
             <button className={styles.btnSecondary} onClick={() => navigate('/jobs/import')}>⬆ Import from Tradify</button>
           )}
-          <button className={styles.btnSecondary} onClick={openTemplates}>New Job from Template</button>
-          <button className={styles.btnPrimary} onClick={() => navigate('/jobs/new')}>+ New Job</button>
+          {canAct(user?.role) && (
+            <>
+              <button className={styles.btnSecondary} onClick={openTemplates}>New Job from Template</button>
+              <button className={styles.btnPrimary} onClick={() => navigate('/jobs/new')}>+ New Job</button>
+            </>
+          )}
         </div>
       </div>
 

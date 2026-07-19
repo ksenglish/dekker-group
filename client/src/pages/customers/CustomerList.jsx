@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
+import { canAct } from '../../lib/permissions';
 import styles from './Customers.module.css';
 
 const PAGE_SIZE = 20;
 
 export default function CustomerList() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState('');
   const [total, setTotal] = useState(0);
@@ -43,10 +46,12 @@ export default function CustomerList() {
           <h1 className={styles.pageTitle}>Customers</h1>
           <p className={styles.pageSubtitle}>{total} customer{total !== 1 ? 's' : ''}</p>
         </div>
-        <div className={styles.headerActions}>
-          <button className={styles.btnSecondary} onClick={() => setShowImport(true)}>Import CSV</button>
-          <button className={styles.btnPrimary} onClick={() => navigate('/customers/new')}>+ New Customer</button>
-        </div>
+        {canAct(user?.role) && (
+          <div className={styles.headerActions}>
+            <button className={styles.btnSecondary} onClick={() => setShowImport(true)}>Import CSV</button>
+            <button className={styles.btnPrimary} onClick={() => navigate('/customers/new')}>+ New Customer</button>
+          </div>
+        )}
       </div>
 
       <div className={styles.toolbar}>

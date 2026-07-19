@@ -59,7 +59,7 @@ router.post('/import/tradify', requireRole('admin'), importTradify);
 router.get('/', c.list);
 router.post('/', requireRole('admin', 'office'), c.create);
 router.get('/:id', c.get);
-router.put('/:id', requireRole('admin', 'office'), c.update);
+router.put('/:id', requireRole('admin'), c.update);
 router.patch('/:id/status', requireRole('admin', 'office'), c.updateStatus);
 router.delete('/:id', requireRole('admin'), c.remove);
 
