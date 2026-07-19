@@ -306,26 +306,28 @@ export default function CustomerDetail() {
                   <label>Email Address</label>
                   <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="e.g. john@example.com" />
                 </div>
-                <div className={styles.field}>
-                  <label>Lead Source</label>
-                  {addingLeadSource ? (
-                    <div className={styles.addLeadSourceRow}>
-                      <input autoFocus value={newLeadSource} onChange={e => setNewLeadSource(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') handleAddLeadSource(); if (e.key === 'Escape') setAddingLeadSource(false); }}
-                        placeholder="e.g. Trade Show" />
-                      <button className={styles.btnPrimary} onClick={handleAddLeadSource}>Add</button>
-                      <button className={styles.btnSecondary} onClick={() => { setAddingLeadSource(false); setNewLeadSource(''); }}>Cancel</button>
-                    </div>
-                  ) : (
-                    <div className={styles.leadSourceRow}>
-                      <select value={form.lead_source} onChange={e => set('lead_source', e.target.value)}>
-                        <option value="">— Select —</option>
-                        {leadSources.map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                      <button className={styles.btnAddSource} onClick={() => setAddingLeadSource(true)}>+ New</button>
-                    </div>
-                  )}
-                </div>
+                {user?.role !== 'operations' && (
+                  <div className={styles.field}>
+                    <label>Lead Source</label>
+                    {addingLeadSource ? (
+                      <div className={styles.addLeadSourceRow}>
+                        <input autoFocus value={newLeadSource} onChange={e => setNewLeadSource(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleAddLeadSource(); if (e.key === 'Escape') setAddingLeadSource(false); }}
+                          placeholder="e.g. Trade Show" />
+                        <button className={styles.btnPrimary} onClick={handleAddLeadSource}>Add</button>
+                        <button className={styles.btnSecondary} onClick={() => { setAddingLeadSource(false); setNewLeadSource(''); }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <div className={styles.leadSourceRow}>
+                        <select value={form.lead_source} onChange={e => set('lead_source', e.target.value)}>
+                          <option value="">— Select —</option>
+                          {leadSources.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                        <button className={styles.btnAddSource} onClick={() => setAddingLeadSource(true)}>+ New</button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className={styles.field}>
                   <label>Mobile</label>
                   <input value={form.mobile} onChange={e => set('mobile', e.target.value)} placeholder="e.g. 021 123 4567" type="tel" />
@@ -350,7 +352,7 @@ export default function CustomerDetail() {
                 {customer?.email && <div className={styles.infoRow}><span>Email</span><strong><a href={`mailto:${customer.email}`}>{customer.email}</a></strong></div>}
                 {customer?.mobile && <div className={styles.infoRow}><span>Mobile</span><strong><a href={`tel:${customer.mobile}`}>{customer.mobile}</a></strong></div>}
                 {customer?.phone && <div className={styles.infoRow}><span>Phone</span><strong><a href={`tel:${customer.phone}`}>{customer.phone}</a></strong></div>}
-                {customer?.lead_source && <div className={styles.infoRow}><span>Lead Source</span><strong>{customer.lead_source}</strong></div>}
+                {customer?.lead_source && user?.role !== 'operations' && <div className={styles.infoRow}><span>Lead Source</span><strong>{customer.lead_source}</strong></div>}
               </div>
             )}
           </div>
