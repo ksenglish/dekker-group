@@ -227,20 +227,25 @@
 }
 
 /* Custom Day view — one column per team member, no third-party licence required.
-   Horizontal scroll lives on this outer container (not dayScrollArea below) so
-   the header row and the grid body always pan together in lockstep. */
+   dayView is the ONE scroll container for both axes — position:sticky only
+   pins against the nearest ancestor that itself has non-visible overflow, so
+   splitting horizontal/vertical scroll across nested containers (as this used
+   to do) silently breaks sticky headers/gutters nested inside the inner one. */
 .dayView {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: auto;
 }
 
 .dayHeaderRow {
   display: flex;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--color-surface);
 }
 
 .dayTimeGutterHeader {
@@ -248,7 +253,7 @@
   flex-shrink: 0;
   position: sticky;
   left: 0;
-  z-index: 4;
+  z-index: 6; /* above dayHeaderRow's own sticky-top, so this corner cell wins both ways */
   background: var(--color-surface);
 }
 
@@ -265,12 +270,11 @@
   border-left: 1px solid var(--color-border);
 }
 
-.dayScrollArea { flex: 1; overflow-y: auto; overflow-x: hidden; }
-
 .dayAllDayRow {
   display: flex;
   border-bottom: 1px solid var(--color-border);
   min-height: 28px;
+  flex-shrink: 0;
 }
 
 .dayTimeGutterLabel {
@@ -283,7 +287,7 @@
   text-transform: uppercase;
   position: sticky;
   left: 0;
-  z-index: 4;
+  z-index: 6;
   background: var(--color-surface);
 }
 
@@ -306,14 +310,14 @@
   cursor: pointer;
 }
 
-.dayGridRow { display: flex; position: relative; }
+.dayGridRow { display: flex; position: relative; flex-shrink: 0; }
 
 .dayTimeGutter {
   width: 56px;
   flex-shrink: 0;
   position: sticky;
   left: 0;
-  z-index: 4;
+  z-index: 6;
   background: var(--color-surface);
 }
 

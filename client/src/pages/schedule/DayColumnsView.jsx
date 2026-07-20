@@ -61,22 +61,6 @@ export default function DayColumnsView({ date, events, resources, canEdit, onEve
     return () => clearInterval(id);
   }, []);
 
-  // dayScrollArea's vertical scrollbar eats a few pixels that dayHeaderRow
-  // (which never scrolls vertically) doesn't account for, so the day columns
-  // drift out of alignment with their headers the further right you go.
-  // Measure it and pad the header row to match.
-  const scrollAreaRef = useRef(null);
-  const [scrollbarWidth, setScrollbarWidth] = useState(0);
-  useEffect(() => {
-    function measure() {
-      const el = scrollAreaRef.current;
-      if (el) setScrollbarWidth(el.offsetWidth - el.clientWidth);
-    }
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [resources.length]);
-
   const isToday = dateStr(date) === dateStr(now);
   const nowOffsetPx = isToday ? minToPx((now.getHours() * 60 + now.getMinutes()) - DAY_START_HOUR * 60) : null;
 
@@ -94,65 +78,63 @@ export default function DayColumnsView({ date, events, resources, canEdit, onEve
 
   return (
     <div className={styles.dayView}>
-      <div className={styles.dayHeaderRow} style={{ paddingRight: scrollbarWidth }}>
+      <div className={styles.dayHeaderRow}>
         <div className={styles.dayTimeGutterHeader} />
         {resources.map(r => (
           <div key={r.id} className={styles.dayColumnHeader}>{r.title}</div>
         ))}
       </div>
-      <div className={styles.dayScrollArea} ref={scrollAreaRef}>
-        <div className={styles.dayAllDayRow}>
-          <div className={styles.dayTimeGutterLabel}>all-day</div>
-          {resources.map(r => (
-            <div key={r.id} className={styles.dayAllDayCell}>
-              {dayEvents.filter(e => e.resourceId === r.id && e.allDay).map(e => (
-                <div key={e.id} className={styles.dayAllDayEvent}
-                  style={{ background: e.backgroundColor, borderColor: e.borderColor, color: e.textColor }}
-                  onClick={() => onEventClick(e.extendedProps)}>
-                  {e.title}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-
-        <div className={styles.dayGridRow}>
-          <div className={styles.dayTimeGutter} style={{ height: TOTAL_HEIGHT }}>
-            {HOURS.map(h => (
-              <div key={h} className={styles.dayHourLabel} style={{ top: (h - DAY_START_HOUR) * PX_PER_HOUR }}>
-                {formatHour(h)}
+      <div className={styles.dayAllDayRow}>
+        <div className={styles.dayTimeGutterLabel}>all-day</div>
+        {resources.map(r => (
+          <div key={r.id} className={styles.dayAllDayCell}>
+            {dayEvents.filter(e => e.resourceId === r.id && e.allDay).map(e => (
+              <div key={e.id} className={styles.dayAllDayEvent}
+                style={{ background: e.backgroundColor, borderColor: e.borderColor, color: e.textColor }}
+                onClick={() => onEventClick(e.extendedProps)}>
+                {e.title}
               </div>
             ))}
           </div>
-          {resources.map(r => {
-            const timed = assignLanes(
-              dayEvents
-                .filter(e => e.resourceId === r.id && !e.allDay)
-                .map(e => {
-                  const startTime = e.extendedProps.start_time || e.extendedProps.note_start_time;
-                  const endTime = e.extendedProps.end_time || e.extendedProps.note_end_time;
-                  return { ...e, startMin: timeToMin(startTime), endMin: endTime ? timeToMin(endTime) : timeToMin(startTime) + 30 };
-                })
-            );
-            return (
-              <DayColumn key={r.id} resourceId={r.id} height={TOTAL_HEIGHT}
-                onClick={e => handleSlotClick(e, r.id)}>
-                {HOURS.map(h => (
-                  <div key={h} className={styles.dayGridLine} style={{ top: (h - DAY_START_HOUR) * PX_PER_HOUR }} />
-                ))}
-                {isToday && nowOffsetPx != null && nowOffsetPx >= 0 && nowOffsetPx <= TOTAL_HEIGHT && (
-                  <div className={styles.dayNowLine} style={{ top: nowOffsetPx }} />
-                )}
-                {timed.map(e => (
-                  <DayEvent key={e.id} appt={e} canEdit={canEdit && e.extendedProps.type !== 'note'}
-                    onClick={() => onEventClick(e.extendedProps)}
-                    onSaveMove={(payload) => onSaveMove(e.extendedProps.schedId, payload)}
-                    dayKey={dayKey} />
-                ))}
-              </DayColumn>
-            );
-          })}
+        ))}
+      </div>
+
+      <div className={styles.dayGridRow}>
+        <div className={styles.dayTimeGutter} style={{ height: TOTAL_HEIGHT }}>
+          {HOURS.map(h => (
+            <div key={h} className={styles.dayHourLabel} style={{ top: (h - DAY_START_HOUR) * PX_PER_HOUR }}>
+              {formatHour(h)}
+            </div>
+          ))}
         </div>
+        {resources.map(r => {
+          const timed = assignLanes(
+            dayEvents
+              .filter(e => e.resourceId === r.id && !e.allDay)
+              .map(e => {
+                const startTime = e.extendedProps.start_time || e.extendedProps.note_start_time;
+                const endTime = e.extendedProps.end_time || e.extendedProps.note_end_time;
+                return { ...e, startMin: timeToMin(startTime), endMin: endTime ? timeToMin(endTime) : timeToMin(startTime) + 30 };
+              })
+          );
+          return (
+            <DayColumn key={r.id} resourceId={r.id} height={TOTAL_HEIGHT}
+              onClick={e => handleSlotClick(e, r.id)}>
+              {HOURS.map(h => (
+                <div key={h} className={styles.dayGridLine} style={{ top: (h - DAY_START_HOUR) * PX_PER_HOUR }} />
+              ))}
+              {isToday && nowOffsetPx != null && nowOffsetPx >= 0 && nowOffsetPx <= TOTAL_HEIGHT && (
+                <div className={styles.dayNowLine} style={{ top: nowOffsetPx }} />
+              )}
+              {timed.map(e => (
+                <DayEvent key={e.id} appt={e} canEdit={canEdit && e.extendedProps.type !== 'note'}
+                  onClick={() => onEventClick(e.extendedProps)}
+                  onSaveMove={(payload) => onSaveMove(e.extendedProps.schedId, payload)}
+                  dayKey={dayKey} />
+              ))}
+            </DayColumn>
+          );
+        })}
       </div>
     </div>
   );
