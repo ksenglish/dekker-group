@@ -736,22 +736,34 @@ function SmartVentBalancedPressureCalculator({ onPick }) {
 }
 
 // ── BDVAir Positive Pressure lookup table ─────────────────────────────────────
-// Source: "BDVAir Positive Pressure Table.xlsx" (House Size / Outlets / Model / Unit Buy Price / Unit with Mark Up)
-// "F Upgrade" rows (0 outlets) and BDV EC2/EC3 have no price in the source table.
+// Source: "BDVAir Positive Pressure Table.xlsx" (System Type / House Size / Number of
+// Outlets / Model / Unit Buy Price / Unit with Mark Up / Install Cost Price / Install
+// with Mark Up / Commission). exGst = Unit with Mark Up + Install with Mark Up (install
+// is a flat $630 across every priced row in the source table), matching the all-in
+// per-SKU price the Price List's unit_price otherwise represents for this calculator.
+// Model names match the source table's SKUs exactly so they can match Price List
+// product names for live pricing — "-Upgrade" rows and 211-420's 4-7 outlet rows have
+// no price in the source table (larger houses would normally take 8+ outlets).
 const BDVAIR_PP_TABLE = [
-  { houseMin: 1,   houseMax: 210, outlets: 0,  model: 'BDV EC1F Upgrade', exGst: null },
-  { houseMin: 1,   houseMax: 210, outlets: 2,  model: 'BDV EC2',          exGst: null },
-  { houseMin: 1,   houseMax: 210, outlets: 3,  model: 'BDV EC3',          exGst: null },
-  { houseMin: 1,   houseMax: 210, outlets: 4,  model: 'BDV EC4',          exGst: 2349.84 },
-  { houseMin: 1,   houseMax: 210, outlets: 5,  model: 'BDV EC5',          exGst: 2412.11 },
-  { houseMin: 1,   houseMax: 210, outlets: 6,  model: 'BDV EC6',          exGst: 2622.89 },
-  { houseMin: 1,   houseMax: 210, outlets: 7,  model: 'BDV EC7',          exGst: 2842.44 },
-  { houseMin: 211, houseMax: 420, outlets: 0,  model: 'BDV EC2F Upgrade', exGst: null },
-  { houseMin: 211, houseMax: 420, outlets: 8,  model: 'BDV EC8',          exGst: 3053.21 },
-  { houseMin: 211, houseMax: 420, outlets: 9,  model: 'BDV EC9',          exGst: 3263.99 },
-  { houseMin: 211, houseMax: 420, outlets: 10, model: 'BDV EC10',         exGst: 4114.90 },
-  { houseMin: 211, houseMax: 420, outlets: 11, model: 'BDV EC11',         exGst: 4325.67 },
-  { houseMin: 211, houseMax: 420, outlets: 12, model: 'BDV EC12',         exGst: 4536.44 },
+  { houseMin: 1,   houseMax: 210, outlets: 0,  model: 'BDV 1EC-Upgrade', exGst: null },
+  { houseMin: 1,   houseMax: 210, outlets: 2,  model: 'BDV 1EC-2',       exGst: null },
+  { houseMin: 1,   houseMax: 210, outlets: 3,  model: 'BDV 1EC-3',       exGst: null },
+  { houseMin: 1,   houseMax: 210, outlets: 4,  model: 'BDV 1EC-4',       exGst: 2979.84 },
+  { houseMin: 1,   houseMax: 210, outlets: 5,  model: 'BDV 1EC-5',       exGst: 3042.11 },
+  { houseMin: 1,   houseMax: 210, outlets: 6,  model: 'BDV 1EC-6',       exGst: 3252.89 },
+  { houseMin: 1,   houseMax: 210, outlets: 7,  model: 'BDV 1EC-7',       exGst: 3472.44 },
+  { houseMin: 211, houseMax: 420, outlets: 0,  model: 'BDV 2EC-Upgrade', exGst: null },
+  { houseMin: 211, houseMax: 420, outlets: 4,  model: 'BDV 2EC-4',       exGst: null },
+  { houseMin: 211, houseMax: 420, outlets: 5,  model: 'BDV 2EC-5',       exGst: null },
+  { houseMin: 211, houseMax: 420, outlets: 6,  model: 'BDV 2EC-6',       exGst: null },
+  { houseMin: 211, houseMax: 420, outlets: 7,  model: 'BDV 2EC-7',       exGst: null },
+  { houseMin: 211, houseMax: 420, outlets: 8,  model: 'BDV 2EC-8',       exGst: 3683.21 },
+  { houseMin: 211, houseMax: 420, outlets: 9,  model: 'BDV 2EC-9',       exGst: 3893.99 },
+  { houseMin: 211, houseMax: 420, outlets: 10, model: 'BDV 2EC-10',      exGst: 4744.90 },
+  { houseMin: 211, houseMax: 420, outlets: 11, model: 'BDV 2EC-11',      exGst: 4955.67 },
+  { houseMin: 211, houseMax: 420, outlets: 12, model: 'BDV 2EC-12',      exGst: 5166.44 },
+  { houseMin: 211, houseMax: 420, outlets: 13, model: 'BDV 2EC-13',      exGst: 5377.21 },
+  { houseMin: 211, houseMax: 420, outlets: 14, model: 'BDV 2EC-14',      exGst: 5587.99 },
 ];
 const BDVAIR_MAX_HOUSE = Math.max(...BDVAIR_PP_TABLE.map(r => r.houseMax));
 const BDVAIR_MAX_OUTLETS = Math.max(...BDVAIR_PP_TABLE.map(r => r.outlets));
