@@ -14,6 +14,40 @@ const STATUS_COLOURS = {
 };
 const PRIORITY_COLOURS = { low: '#6b7280', medium: '#d97706', high: '#dc2626' };
 
+function pad2(n) { return String(n).padStart(2, '0'); }
+function toDateStr(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function startOfWeek(d) {
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday-based
+  return new Date(d.getFullYear(), d.getMonth(), diff);
+}
+function fmtTime(hhmmss) {
+  if (!hhmmss) return '';
+  const [h, m] = hhmmss.split(':').map(Number);
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${pad2(m)} ${h >= 12 ? 'pm' : 'am'}`;
+}
+
+// Start/end date strings + a human label for the given period anchored on `date`
+function periodInfo(period, dateStr) {
+  const anchor = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
+  if (period === 'day') {
+    const d = toDateStr(anchor);
+    return { from: d, to: d, label: anchor.toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) };
+  }
+  if (period === 'week') {
+    const start = startOfWeek(anchor);
+    const end = addDays(start, 6);
+    const fmt = d => d.toLocaleDateString('en-NZ', { day: 'numeric', month: 'long' });
+    return { from: toDateStr(start), to: toDateStr(end), label: `${fmt(start)} – ${end.toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}` };
+  }
+  // month
+  const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+  const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+  return { from: toDateStr(start), to: toDateStr(end), label: anchor.toLocaleDateString('en-NZ', { month: 'long', year: 'numeric' }) };
+}
+
 export default function JobList() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -30,6 +64,8 @@ export default function JobList() {
     status:   searchParams.get('status') || '',
     tech:     searchParams.get('tech') || '',
     priority: searchParams.get('priority') || '',
+    period:   searchParams.get('period') || '', // '' | 'day' | 'week' | 'month'
+    date:     searchParams.get('date') || '',
   };
 
   function setFilter(key, val) {
@@ -40,6 +76,35 @@ export default function JobList() {
     });
   }
 
+  // Switching into a Day/Week/Month view defaults "Team Member" to the
+  // logged-in user (a personal "my jobs" view) without clobbering an
+  // Admin's own choice if they've already picked someone else.
+  function setPeriod(period) {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (period) {
+        next.set('period', period);
+        if (!next.get('date')) next.set('date', toDateStr(new Date()));
+        if (!next.get('tech') && user?.id) next.set('tech', user.id);
+      } else {
+        next.delete('period');
+        next.delete('date');
+      }
+      return next;
+    });
+  }
+
+  function shiftPeriod(dir) {
+    const anchor = filters.date ? new Date(`${filters.date}T00:00:00`) : new Date();
+    let next;
+    if (filters.period === 'day') next = addDays(anchor, dir);
+    else if (filters.period === 'week') next = addDays(anchor, dir * 7);
+    else next = new Date(anchor.getFullYear(), anchor.getMonth() + dir, 1);
+    setFilter('date', toDateStr(next));
+  }
+
+  const period = filters.period ? periodInfo(filters.period, filters.date) : null;
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -48,6 +113,7 @@ export default function JobList() {
       if (filters.status)   params.status   = filters.status;
       if (filters.tech)     params.tech     = filters.tech;
       if (filters.priority) params.priority = filters.priority;
+      if (period) { params.from = period.from; params.to = period.to; params.sort = 'scheduled'; }
       const { data } = await api.get('/jobs', { params });
       setJobs(data.jobs);
       setTotal(data.total);
@@ -98,6 +164,27 @@ export default function JobList() {
         </div>
       </div>
 
+      <div className={styles.periodBar}>
+        <div className={styles.periodToggle}>
+          <button className={`${styles.periodBtn} ${!filters.period ? styles.periodBtnActive : ''}`}
+            onClick={() => setPeriod('')}>All Jobs</button>
+          <button className={`${styles.periodBtn} ${filters.period === 'day' ? styles.periodBtnActive : ''}`}
+            onClick={() => setPeriod('day')}>Day</button>
+          <button className={`${styles.periodBtn} ${filters.period === 'week' ? styles.periodBtnActive : ''}`}
+            onClick={() => setPeriod('week')}>Week</button>
+          <button className={`${styles.periodBtn} ${filters.period === 'month' ? styles.periodBtnActive : ''}`}
+            onClick={() => setPeriod('month')}>Month</button>
+        </div>
+        {period && (
+          <div className={styles.periodNav}>
+            <button className={styles.periodNavBtn} onClick={() => shiftPeriod(-1)}>‹</button>
+            <span className={styles.periodLabel}>{period.label}</span>
+            <button className={styles.periodNavBtn} onClick={() => shiftPeriod(1)}>›</button>
+            <button className={styles.periodTodayBtn} onClick={() => setFilter('date', toDateStr(new Date()))}>Today</button>
+          </div>
+        )}
+      </div>
+
       <div className={styles.toolbar}>
         <input className={styles.searchInput} type="search"
           placeholder="Search by job #, description, or customer…"
@@ -146,7 +233,11 @@ export default function JobList() {
                 </span>
               </span>
               <span>{job.tech_name || <span className={styles.muted}>Unassigned</span>}</span>
-              <span>{job.scheduled_date ? new Date(job.scheduled_date).toLocaleDateString('en-NZ') : <span className={styles.muted}>Not scheduled</span>}</span>
+              <span>
+                {job.scheduled_date
+                  ? `${new Date(job.scheduled_date).toLocaleDateString('en-NZ')}${job.scheduled_time ? ` · ${fmtTime(job.scheduled_time)}` : ''}`
+                  : <span className={styles.muted}>Not scheduled</span>}
+              </span>
             </Link>
           ))}
         </div>

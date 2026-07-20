@@ -2,21 +2,36 @@ const pool = require('../db/pool');
 const { normaliseRole } = require('../middleware/auth');
 
 async function list(req, res) {
-  const { search = '', status, tech, customer, from, to, page = 1, limit = 100 } = req.query;
+  const { search = '', status, tech, customer, from, to, sort, page = 1, limit = 100 } = req.query;
   const offset = (page - 1) * limit;
   const conditions = [];
   const params = [];
   let p = 1;
+  let techParamIndex = null;
 
   if (search) {
     conditions.push(`(j.description ILIKE $${p} OR c.name ILIKE $${p} OR j.job_number::text ILIKE $${p} OR j.external_ref ILIKE $${p})`);
     params.push(`%${search}%`); p++;
   }
   if (status) { conditions.push(`j.status = $${p}`); params.push(status); p++; }
-  if (tech) { conditions.push(`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id=j.id AND jt.user_id=$${p})`); params.push(tech); p++; }
+  if (tech) {
+    conditions.push(`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id=j.id AND jt.user_id=$${p})`);
+    params.push(tech); techParamIndex = p; p++;
+  }
   if (customer) { conditions.push(`j.customer_id = $${p}`); params.push(customer); p++; }
-  if (from) { conditions.push(`(SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) >= $${p}`); params.push(from); p++; }
-  if (to) { conditions.push(`(SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) <= $${p}`); params.push(to); p++; }
+  if (from || to) {
+    if (techParamIndex) {
+      // Scoped to a specific person — match their own schedule entries in
+      // the range, not just whichever technician's appointment is earliest.
+      const dateConds = [];
+      if (from) { dateConds.push(`s.scheduled_date >= $${p}`); params.push(from); p++; }
+      if (to)   { dateConds.push(`s.scheduled_date <= $${p}`); params.push(to); p++; }
+      conditions.push(`EXISTS (SELECT 1 FROM schedules s WHERE s.job_id=j.id AND s.user_id=$${techParamIndex} AND ${dateConds.join(' AND ')})`);
+    } else {
+      if (from) { conditions.push(`(SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) >= $${p}`); params.push(from); p++; }
+      if (to)   { conditions.push(`(SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) <= $${p}`); params.push(to); p++; }
+    }
+  }
 
   // Non-admin users only see jobs they're assigned to
   if (normaliseRole(req.user.role) !== 'admin') {
@@ -25,6 +40,9 @@ async function list(req, res) {
   }
 
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  const orderBy = sort === 'scheduled'
+    ? 'ORDER BY scheduled_date ASC NULLS LAST, scheduled_time ASC NULLS LAST'
+    : 'ORDER BY j.created_at DESC';
 
   try {
     const { rows } = await pool.query(
@@ -44,7 +62,7 @@ async function list(req, res) {
        LEFT JOIN customers c ON c.id = j.customer_id
        LEFT JOIN customer_sites s ON s.id = j.site_id
        ${where}
-       ORDER BY j.created_at DESC
+       ${orderBy}
        LIMIT $${p} OFFSET $${p + 1}`,
       [...params, limit, offset]
     );

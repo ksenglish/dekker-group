@@ -56,6 +56,68 @@
 
 .clearBtn:hover { background: #f1f5f9; color: var(--color-text); }
 
+/* Day/Week/Month period bar */
+.periodBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.periodToggle { display: flex; gap: 6px; }
+
+.periodBtn {
+  padding: 6px 14px;
+  border-radius: 99px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.periodBtn:hover { background: #f1f5f9; color: var(--color-text); }
+
+.periodBtnActive {
+  font-weight: 600;
+  border-width: 2px;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.periodNav { display: flex; align-items: center; gap: 6px; }
+
+.periodNavBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.periodNavBtn:hover { background: #f1f5f9; }
+
+.periodLabel { font-size: 13px; font-weight: 600; min-width: 200px; text-align: center; }
+
+.periodTodayBtn {
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.periodTodayBtn:hover { background: #f1f5f9; }
+
 .loading, .empty {
   padding: 48px;
   text-align: center;
