@@ -243,7 +243,14 @@
   flex-shrink: 0;
 }
 
-.dayTimeGutterHeader { width: 56px; flex-shrink: 0; }
+.dayTimeGutterHeader {
+  width: 56px;
+  flex-shrink: 0;
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--color-surface);
+}
 
 .dayColumnHeader {
   flex: 1;
@@ -274,6 +281,10 @@
   text-align: right;
   padding: 6px 6px 0 0;
   text-transform: uppercase;
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--color-surface);
 }
 
 .dayAllDayCell {
@@ -300,7 +311,10 @@
 .dayTimeGutter {
   width: 56px;
   flex-shrink: 0;
-  position: relative;
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  background: var(--color-surface);
 }
 
 .dayHourLabel {
