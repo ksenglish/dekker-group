@@ -77,7 +77,14 @@ export default function SchedulePage() {
   // check below and show nothing.
   const lockedDiary = ['sales', 'operations', 'subcontractor'].includes(user?.role) ? user.role : null;
   const [filterTech, setFilterTech] = useState('');
-  const [filterDiary, setFilterDiary] = useState(''); // '' (all) | one of DIARIES
+  const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
+  const dateKey = user ? `schedule_date_${user.id}` : 'schedule_date';
+  const diaryKey = user ? `schedule_diary_${user.id}` : 'schedule_diary';
+  // Diary filter, view (Day vs Month/Week — and which of those two), and the
+  // last-viewed date all persist per-user so leaving and returning to the
+  // Schedule tab picks up where you left off instead of resetting to
+  // Today/All every time.
+  const [filterDiary, setFilterDiary] = useState(() => lockedDiary ? '' : (localStorage.getItem(diaryKey) || ''));
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
   const [notesDraft, setNotesDraft] = useState('');
@@ -89,7 +96,6 @@ export default function SchedulePage() {
   const [rawNotes, setRawNotes] = useState([]);
   const [fcEvents, setFcEvents] = useState([]);
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
   // isDayView is a separate flag layered on top of FullCalendar, not one of its own views —
   // FullCalendar itself only ever knows about dayGridMonth/timeGridWeek, exactly as it did
   // before Day view existed, so its own navigation is completely untouched by this feature.
@@ -97,7 +103,13 @@ export default function SchedulePage() {
     const saved = localStorage.getItem(viewKey);
     return saved === 'day' || saved === 'timeGridDay' || saved === 'resourceTimeGridDay';
   });
-  const [dayDate, setDayDate] = useState(() => new Date());
+  const [dayDate, setDayDate] = useState(() => {
+    const saved = localStorage.getItem(dateKey);
+    return saved ? new Date(`${saved}T00:00:00`) : new Date();
+  });
+  // FullCalendar only reads initialView/initialDate once, at mount
+  const initialCalView = useRef(localStorage.getItem(viewKey) === 'timeGridWeek' ? 'timeGridWeek' : 'dayGridMonth').current;
+  const initialCalDate = useRef(localStorage.getItem(dateKey) || undefined).current;
 
   // Auto-open assign modal if ?job= param present
   useEffect(() => {
@@ -125,8 +137,25 @@ export default function SchedulePage() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(viewKey, isDayView ? 'day' : 'dayGridMonth');
+    if (isDayView) { localStorage.setItem(viewKey, 'day'); return; }
+    localStorage.setItem(viewKey, calRef.current?.getApi()?.view?.type || 'dayGridMonth');
   }, [isDayView]);
+
+  useEffect(() => {
+    if (!lockedDiary) localStorage.setItem(diaryKey, filterDiary);
+  }, [filterDiary]);
+
+  useEffect(() => {
+    if (isDayView) localStorage.setItem(dateKey, toDateStr(dayDate));
+  }, [dayDate, isDayView]);
+
+  // FullCalendar's own Month/Week navigation — save its view type and date
+  // whenever they change, so returning to Month/Week later picks up here too
+  function handleDatesSet(info) {
+    if (isDayView) return;
+    localStorage.setItem(viewKey, info.view.type);
+    localStorage.setItem(dateKey, toDateStr(info.view.currentStart));
+  }
 
   // Colour an appointment by its job status — paler if it's still upcoming,
   // full brightness once its scheduled time has arrived or passed.
@@ -415,7 +444,9 @@ export default function SchedulePage() {
           <FullCalendar
             ref={calRef}
             plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-            initialView="dayGridMonth"
+            initialView={initialCalView}
+            initialDate={initialCalDate}
+            datesSet={handleDatesSet}
             headerToolbar={{ left: 'prev,next today jumpToDate', center: 'title', right: 'dayGridMonth,timeGridWeek,dayViewBtn' }}
             customButtons={{
               dayViewBtn: { text: 'Day', click: () => { setDayDate(calRef.current?.getApi()?.getDate() || new Date()); setIsDayView(true); } },
