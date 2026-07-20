@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
@@ -68,6 +68,29 @@ export default function JobList() {
     date:     searchParams.get('date') || '',
   };
 
+  // Remember the last-selected period/date per user, same pattern as the
+  // Schedule page — restored once on mount below (unless the URL already
+  // specifies one, e.g. a deep link), and saved whenever the user changes it.
+  const periodStorageKey = user ? `jobs_period_${user.id}` : 'jobs_period';
+  const dateStorageKey   = user ? `jobs_date_${user.id}`   : 'jobs_date';
+  const restoredViewRef = useRef(false);
+
+  useEffect(() => {
+    if (restoredViewRef.current || !user) return;
+    restoredViewRef.current = true;
+    if (searchParams.has('period') || searchParams.has('date')) return;
+    const savedPeriod = localStorage.getItem(periodStorageKey);
+    if (!savedPeriod) return;
+    const savedDate = localStorage.getItem(dateStorageKey);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('period', savedPeriod);
+      if (savedDate) next.set('date', savedDate);
+      if (!next.get('tech')) next.set('tech', user.id);
+      return next;
+    }, { replace: true });
+  }, [user]);
+
   function setFilter(key, val) {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
@@ -80,6 +103,7 @@ export default function JobList() {
   // logged-in user (a personal "my jobs" view) without clobbering an
   // Admin's own choice if they've already picked someone else.
   function setPeriod(period) {
+    if (user) localStorage.setItem(periodStorageKey, period);
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       if (period) {
@@ -94,13 +118,18 @@ export default function JobList() {
     });
   }
 
+  function setDate(dateStr) {
+    if (user) localStorage.setItem(dateStorageKey, dateStr);
+    setFilter('date', dateStr);
+  }
+
   function shiftPeriod(dir) {
     const anchor = filters.date ? new Date(`${filters.date}T00:00:00`) : new Date();
     let next;
     if (filters.period === 'day') next = addDays(anchor, dir);
     else if (filters.period === 'week') next = addDays(anchor, dir * 7);
     else next = new Date(anchor.getFullYear(), anchor.getMonth() + dir, 1);
-    setFilter('date', toDateStr(next));
+    setDate(toDateStr(next));
   }
 
   const period = filters.period ? periodInfo(filters.period, filters.date) : null;
@@ -180,7 +209,7 @@ export default function JobList() {
             <button className={styles.periodNavBtn} onClick={() => shiftPeriod(-1)}>‹</button>
             <span className={styles.periodLabel}>{period.label}</span>
             <button className={styles.periodNavBtn} onClick={() => shiftPeriod(1)}>›</button>
-            <button className={styles.periodTodayBtn} onClick={() => setFilter('date', toDateStr(new Date()))}>Today</button>
+            <button className={styles.periodTodayBtn} onClick={() => setDate(toDateStr(new Date()))}>Today</button>
           </div>
         )}
       </div>
@@ -202,7 +231,10 @@ export default function JobList() {
           {techs.filter(t => t.role !== 'office').map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
         {activeFilters > 0 && (
-          <button className={styles.clearBtn} onClick={() => setSearchParams({})}>Clear filters ({activeFilters})</button>
+          <button className={styles.clearBtn} onClick={() => {
+            if (user) { localStorage.setItem(periodStorageKey, ''); localStorage.removeItem(dateStorageKey); }
+            setSearchParams({});
+          }}>Clear filters ({activeFilters})</button>
         )}
       </div>
 
