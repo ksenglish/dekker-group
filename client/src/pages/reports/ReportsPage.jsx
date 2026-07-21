@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { toLocalDateStr } from '../../lib/date';
 import styles from './Reports.module.css';
 
 function fmt(cents) {
@@ -29,7 +30,7 @@ export default function ReportsPage() {
   const now = new Date();
   const thisYearStart = `${now.getFullYear()}-01-01`;
   const [from, setFrom] = useState(thisYearStart);
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(toLocalDateStr());
 
   useEffect(() => {
     const calls = [api.get('/reports/revenue')];

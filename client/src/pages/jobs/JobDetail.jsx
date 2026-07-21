@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin, canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import { toLocalDateStr } from '../../lib/date';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
@@ -81,7 +82,7 @@ function JobTimer({ jobId, onTimeSaved, user }) {
     try {
       await api.post('/timesheets', {
         job_id: jobId, hours, description: desc || 'Time tracked via timer',
-        date: new Date(endTs).toISOString().slice(0, 10),
+        date: toLocalDateStr(new Date(endTs)),
         start_time: startTime, end_time: endTime,
         source: 'timer', billing_rate_id: billingRateId || null,
       });
@@ -264,7 +265,7 @@ function JobTimesheets({ jobId, user }) {
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [description, setDescription] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(toLocalDateStr());
   const [billingRates, setBillingRates] = useState([]);
   const [billingRateId, setBillingRateId] = useState('');
   const [saving, setSaving] = useState(false);

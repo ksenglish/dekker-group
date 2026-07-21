@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import { toLocalDateStr } from '../../lib/date';
 import styles from '../quotes/Quotes.module.css';
 
 const STATUSES = ['draft', 'sent', 'paid', 'overdue', 'cancelled'];
@@ -15,7 +16,7 @@ export default function InvoiceDetail() {
   const [emailing, setEmailing] = useState(false);
   const [msg, setMsg] = useState(null);
   const [payments, setPayments] = useState([]);
-  const [payForm, setPayForm] = useState({ amount: '', method: 'bank_transfer', reference: '', paid_at: new Date().toISOString().slice(0, 10) });
+  const [payForm, setPayForm] = useState({ amount: '', method: 'bank_transfer', reference: '', paid_at: toLocalDateStr() });
   const [addingPayment, setAddingPayment] = useState(false);
   const [showPayForm, setShowPayForm] = useState(false);
   const [pushingXero, setPushingXero] = useState(false);
@@ -31,7 +32,7 @@ export default function InvoiceDetail() {
     try {
       const { data } = await api.post(`/invoices/${id}/payments`, payForm);
       setPayments(p => [data, ...p]);
-      setPayForm({ amount: '', method: 'bank_transfer', reference: '', paid_at: new Date().toISOString().slice(0, 10) });
+      setPayForm({ amount: '', method: 'bank_transfer', reference: '', paid_at: toLocalDateStr() });
       setShowPayForm(false);
       // Refresh invoice to get updated status
       api.get(`/invoices/${id}`).then(r => setInvoice(r.data));

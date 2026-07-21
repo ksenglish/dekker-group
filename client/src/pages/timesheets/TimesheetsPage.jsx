@@ -3,6 +3,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import { toLocalDateStr } from '../../lib/date';
 import styles from './Timesheets.module.css';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -20,12 +21,12 @@ function weekStart(date) {
   const day = d.getDay();
   const diff = d.getDate() - day + (day === 0 ? -6 : 1);
   d.setDate(diff);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateStr(d);
 }
 function addDays(dateStr, n) {
   const d = new Date(dateStr);
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateStr(d);
 }
 function weekLabel(from) {
   const to = addDays(from, 6);
@@ -118,7 +119,7 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
   const [form, setForm] = useState({
     job_id: entry?.job_id || '',
     user_id: entry?.user_id || prefillUser || currentUser.id,
-    date: entry?.date?.slice(0, 10) || prefillDate || new Date().toISOString().slice(0, 10),
+    date: entry?.date?.slice(0, 10) || prefillDate || toLocalDateStr(),
     hours: entry?.hours || '',
     description: entry?.description || '',
     start_time: toHHMM(entry?.start_time),
