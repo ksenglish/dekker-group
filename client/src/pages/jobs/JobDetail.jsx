@@ -13,6 +13,13 @@ import SalesPresenter from '../presenter/SalesPresenter';
 import AssignModal from '../schedule/AssignModal';
 import styles from './Jobs.module.css';
 
+const TAB_LABELS = {
+  photos: 'Pre-Install Forms',
+  forms: 'Post Install Forms',
+  line_items: 'Line Items',
+  timesheets: 'Time',
+};
+
 // ── Live Timer ────────────────────────────────────────────────────────────────
 function JobTimer({ jobId, onTimeSaved, user }) {
   const STORAGE_KEY = `timer_${jobId}`;
@@ -982,9 +989,9 @@ export default function JobDetail() {
 
           {/* Tabs */}
           <div className={styles.tabs}>
-            {['details', 'line_items', 'costs', 'timesheets', 'photos', 'forms', 'notes', 'schedule', 'quotes', 'invoices'].map(t => (
+            {['details', 'photos', 'forms', 'notes', 'timesheets', 'schedule', 'line_items', 'costs', 'quotes', 'invoices'].map(t => (
               <button key={t} className={`${styles.tab} ${activeTab === t ? styles.tabActive : ''}`} onClick={() => setActiveTab(t)}>
-                {t === 'line_items' ? 'Line Items' : t === 'timesheets' ? 'Time' : t.charAt(0).toUpperCase() + t.slice(1)}
+                {TAB_LABELS[t] || t.charAt(0).toUpperCase() + t.slice(1)}
                 {t === 'notes' && job.notes?.length > 0 && <span className={styles.tabCount}>{job.notes.length}</span>}
               </button>
             ))}
