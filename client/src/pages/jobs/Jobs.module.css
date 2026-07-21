@@ -1,5 +1,4 @@
-.page { padding: 32px; max-width: 1300px; }
-.pageWide { max-width: none; }
+.page { padding: 32px; }
 
 .pageHeader {
   display: flex;
@@ -12,6 +11,12 @@
 .pageTitle { font-size: 24px; font-weight: 700; margin-bottom: 2px; }
 .pageSubtitle { font-size: 13px; color: var(--color-text-muted); }
 .headerActions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* Job Detail's header groups the title and its action buttons together on
+   the left, instead of pageHeader's default title-left/actions-right split
+   (used by the Jobs list and Tradify import, which stay as they are). */
+.detailHeaderLeft { justify-content: flex-start; flex-wrap: wrap; }
+.detailHeaderLeft .headerActions { flex-wrap: wrap; }
 
 .toolbar {
   display: flex;
@@ -317,15 +322,17 @@
 /* Detail layout */
 .detailLayout {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: 1fr 380px;
   gap: 24px;
   align-items: start;
 }
 
 @media (max-width: 900px) { .detailLayout { grid-template-columns: 1fr; } }
 
-.detailMain { display: flex; flex-direction: column; gap: 0; }
-.detailSidebar { display: flex; flex-direction: column; gap: 20px; }
+.detailMain { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.detailSidebar { display: flex; flex-direction: column; gap: 20px; position: sticky; top: 24px; }
+
+@media (max-width: 900px) { .detailSidebar { position: static; } }
 
 .card {
   background: var(--color-surface);
@@ -343,6 +350,10 @@
 }
 
 .cardHeader h2 { font-size: 15px; font-weight: 600; }
+
+/* Job Summary — the sidebar's one card, sized up so it stands out */
+.detailSidebar .cardHeader { padding: 20px 24px; }
+.detailSidebar .cardHeader h2 { font-size: 18px; }
 
 .detailGrid {
   display: grid;
@@ -566,26 +577,28 @@
 .tsTotal { padding: 10px 16px; font-size: 13px; color: var(--color-text-muted); text-align: right; border-top: 2px solid var(--color-border); }
 
 /* Sidebar summary */
-.summaryList { padding: 4px 0; }
+.summaryList { padding: 8px 0; }
 
 .summaryItem {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 20px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--color-border);
-  font-size: 13px;
+  font-size: 14px;
+  gap: 12px;
 }
 
 .summaryItem:last-child { border-bottom: none; }
 .summaryItem span:first-child { color: var(--color-text-muted); }
+.summaryItem strong { font-size: 15px; text-align: right; }
 
 .cardFooter {
-  padding: 12px 20px;
+  padding: 14px 24px;
   border-top: 1px solid var(--color-border);
 }
 
-.contactLink { font-size: 13px; color: var(--color-primary); }
+.contactLink { font-size: 14px; color: var(--color-primary); }
 .contactLink:hover { text-decoration: underline; }
 
 /* Buttons */

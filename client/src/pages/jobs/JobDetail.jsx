@@ -896,138 +896,89 @@ export default function JobDetail() {
   }
 
   return (
-    <div className={`${styles.page} ${styles.pageWide}`}>
-      {/* Header */}
-      <div className={styles.pageHeader}>
-        <div className={styles.breadcrumb} style={{ marginBottom: 0 }}>
-          <Link to="/jobs">Jobs</Link><span>›</span>
-          <span>Job {formatJobNumber(job)}</span>
-        </div>
-        <div className={styles.headerActions}>
-          {canAct(user?.role) && (
-            <button className={styles.btnSecondary} onClick={() => setShowAppointmentModal(true)}>📅 New Appointment</button>
-          )}
-          {user?.role !== 'operations' && (
-            <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
-          )}
-          {user?.role !== 'field_tech' && user?.role !== 'operations' && (
-            <button className={styles.btnSecondary} onClick={handleArcSiteSync} disabled={syncingArcSite}>
-              {syncingArcSite ? 'Syncing…' : job.arcsite_project_id ? '🔄 Re-sync ArcSite' : '📐 Send to ArcSite'}
-            </button>
-          )}
-          {user?.role !== 'field_tech' && user?.role !== 'operations' && job.arcsite_project_id && (
-            <button className={styles.btnSecondary} onClick={handlePullDrawings} disabled={pullingDrawings}>
-              {pullingDrawings ? 'Pulling…' : '📥 Pull Drawing'}
-            </button>
-          )}
-          {isAdmin(user?.role) && (
-            <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
-          )}
-          {isAdmin(user?.role) && (
-            <button className={styles.btnDanger} onClick={handleDelete}>Delete Job</button>
-          )}
-        </div>
-      </div>
-
-      {/* Status pipeline */}
-      {job.status !== 'cancelled' ? (
-        <div className={styles.pipeline}>
-          {pipelineStatuses.map((s, i) => {
-            const idx = pipelineStatuses.findIndex(p => p.key === job.status);
-            const done = i < idx;
-            const active = i === idx;
-            return (
-              <button
-                key={s.key}
-                className={`${styles.pipelineStep} ${done ? styles.pipelineDone : ''} ${active ? styles.pipelineActive : ''}`}
-                onClick={() => canAct(user?.role) && handleStatusChange(s.key)}
-                style={active ? { borderColor: s.color, color: s.color } : {}}
-                title={`Move to ${s.label}`}
-              >
-                <span className={styles.pipelineDot} style={active ? { background: s.color } : done ? { background: '#16a34a' } : {}} />
-                {s.label}
-              </button>
-            );
-          })}
-          {isAdmin(user?.role) && (
-            <button
-              className={`${styles.pipelineStep} ${job.status === 'cancelled' ? styles.pipelineActive : ''}`}
-              onClick={() => handleStatusChange('cancelled')}
-              style={{ marginLeft: 'auto', color: '#6b7280' }}
-            >
-              Cancel job
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className={styles.cancelledBanner}>
-          This job is cancelled.
-          {canAct(user?.role) && (
-            <button onClick={() => handleStatusChange('new')} className={styles.reopenBtn}>Reopen as New</button>
-          )}
-        </div>
-      )}
-
-      {/* Timer bar */}
-      {job.status !== 'cancelled' && job.status !== 'complete' && (
-        <JobTimer jobId={id} user={user} onTimeSaved={() => setEmailFlash('Time entry saved!')} />
-      )}
-      {emailFlash && (
-        <div className={styles.flashBanner} onAnimationEnd={() => setEmailFlash('')}>{emailFlash}</div>
-      )}
-
-      {/* New Appointment modal */}
-      {showAppointmentModal && (
-        <AssignModal
-          jobId={id}
-          lockJob
-          lockedJobLabel={`${formatJobNumber(job)}${job.customer_name ? ' — ' + job.customer_name : ''}`}
-          onClose={() => setShowAppointmentModal(false)}
-          onAssigned={async () => {
-            setShowAppointmentModal(false);
-            setEmailFlash('Appointment added to schedule');
-            const { data: updated } = await api.get(`/jobs/${id}`);
-            setJob(updated);
-          }}
-        />
-      )}
-
-      {/* Sales Presenter picker */}
-      {showPresenter && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 300 }}>
-          <SalesPresenter jobId={id} onPick={async (product) => {
-            setShowPresenter(false);
-            if (!product) return;
-            try {
-              const existing = job.line_items || [];
-              // price list products use `unit_price` (cents); presenter products use `price_from`
-              const unitPrice = product.unit_price != null ? product.unit_price / 100
-                : product.price_from > 0 ? product.price_from / 100 : 0;
-              const newItem = {
-                description: product.name,
-                quantity: 1,
-                unit_price: unitPrice,
-                product_id: product.unit_price != null ? product.id : null,
-              };
-              const items = [
-                ...existing.map(i => ({ ...i, unit_price: i.unit_price / 100 })),
-                newItem,
-              ];
-              await api.put(`/jobs/${id}/line-items`, { items });
-              setActiveTab('line_items');
-              setEmailFlash(`${product.name} added to job`);
-              const { data: updated } = await api.get(`/jobs/${id}`);
-              setJob(updated);
-            } catch {
-              setEmailFlash('Failed to add product');
-            }
-          }} />
-        </div>
-      )}
-
+    <div className={styles.page}>
       {/* Main layout */}
       <div className={styles.detailLayout}>
         <div className={styles.detailMain}>
+          {/* Header */}
+          <div className={`${styles.pageHeader} ${styles.detailHeaderLeft}`}>
+            <div className={styles.breadcrumb} style={{ marginBottom: 0 }}>
+              <Link to="/jobs">Jobs</Link><span>›</span>
+              <span>Job {formatJobNumber(job)}</span>
+            </div>
+            <div className={styles.headerActions}>
+              {canAct(user?.role) && (
+                <button className={styles.btnSecondary} onClick={() => setShowAppointmentModal(true)}>📅 New Appointment</button>
+              )}
+              {user?.role !== 'operations' && (
+                <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
+              )}
+              {user?.role !== 'field_tech' && user?.role !== 'operations' && (
+                <button className={styles.btnSecondary} onClick={handleArcSiteSync} disabled={syncingArcSite}>
+                  {syncingArcSite ? 'Syncing…' : job.arcsite_project_id ? '🔄 Re-sync ArcSite' : '📐 Send to ArcSite'}
+                </button>
+              )}
+              {user?.role !== 'field_tech' && user?.role !== 'operations' && job.arcsite_project_id && (
+                <button className={styles.btnSecondary} onClick={handlePullDrawings} disabled={pullingDrawings}>
+                  {pullingDrawings ? 'Pulling…' : '📥 Pull Drawing'}
+                </button>
+              )}
+              {isAdmin(user?.role) && (
+                <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
+              )}
+              {isAdmin(user?.role) && (
+                <button className={styles.btnDanger} onClick={handleDelete}>Delete Job</button>
+              )}
+            </div>
+          </div>
+
+          {/* Status pipeline */}
+          {job.status !== 'cancelled' ? (
+            <div className={styles.pipeline}>
+              {pipelineStatuses.map((s, i) => {
+                const idx = pipelineStatuses.findIndex(p => p.key === job.status);
+                const done = i < idx;
+                const active = i === idx;
+                return (
+                  <button
+                    key={s.key}
+                    className={`${styles.pipelineStep} ${done ? styles.pipelineDone : ''} ${active ? styles.pipelineActive : ''}`}
+                    onClick={() => canAct(user?.role) && handleStatusChange(s.key)}
+                    style={active ? { borderColor: s.color, color: s.color } : {}}
+                    title={`Move to ${s.label}`}
+                  >
+                    <span className={styles.pipelineDot} style={active ? { background: s.color } : done ? { background: '#16a34a' } : {}} />
+                    {s.label}
+                  </button>
+                );
+              })}
+              {isAdmin(user?.role) && (
+                <button
+                  className={`${styles.pipelineStep} ${job.status === 'cancelled' ? styles.pipelineActive : ''}`}
+                  onClick={() => handleStatusChange('cancelled')}
+                  style={{ marginLeft: 'auto', color: '#6b7280' }}
+                >
+                  Cancel job
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className={styles.cancelledBanner}>
+              This job is cancelled.
+              {canAct(user?.role) && (
+                <button onClick={() => handleStatusChange('new')} className={styles.reopenBtn}>Reopen as New</button>
+              )}
+            </div>
+          )}
+
+          {/* Timer bar */}
+          {job.status !== 'cancelled' && job.status !== 'complete' && (
+            <JobTimer jobId={id} user={user} onTimeSaved={() => setEmailFlash('Time entry saved!')} />
+          )}
+          {emailFlash && (
+            <div className={styles.flashBanner} onAnimationEnd={() => setEmailFlash('')}>{emailFlash}</div>
+          )}
+
           {/* Tabs */}
           <div className={styles.tabs}>
             {['details', 'line_items', 'costs', 'timesheets', 'photos', 'forms', 'notes', 'schedule', 'quotes', 'invoices'].map(t => (
@@ -1216,6 +1167,55 @@ export default function JobDetail() {
           </div>
         </div>
       </div>
+
+      {/* New Appointment modal */}
+      {showAppointmentModal && (
+        <AssignModal
+          jobId={id}
+          lockJob
+          lockedJobLabel={`${formatJobNumber(job)}${job.customer_name ? ' — ' + job.customer_name : ''}`}
+          onClose={() => setShowAppointmentModal(false)}
+          onAssigned={async () => {
+            setShowAppointmentModal(false);
+            setEmailFlash('Appointment added to schedule');
+            const { data: updated } = await api.get(`/jobs/${id}`);
+            setJob(updated);
+          }}
+        />
+      )}
+
+      {/* Sales Presenter picker */}
+      {showPresenter && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300 }}>
+          <SalesPresenter jobId={id} onPick={async (product) => {
+            setShowPresenter(false);
+            if (!product) return;
+            try {
+              const existing = job.line_items || [];
+              // price list products use `unit_price` (cents); presenter products use `price_from`
+              const unitPrice = product.unit_price != null ? product.unit_price / 100
+                : product.price_from > 0 ? product.price_from / 100 : 0;
+              const newItem = {
+                description: product.name,
+                quantity: 1,
+                unit_price: unitPrice,
+                product_id: product.unit_price != null ? product.id : null,
+              };
+              const items = [
+                ...existing.map(i => ({ ...i, unit_price: i.unit_price / 100 })),
+                newItem,
+              ];
+              await api.put(`/jobs/${id}/line-items`, { items });
+              setActiveTab('line_items');
+              setEmailFlash(`${product.name} added to job`);
+              const { data: updated } = await api.get(`/jobs/${id}`);
+              setJob(updated);
+            } catch {
+              setEmailFlash('Failed to add product');
+            }
+          }} />
+        </div>
+      )}
     </div>
   );
 }

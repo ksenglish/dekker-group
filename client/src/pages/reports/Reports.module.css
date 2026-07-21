@@ -1,4 +1,4 @@
-.page { padding: 32px; max-width: 1200px; }
+.page { padding: 32px; }
 .pageHeader { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
 .pageTitle { font-size: 24px; font-weight: 700; margin-bottom: 2px; }
 .pageSubtitle { font-size: 13px; color: var(--color-text-muted); }

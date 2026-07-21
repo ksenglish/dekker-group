@@ -1,6 +1,5 @@
 .page {
   padding: 32px;
-  max-width: 1200px;
 }
 
 .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 20px 0 4px; }

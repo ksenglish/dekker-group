@@ -1,4 +1,4 @@
-.page { padding: 32px; max-width: 1200px; }
+.page { padding: 32px; }
 
 .pageHeader {
   display: flex; align-items: flex-start; justify-content: space-between;
