@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { isAdmin, canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import { toLocalDateStr } from '../../lib/date';
+import { isBillable } from '../../lib/billing';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
@@ -265,20 +266,191 @@ function toHHMM(iso) {
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+function fmtTimeAmPm(iso) {
+  return new Date(iso).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' });
+}
+const HOUR_MARKS = Array.from({ length: 24 }, (_, i) => i);
+function fmtHourMark(h) {
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${h < 12 ? 'am' : 'pm'}`;
+}
+
+// Add/edit popup for a single timesheet entry — click a bar in the timeline to edit
+function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDelete, onClose }) {
+  const isNew = !entry;
+  const [form, setForm] = useState({
+    date: entry?.date ? entry.date.slice(0, 10) : toLocalDateStr(),
+    start_time: toHHMM(entry?.start_time),
+    end_time: toHHMM(entry?.end_time),
+    hours: entry?.hours != null ? String(entry.hours) : '',
+    billing_rate_id: entry?.billing_rate_id || '',
+    description: entry?.description || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const mountedRef = useRef(false);
+
+  // Auto-fill Hours from Start/Finish once both are set — skips the very
+  // first render so opening the modal doesn't clobber a prefilled value.
+  useEffect(() => {
+    if (!mountedRef.current) { mountedRef.current = true; return; }
+    if (!form.start_time || !form.end_time) return;
+    const [sh, sm] = form.start_time.split(':').map(Number);
+    const [eh, em] = form.end_time.split(':').map(Number);
+    const mins = (eh * 60 + em) - (sh * 60 + sm);
+    if (mins <= 0) return;
+    set('hours', String(Math.max(0.25, Math.round(mins / 15) * 0.25)));
+  }, [form.start_time, form.end_time]);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!form.hours || parseFloat(form.hours) <= 0) return setErr('Hours must be greater than 0');
+    setSaving(true); setErr('');
+    try {
+      const payload = {
+        job_id: jobId,
+        hours: parseFloat(form.hours),
+        description: form.description,
+        date: form.date,
+        start_time: form.start_time ? new Date(`${form.date}T${form.start_time}:00`).toISOString() : null,
+        end_time: form.end_time ? new Date(`${form.date}T${form.end_time}:00`).toISOString() : null,
+        billing_rate_id: form.billing_rate_id || null,
+      };
+      const { data } = isNew
+        ? await api.post('/timesheets', { ...payload, source: 'manual' })
+        : await api.put(`/timesheets/${entry.id}`, payload);
+      onSave(data);
+    } catch (err) { setErr(err.response?.data?.error || 'Save failed'); setSaving(false); }
+  }
+
+  async function handleDelete() {
+    if (!confirm('Delete this time entry? This cannot be undone.')) return;
+    setSaving(true); setErr('');
+    try {
+      await api.delete(`/timesheets/${entry.id}`);
+      onDelete(entry.id);
+    } catch (err) { setErr(err.response?.data?.error || 'Delete failed'); setSaving(false); }
+  }
+
+  return (
+    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2>{isNew ? 'New Timesheet Entry' : 'Edit Timesheet Entry'}</h2>
+          <button className={styles.modalClose} onClick={onClose}>✕</button>
+        </div>
+        <form onSubmit={submit}>
+          <div className={styles.modalBody}>
+            {err && <div className={styles.errorBanner}>{err}</div>}
+            <div className={styles.field}>
+              <label>Staff Member</label>
+              <input value={entry ? entry.user_name : currentUser?.name || ''} disabled
+                style={{ background: '#f8fafc', color: 'var(--color-text-muted)' }} />
+            </div>
+            <div className={styles.formGrid}>
+              <div className={styles.field}>
+                <label>Date</label>
+                <input type="date" value={form.date} onChange={e => set('date', e.target.value)} />
+              </div>
+              <div className={styles.field}>
+                <label>Hours</label>
+                <input type="number" min="0.25" step="0.25" value={form.hours} onChange={e => set('hours', e.target.value)} />
+              </div>
+              <div className={styles.field}>
+                <label>Start Time</label>
+                <input type="time" value={form.start_time} onChange={e => set('start_time', e.target.value)} />
+              </div>
+              <div className={styles.field}>
+                <label>Finish Time</label>
+                <input type="time" value={form.end_time} onChange={e => set('end_time', e.target.value)} />
+              </div>
+            </div>
+            <div className={styles.field}>
+              <label>Billing Rate</label>
+              <select value={form.billing_rate_id} onChange={e => set('billing_rate_id', e.target.value)}>
+                <option value="">— Select —</option>
+                {billingRates.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+              </select>
+            </div>
+            <div className={styles.field}>
+              <label>Notes</label>
+              <textarea rows={3} value={form.description} onChange={e => set('description', e.target.value)}
+                placeholder="What work was done?" />
+            </div>
+          </div>
+          <div className={styles.modalFooter}>
+            {!isNew && (
+              <button type="button" className={styles.btnDanger} onClick={handleDelete} disabled={saving}
+                style={{ marginRight: 'auto' }}>Delete</button>
+            )}
+            <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
+            <button type="submit" className={styles.btnPrimary} disabled={saving}>{saving ? 'Saving…' : 'OK'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// One day's worth of entries laid out as bars along a 24-hour axis, Tradify-style
+function TimeDayGroup({ dateKey, entries, billingRates, currentUser, onEntryClick }) {
+  const dateLabel = new Date(`${dateKey}T12:00:00`).toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const sorted = [...entries].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+  return (
+    <div className={styles.timeDayGroup}>
+      <div className={styles.timeDayHeader}>{dateLabel}</div>
+      <div className={styles.timeDayRows}>
+        {sorted.map(e => {
+          const billable = isBillable(e, billingRates);
+          const colourClass = billable ? styles.timeBarBillable : styles.timeBarNonBillable;
+          const canModify = isAdmin(currentUser.role) || e.user_id === currentUser.id;
+          const hasTimes = e.start_time && e.end_time;
+          if (!hasTimes) {
+            return (
+              <div key={e.id} className={styles.timeDayRowAuto}>
+                <div className={`${styles.timeBarNoTime} ${colourClass}`}
+                  style={{ cursor: canModify ? 'pointer' : 'default' }}
+                  onClick={() => canModify && onEntryClick(e)}>
+                  {e.user_name} · {parseFloat(e.hours).toFixed(2)}h{e.description ? ` — ${e.description}` : ''}
+                </div>
+              </div>
+            );
+          }
+          const s = new Date(e.start_time), en = new Date(e.end_time);
+          const sMin = s.getHours() * 60 + s.getMinutes();
+          const eMin = Math.max(en.getHours() * 60 + en.getMinutes(), sMin + 15);
+          const leftPct = (sMin / 1440) * 100;
+          const widthPct = Math.min(((eMin - sMin) / 1440) * 100, 100 - leftPct);
+          return (
+            <div key={e.id} className={styles.timeDayRow}>
+              <div
+                className={`${styles.timeBar} ${colourClass}`}
+                style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 3)}%`, cursor: canModify ? 'pointer' : 'default' }}
+                onClick={() => canModify && onEntryClick(e)}
+                title={`${fmtTimeAmPm(e.start_time)} – ${fmtTimeAmPm(e.end_time)}\n${e.user_name}${e.description ? ' — ' + e.description : ''}`}
+              >
+                <span className={styles.timeBarRange}>{fmtTimeAmPm(e.start_time)} - {fmtTimeAmPm(e.end_time)}</span>
+                <span className={styles.timeBarStaff}>{e.user_name}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className={styles.timeHourAxis}>
+        {HOUR_MARKS.map(h => (
+          <span key={h} style={{ left: `${(h / 24) * 100}%` }}>{fmtHourMark(h)}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function JobTimesheets({ jobId, user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState(null);
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
-  const [hours, setHours] = useState('');
-  const [description, setDescription] = useState('');
-  const [date, setDate] = useState(toLocalDateStr());
   const [billingRates, setBillingRates] = useState([]);
-  const [billingRateId, setBillingRateId] = useState('');
-  const [saving, setSaving] = useState(false);
-  const mountedRef = useRef(false);
+  const [modalEntry, setModalEntry] = useState(undefined); // undefined = closed, null = new entry
 
   useEffect(() => {
     api.get('/timesheets', { params: { job_id: jobId } })
@@ -287,133 +459,46 @@ function JobTimesheets({ jobId, user }) {
   }, [jobId]);
 
   useEffect(() => {
-    api.get('/settings/billing-rates').then(r => {
-      setBillingRates(r.data);
-      setBillingRateId(cur => cur || user?.default_billing_rate_id || r.data[0]?.id || '');
-    }).catch(() => {});
+    api.get('/settings/billing-rates').then(r => setBillingRates(r.data)).catch(() => {});
   }, []);
 
-  // Auto-fill Hours from Start/Finish once both are set — skips the very
-  // first render so populating the form to edit an entry doesn't clobber
-  // its existing Hours value before anything's actually changed.
-  useEffect(() => {
-    if (!mountedRef.current) { mountedRef.current = true; return; }
-    if (!startTime || !endTime) return;
-    const [sh, sm] = startTime.split(':').map(Number);
-    const [eh, em] = endTime.split(':').map(Number);
-    const mins = (eh * 60 + em) - (sh * 60 + sm);
-    if (mins <= 0) return;
-    setHours(String(Math.max(0.25, Math.round(mins / 15) * 0.25)));
-  }, [startTime, endTime]);
-
-  function resetForm() {
-    setEditingId(null);
-    setStartTime(''); setEndTime(''); setHours(''); setDescription('');
-    setDate(toLocalDateStr());
+  function handleSaved(saved) {
+    setEntries(es => es.some(x => x.id === saved.id) ? es.map(x => x.id === saved.id ? saved : x) : [saved, ...es]);
+    setModalEntry(undefined);
   }
 
-  function startEdit(entry) {
-    setEditingId(entry.id);
-    setDate(entry.date ? entry.date.slice(0, 10) : toLocalDateStr());
-    setStartTime(toHHMM(entry.start_time));
-    setEndTime(toHHMM(entry.end_time));
-    setHours(entry.hours != null ? String(entry.hours) : '');
-    setDescription(entry.description || '');
-    setBillingRateId(entry.billing_rate_id || '');
-  }
-
-  async function submit(e) {
-    e.preventDefault();
-    if (!hours || parseFloat(hours) <= 0) return;
-    setSaving(true);
-    try {
-      const start_time = startTime ? new Date(`${date}T${startTime}:00`).toISOString() : null;
-      const end_time = endTime ? new Date(`${date}T${endTime}:00`).toISOString() : null;
-      const payload = {
-        job_id: jobId, hours: parseFloat(hours), description, date,
-        start_time, end_time, billing_rate_id: billingRateId || null,
-      };
-      if (editingId) {
-        const { data } = await api.put(`/timesheets/${editingId}`, payload);
-        setEntries(es => es.map(x => x.id === editingId ? data : x));
-      } else {
-        const { data } = await api.post('/timesheets', { ...payload, source: 'manual' });
-        setEntries(es => [data, ...es]);
-      }
-      resetForm();
-    } finally { setSaving(false); }
-  }
-
-  async function del(id) {
-    if (editingId === id) resetForm();
-    await api.delete(`/timesheets/${id}`);
+  function handleDeleted(id) {
     setEntries(es => es.filter(e => e.id !== id));
+    setModalEntry(undefined);
   }
 
   const total = entries.reduce((s, e) => s + parseFloat(e.hours || 0), 0);
 
+  const byDate = {};
+  entries.forEach(e => {
+    const key = e.date ? e.date.slice(0, 10) : 'unknown';
+    (byDate[key] ||= []).push(e);
+  });
+  const dateKeys = Object.keys(byDate).sort();
+
   return (
     <div className={styles.card}>
-      <form onSubmit={submit} className={styles.timesheetForm}>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} className={styles.tsInput} />
-        <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className={styles.tsInput} />
-        <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>to</span>
-        <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className={styles.tsInput} />
-        <input type="number" min="0.25" step="0.25" placeholder="Hours" value={hours}
-          onChange={e => setHours(e.target.value)} className={styles.tsInput} style={{ width: 70 }} />
-        {billingRates.length > 0 && (
-          <select value={billingRateId} onChange={e => setBillingRateId(e.target.value)} className={styles.tsInput}>
-            <option value="">— Rate —</option>
-            {billingRates.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
-          </select>
-        )}
-        <input placeholder="Description (optional)" value={description}
-          onChange={e => setDescription(e.target.value)} className={styles.tsInput} style={{ flex: 1 }} />
-        <button className={styles.btnPrimary} disabled={saving || !hours || parseFloat(hours) <= 0}>
-          {saving ? '…' : editingId ? 'Save' : 'Log'}
-        </button>
-        {editingId && (
-          <button type="button" className={styles.btnSecondary} onClick={resetForm}>Cancel</button>
-        )}
-      </form>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
+        <button className={styles.btnPrimary} onClick={() => setModalEntry(null)}>+ New Timesheet Entry</button>
+      </div>
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        entries.length === 0 ? <div className={styles.emptySmall}>No time logged yet.</div> : (
         <>
-          <div className={styles.tsHeader}>
-            <span>Date</span>
-            <span>Staff</span>
-            <span>Start</span>
-            <span>End</span>
-            <span>Hours</span>
-            <span>Description</span>
-            <span />
-          </div>
-          {entries.map(e => {
-            const rateLabel = billingRates.find(r => r.id === e.billing_rate_id)?.label;
-            const canModify = isAdmin(user.role) || e.user_id === user.id;
-            return (
-              <div key={e.id} className={styles.tsRow}>
-                <span className={styles.tsDate}>{e.date ? new Date(String(e.date).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' }) : '—'}</span>
-                <span className={styles.tsName}>{e.user_name}</span>
-                <span className={styles.tsTime}>{e.start_time ? new Date(e.start_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
-                <span className={styles.tsTime}>{e.end_time ? new Date(e.end_time).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }) : '—'}</span>
-                <span className={styles.tsHours}>{parseFloat(e.hours).toFixed(2)}h</span>
-                <span className={styles.tsDesc}>
-                  {e.description || '—'}
-                  {e.source === 'manual' && <span className={styles.manualBadge}>Manual Entry</span>}
-                  {rateLabel && <span className={styles.manualBadge}>{rateLabel}</span>}
-                </span>
-                {canModify && (
-                  <span className={styles.tsActions}>
-                    <button type="button" className={styles.deleteBtn} style={{ position: 'static' }} onClick={() => startEdit(e)}>✎</button>
-                    <button type="button" className={styles.deleteBtn} style={{ position: 'static' }} onClick={() => del(e.id)}>✕</button>
-                  </span>
-                )}
-              </div>
-            );
-          })}
+          {dateKeys.map(dk => (
+            <TimeDayGroup key={dk} dateKey={dk} entries={byDate[dk]} billingRates={billingRates}
+              currentUser={user} onEntryClick={setModalEntry} />
+          ))}
           <div className={styles.tsTotal}>Total: <strong>{total.toFixed(2)}h</strong></div>
         </>
+      )}
+      {modalEntry !== undefined && (
+        <TimeEntryModal jobId={jobId} entry={modalEntry} billingRates={billingRates} currentUser={user}
+          onSave={handleSaved} onDelete={handleDeleted} onClose={() => setModalEntry(undefined)} />
       )}
     </div>
   );
@@ -947,7 +1032,7 @@ export default function JobDetail() {
           <div className={styles.tabs}>
             {['details', 'line_items', 'costs', 'timesheets', 'photos', 'forms', 'notes', 'schedule', 'quotes', 'invoices'].map(t => (
               <button key={t} className={`${styles.tab} ${activeTab === t ? styles.tabActive : ''}`} onClick={() => setActiveTab(t)}>
-                {t === 'line_items' ? 'Line Items' : t.charAt(0).toUpperCase() + t.slice(1)}
+                {t === 'line_items' ? 'Line Items' : t === 'timesheets' ? 'Time' : t.charAt(0).toUpperCase() + t.slice(1)}
                 {t === 'notes' && job.notes?.length > 0 && <span className={styles.tabCount}>{job.notes.length}</span>}
               </button>
             ))}

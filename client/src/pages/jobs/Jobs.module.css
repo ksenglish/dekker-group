@@ -536,35 +536,33 @@
 
 .emptySmall { padding: 16px 20px; font-size: 13px; color: var(--color-text-muted); }
 
-/* Timesheets inline */
-.timesheetForm {
-  display: flex; align-items: center; gap: 8px; padding: 14px 16px;
-  border-bottom: 1px solid var(--color-border); flex-wrap: wrap;
+/* Time tab — Tradify-style day timeline */
+.timeDayGroup { padding: 16px 16px 28px; border-bottom: 1px solid var(--color-border); }
+.timeDayGroup:last-of-type { border-bottom: none; }
+.timeDayHeader { font-size: 13px; font-weight: 600; color: var(--color-text-muted); padding-bottom: 10px; }
+.timeDayRows { display: flex; flex-direction: column; gap: 8px; }
+.timeDayRow { position: relative; height: 46px; }
+.timeDayRowAuto { position: relative; }
+.timeBar {
+  position: absolute; top: 0; height: 100%; min-width: 32px;
+  border-radius: 6px; padding: 4px 8px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  border: 1px solid transparent; transition: filter 0.1s;
 }
-.tsInput {
-  padding: 7px 10px; border: 1px solid var(--color-border);
-  border-radius: var(--radius); font-size: 13px; outline: none; font-family: inherit;
+.timeBar:hover { filter: brightness(0.96); }
+.timeBarRange { font-size: 10px; font-weight: 600; }
+.timeBarStaff { font-size: 11px; font-weight: 500; }
+.timeBarNoTime {
+  display: inline-block; padding: 8px 10px; border-radius: 6px;
+  font-size: 12px; border: 1px solid transparent;
 }
-.tsInput:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light); }
-.tsHeader {
-  display: grid; grid-template-columns: 80px 110px 60px 60px 55px 1fr 56px;
-  gap: 10px; padding: 8px 16px; background: #f8fafc;
-  border-bottom: 1px solid var(--color-border);
-  font-size: 11px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--color-text-muted);
-}
-.tsRow {
-  display: grid; grid-template-columns: 80px 110px 60px 60px 55px 1fr 56px;
-  gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--color-border);
-  font-size: 13px; align-items: center;
-}
-.tsRow:last-of-type { border-bottom: none; }
-.tsDate { font-size: 12px; color: var(--color-text-muted); }
-.tsName { font-size: 12px; font-weight: 500; }
-.tsTime { font-size: 12px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
-.tsDesc { font-size: 12px; color: var(--color-text-muted); }
-.tsHours { font-weight: 600; }
-.tsActions { display: flex; gap: 2px; justify-content: flex-end; }
+.timeBarBillable { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.timeBarBillable:hover { background: #fecaca; }
+.timeBarNonBillable { background: #ffedd5; color: #9a3412; border-color: #fed7aa; }
+.timeBarNonBillable:hover { background: #fed7aa; }
+.timeHourAxis { position: relative; height: 18px; margin-top: 10px; border-top: 1px solid var(--color-border); }
+.timeHourAxis span { position: absolute; top: 4px; font-size: 9px; color: var(--color-text-muted); white-space: nowrap; }
 .tsTotal { padding: 10px 16px; font-size: 13px; color: var(--color-text-muted); text-align: right; border-top: 2px solid var(--color-border); }
 
 /* Sidebar summary */
@@ -821,6 +819,10 @@
 }
 .modalClose:hover { color: var(--color-text); }
 .modalBody { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.modalFooter {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding: 16px 24px; border-top: 1px solid var(--color-border);
+}
 .errorBanner {
   padding: 10px 14px; background: #fef2f2; border: 1px solid #fca5a5;
   border-radius: var(--radius); font-size: 13px; color: #dc2626;
