@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../../lib/api';
+import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import styles from './Schedule.module.css';
 
 // Build list of times 07:00–20:30 in 15-min steps
@@ -34,12 +35,16 @@ const RECURRENCE_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
 ];
 
-// Pass `existing` (a calendar note object) to edit it instead of creating a new one
-export default function AddNoteModal({ date, time, userId, techMap, existing, onClose, onSaved }) {
+// Pass `existing` (a calendar note object) to edit it instead of creating a new
+// one. Editing always stays single-person (recurrence makes group-editing too
+// fraught to be worth it); `isAdmin` only unlocks the multi-select when adding
+// a brand new note, letting one Admin action put the same note on several
+// team members' diaries at once.
+export default function AddNoteModal({ date, time, userId, techMap, existing, onClose, onSaved, isAdmin = false }) {
   const isEdit = !!existing;
   const startTime = existing?.start_time ? existing.start_time.slice(0, 5) : (time || '09:00');
   const [form, setForm] = useState({
-    user_id: existing?.user_id || userId || '',
+    user_ids: isEdit ? [existing.user_id] : (userId ? [userId] : []),
     note: existing?.note || '',
     note_date: existing ? String(existing.note_date).slice(0, 10) : date,
     start_time: startTime,
@@ -53,13 +58,16 @@ export default function AddNoteModal({ date, time, userId, techMap, existing, on
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.user_id || !form.note.trim() || !form.note_date) {
+    if (form.user_ids.length === 0 || !form.note.trim() || !form.note_date) {
       setError('Please choose a team member and enter a note'); return;
     }
     setSaving(true); setError('');
     try {
-      if (isEdit) await api.put(`/calendar-notes/${existing.noteId || existing.id}`, form);
-      else await api.post('/calendar-notes', form);
+      if (isEdit) {
+        await api.put(`/calendar-notes/${existing.noteId || existing.id}`, { ...form, user_id: form.user_ids[0] });
+      } else {
+        await Promise.all(form.user_ids.map(user_id => api.post('/calendar-notes', { ...form, user_id })));
+      }
       onSaved();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to save note');
@@ -80,11 +88,20 @@ export default function AddNoteModal({ date, time, userId, techMap, existing, on
             {error && <div className={styles.errorBanner}>{error}</div>}
 
             <div className={styles.field}>
-              <label>Team Member *</label>
-              <select value={form.user_id} onChange={e => set('user_id', e.target.value)}>
-                <option value="">Select team member…</option>
-                {Object.entries(techMap).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-              </select>
+              <label>Team Member{isAdmin && !isEdit ? '(s)' : ''} *</label>
+              {isAdmin && !isEdit ? (
+                <TeamMemberMultiSelect
+                  options={Object.entries(techMap).map(([id, name]) => ({ id, name }))}
+                  selected={form.user_ids}
+                  onChange={ids => set('user_ids', ids)}
+                  placeholder="Select team member(s)…"
+                />
+              ) : (
+                <select value={form.user_ids[0] || ''} onChange={e => set('user_ids', e.target.value ? [e.target.value] : [])}>
+                  <option value="">Select team member…</option>
+                  {Object.entries(techMap).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                </select>
+              )}
             </div>
 
             <div className={styles.field}>

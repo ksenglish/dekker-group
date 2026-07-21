@@ -309,6 +309,21 @@ export default function SchedulePage() {
     setSelectedNote(null);
   }
 
+  // Group all schedule rows sharing the same job/date/time/type as one logical
+  // appointment, so editing one team member's row lets Admin add/remove others too.
+  function handleEditAppointment() {
+    if (!selectedEvent) return;
+    const siblings = rawSchedules.filter(s =>
+      s.job_id === selectedEvent.job_id &&
+      s.scheduled_date === selectedEvent.scheduled_date &&
+      s.start_time === selectedEvent.start_time &&
+      s.end_time === selectedEvent.end_time &&
+      s.appointment_type === selectedEvent.appointment_type
+    );
+    setAssignTarget({ existing: siblings.length > 0 ? siblings : [selectedEvent] });
+    setSelectedEvent(null);
+  }
+
   // Removes just one date from a recurring note's series
   async function handleDeleteOccurrence() {
     if (!selectedNote?.noteId) return;
@@ -533,6 +548,9 @@ export default function SchedulePage() {
             <div className={styles.modalFooter}>
               <Link to={`/jobs/${selectedEvent.job_id}`} className={styles.btnSecondary} onClick={() => setSelectedEvent(null)}>View Job</Link>
               {isAdmin(user?.role) && selectedEvent.schedId && (
+                <button className={styles.btnSecondary} onClick={handleEditAppointment}>✏ Edit</button>
+              )}
+              {isAdmin(user?.role) && selectedEvent.schedId && (
                 <button className={styles.btnDanger} onClick={async () => {
                   if (!confirm('Remove this appointment from the schedule?')) return;
                   await api.delete(`/schedules/${selectedEvent.schedId}`);
@@ -583,8 +601,10 @@ export default function SchedulePage() {
           date={assignTarget.date}
           jobId={assignTarget.jobId}
           userId={assignTarget.userId}
+          existing={assignTarget.existing}
           techMap={techMap}
           techRoles={techRoles}
+          isAdmin={isAdmin(user?.role)}
           onClose={() => setAssignTarget(null)}
           onAssigned={handleAssigned}
         />
@@ -597,6 +617,7 @@ export default function SchedulePage() {
           userId={addNoteTarget.userId}
           existing={addNoteTarget.existing}
           techMap={techMap}
+          isAdmin={isAdmin(user?.role)}
           onClose={() => setAddNoteTarget(null)}
           onSaved={handleNoteSaved}
         />

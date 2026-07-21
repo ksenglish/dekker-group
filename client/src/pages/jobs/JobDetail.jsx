@@ -553,6 +553,7 @@ function JobScheduleTab({ jobId, job, user }) {
           jobId={jobId}
           lockJob
           lockedJobLabel={`${formatJobNumber(job)}${job.customer_name ? ' — ' + job.customer_name : ''}`}
+          isAdmin={isAdmin(user?.role)}
           onClose={() => setShowModal(false)}
           onAssigned={() => { setShowModal(false); load(); }}
         />
@@ -1174,6 +1175,7 @@ export default function JobDetail() {
           jobId={id}
           lockJob
           lockedJobLabel={`${formatJobNumber(job)}${job.customer_name ? ' — ' + job.customer_name : ''}`}
+          isAdmin={isAdmin(user?.role)}
           onClose={() => setShowAppointmentModal(false)}
           onAssigned={async () => {
             setShowAppointmentModal(false);

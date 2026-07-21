@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import styles from './Schedule.module.css';
 
 // Build list of times 07:00–20:30 in 15-min steps
@@ -39,31 +40,44 @@ function guessApptType(role) {
   return '';
 }
 
-export default function AssignModal({ date, jobId: initialJobId, userId: initialUserId, techMap = {}, techRoles = {}, onClose, onAssigned, lockJob = false, lockedJobLabel = '' }) {
+// Pass `existing` (an array of schedule rows sharing the same job/date/time/type —
+// i.e. one logical appointment assigned to more than one person) to edit it instead
+// of creating a new one. Only Admins get the multi-select checkbox list (isAdmin) —
+// everyone else keeps the original single team-member dropdown.
+export default function AssignModal({
+  date, jobId: initialJobId, userId: initialUserId, techMap = {}, techRoles = {},
+  onClose, onAssigned, lockJob = false, lockedJobLabel = '', isAdmin = false, existing,
+}) {
+  const isEdit = !!existing?.length;
   const [jobs, setJobs] = useState([]);
   const [jobTechs, setJobTechs] = useState([]); // team members on the selected job
   const [form, setForm] = useState({
-    job_id: initialJobId || '',
-    user_id: initialUserId || '',
-    scheduled_date: date || new Date().toISOString().split('T')[0],
-    start_time: '',
-    end_time: '',
-    appointment_type: guessApptType(techRoles[initialUserId]),
-    notes: '',
+    job_id: isEdit ? existing[0].job_id : (initialJobId || ''),
+    user_ids: isEdit ? existing.map(e => e.user_id) : (initialUserId ? [initialUserId] : []),
+    scheduled_date: isEdit ? String(existing[0].scheduled_date).slice(0, 10) : (date || new Date().toISOString().split('T')[0]),
+    start_time: isEdit ? (existing[0].start_time || '') : '',
+    end_time: isEdit ? (existing[0].end_time || '') : '',
+    appointment_type: isEdit ? (existing[0].appointment_type || '') : guessApptType(techRoles[initialUserId]),
+    notes: isEdit ? (existing[0].notes || '') : '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const effectiveLockJob = lockJob || isEdit;
+  const effectiveLockedJobLabel = isEdit
+    ? `${formatJobNumber(existing[0])}${existing[0].customer_name ? ' — ' + existing[0].customer_name : ''}`
+    : lockedJobLabel;
+
   useEffect(() => {
-    if (lockJob) return;
+    if (effectiveLockJob) return;
     api.get('/jobs', { params: { limit: 500 } }).then(r => {
       setJobs(r.data.jobs.filter(j => j.status !== 'complete' && j.status !== 'cancelled'));
     });
-  }, [lockJob]);
+  }, [effectiveLockJob]);
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
   function selectUser(id) {
-    setForm(f => ({ ...f, user_id: id, appointment_type: guessApptType(techRoles[id]) }));
+    setForm(f => ({ ...f, user_ids: id ? [id] : [], appointment_type: guessApptType(techRoles[id]) }));
   }
 
   // When job changes, load its technicians. Keep the pre-selected team member
@@ -73,6 +87,7 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
     api.get(`/jobs/${form.job_id}`).then(r => {
       const techs = r.data.technicians || [];
       setJobTechs(techs);
+      if (isEdit) return; // keep the existing assignees as-is, don't reset on load
       if (techs.length === 0) {
         if (!initialUserId) selectUser('');
       } else if (techs.some(t => t.id === initialUserId)) {
@@ -87,12 +102,33 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!form.job_id || !form.user_id || !form.scheduled_date || !form.appointment_type) {
-      setError('Please select a job, team member, appointment type and date'); return;
+    if (!form.job_id || form.user_ids.length === 0 || !form.scheduled_date || !form.appointment_type) {
+      setError('Please select a job, at least one team member, appointment type and date'); return;
     }
     setSaving(true); setError('');
+    const shared = {
+      job_id: form.job_id,
+      scheduled_date: form.scheduled_date,
+      start_time: form.start_time,
+      end_time: form.end_time,
+      appointment_type: form.appointment_type,
+      notes: form.notes,
+    };
     try {
-      await api.post('/schedules', form);
+      if (isEdit) {
+        const originalByUser = new Map(existing.map(e => [e.user_id, e]));
+        const newUserIds = new Set(form.user_ids);
+        const kept = existing.filter(e => newUserIds.has(e.user_id));
+        const added = form.user_ids.filter(id => !originalByUser.has(id));
+        const removed = existing.filter(e => !newUserIds.has(e.user_id));
+        await Promise.all([
+          ...kept.map(e => api.put(`/schedules/${e.id}`, shared)),
+          ...added.map(user_id => api.post('/schedules', { ...shared, user_id })),
+          ...removed.map(e => api.delete(`/schedules/${e.id}`)),
+        ]);
+      } else {
+        await Promise.all(form.user_ids.map(user_id => api.post('/schedules', { ...shared, user_id })));
+      }
       onAssigned();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to schedule');
@@ -112,7 +148,7 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
     <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2>Schedule Job</h2>
+          <h2>{isEdit ? 'Edit Appointment' : 'Schedule Job'}</h2>
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -122,8 +158,8 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
             {/* Job selector */}
             <div className={styles.field}>
               <label>Job *</label>
-              {lockJob ? (
-                <input value={lockedJobLabel} disabled style={{ background: '#f8fafc', color: 'var(--color-text-muted)' }} />
+              {effectiveLockJob ? (
+                <input value={effectiveLockedJobLabel} disabled style={{ background: '#f8fafc', color: 'var(--color-text-muted)' }} />
               ) : (
                 <select value={form.job_id} onChange={e => { set('job_id', e.target.value); selectUser(''); }}>
                   <option value="">Select a job…</option>
@@ -137,19 +173,28 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
             </div>
 
             {/* Show job description if available */}
-            {!lockJob && selectedJob?.description && (
+            {!effectiveLockJob && selectedJob?.description && (
               <p className={styles.jobHint}>{selectedJob.description}</p>
             )}
 
-            {/* Team member */}
+            {/* Team member(s) */}
             <div className={styles.field}>
-              <label>Team Member *</label>
-              <select value={form.user_id} onChange={e => selectUser(e.target.value)}>
-                <option value="">Select team member…</option>
-                {techOptions.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
+              <label>Team Member{isAdmin ? '(s)' : ''} *</label>
+              {isAdmin ? (
+                <TeamMemberMultiSelect
+                  options={techOptions}
+                  selected={form.user_ids}
+                  onChange={ids => set('user_ids', ids)}
+                  placeholder="Select team member(s)…"
+                />
+              ) : (
+                <select value={form.user_ids[0] || ''} onChange={e => selectUser(e.target.value)}>
+                  <option value="">Select team member…</option>
+                  {techOptions.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              )}
               {jobTechs.length > 0 && (
                 <span className={styles.fieldHint}>Showing team members assigned to this job</span>
               )}
@@ -188,7 +233,7 @@ export default function AssignModal({ date, jobId: initialJobId, userId: initial
           <div className={styles.modalFooter}>
             <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
             <button type="submit" className={styles.btnPrimary} disabled={saving}>
-              {saving ? 'Scheduling…' : 'Add to Schedule'}
+              {saving ? (isEdit ? 'Saving…' : 'Scheduling…') : (isEdit ? 'Save Changes' : 'Add to Schedule')}
             </button>
           </div>
         </form>
