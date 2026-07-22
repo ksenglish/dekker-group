@@ -338,16 +338,28 @@ async function saveOpForm(req, res) {
 
 async function getElectricalCoc(req, res) {
   try {
-    const { rows } = await pool.query('SELECT * FROM job_electrical_coc WHERE job_id=$1', [req.params.id]);
+    const { rows } = await pool.query(
+      `SELECT c.*, u.name AS completed_by_name
+       FROM job_electrical_coc c LEFT JOIN users u ON u.id = c.completed_by
+       WHERE c.job_id=$1`,
+      [req.params.id]
+    );
     res.json(rows[0] || null);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 }
 
+// Anyone onsite can fill the form in for the first time; once it exists,
+// only Admin or the person who originally completed it may change it.
 async function saveElectricalCoc(req, res) {
   const f = req.body;
   try {
+    const { rows: existingRows } = await pool.query('SELECT completed_by FROM job_electrical_coc WHERE job_id=$1', [req.params.id]);
+    const existing = existingRows[0];
+    if (existing && req.user.role !== 'admin' && existing.completed_by !== req.user.id) {
+      return res.status(403).json({ error: 'Only Admin or the person who completed this form can edit it' });
+    }
     const { rows } = await pool.query(
       `INSERT INTO job_electrical_coc (
          job_id, reference_no, location_details, contact_details, electrical_worker_name,
@@ -381,7 +393,7 @@ async function saveElectricalCoc(req, res) {
          test_polarity=$32, test_insulation_resistance=$33, test_earth_continuity=$34, test_bonding=$35, test_fault_loop_impedance=$36, test_other=$37,
          coc_certifier_signature=$38, coc_signed_date=$39,
          esc_certifier_name=$40, esc_licence_number=$41, esc_certifier_signature=$42, esc_issue_date=$43, esc_connection_date=$44,
-         completed_by=$45, updated_at=NOW()
+         updated_at=NOW()
        RETURNING *`,
       [
         req.params.id, f.reference_no || null, f.location_details || null, f.contact_details || null, f.electrical_worker_name || null,
@@ -426,7 +438,16 @@ async function downloadElectricalCocPdf(req, res) {
   }
 }
 
+async function deleteElectricalCoc(req, res) {
+  try {
+    await pool.query('DELETE FROM job_electrical_coc WHERE job_id=$1', [req.params.id]);
+    res.json({ message: 'Deleted' });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 module.exports = {
   list, get, create, update, updateStatus, remove, updateLineItems, listNotes, createNote, deleteNote,
-  getOpForm, saveOpForm, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf,
+  getOpForm, saveOpForm, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf, deleteElectricalCoc,
 };

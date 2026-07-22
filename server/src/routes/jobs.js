@@ -75,9 +75,13 @@ router.delete('/:id/notes/:noteId', requireRole('admin', 'office'), c.deleteNote
 router.get('/:id/op-form', c.getOpForm);
 router.put('/:id/op-form', c.saveOpForm);
 
-// Electrical Certificate of Compliance — same "whoever's on site" access as the op form above
+// Electrical Certificate of Compliance — anyone onsite can complete it; once
+// it exists, editing is Admin-or-original-completer (checked in the
+// controller since it depends on row ownership, not just role); deleting is
+// Admin only.
 router.get('/:id/electrical-coc', c.getElectricalCoc);
 router.put('/:id/electrical-coc', c.saveElectricalCoc);
+router.delete('/:id/electrical-coc', requireRole('admin'), c.deleteElectricalCoc);
 router.get('/:id/electrical-coc/pdf', c.downloadElectricalCocPdf);
 
 // Email customer from job

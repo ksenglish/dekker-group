@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 import { toLocalDateStr } from '../../lib/date';
+import { isAdmin } from '../../lib/permissions';
 import styles from './Jobs.module.css';
 import formStyles from './ElectricalCocForm.module.css';
 
@@ -100,6 +101,7 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
   const [draft, setDraft] = useState(() => emptyDraft(job, user));
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     api.get(`/jobs/${jobId}/electrical-coc`).then(r => {
@@ -143,7 +145,26 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
     }
   }
 
+  async function handleDelete() {
+    if (!confirm('Delete this Electrical COC? This cannot be undone.')) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/jobs/${jobId}/electrical-coc`);
+      onSaved?.(null);
+      onBack();
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (loading) return <div className={styles.card}><div className={styles.emptySmall}>Loading…</div></div>;
+
+  // Anyone onsite can complete the form the first time; once it exists, only
+  // Admin or the person who originally completed it can edit it, and only
+  // Admin can delete it.
+  const admin = isAdmin(user?.role);
+  const canEdit = !form || admin || form.completed_by === user?.id;
+  const canDelete = admin && !!form;
 
   const header = (
     <div className={formStyles.formHeader}>
@@ -155,8 +176,13 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
             {downloading ? 'Preparing…' : '⬇ Download PDF'}
           </button>
         )}
-        {form && !editing && (
+        {form && !editing && canEdit && (
           <button type="button" className={styles.btnSecondary} onClick={() => setEditing(true)}>Edit</button>
+        )}
+        {form && !editing && canDelete && (
+          <button type="button" className={styles.btnDanger} onClick={handleDelete} disabled={deleting}>
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
         )}
       </div>
     </div>
@@ -175,6 +201,7 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
             <div className={styles.detailItem}><span>Licence Number</span><strong>{form.licence_number || '—'}</strong></div>
             <div className={styles.detailItem}><span>Phone & Email</span><strong>{form.phone_email || '—'}</strong></div>
             <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}><span>Person(s) Supervised</span><strong style={{ whiteSpace: 'pre-wrap', fontWeight: 400 }}>{form.supervised_persons || '—'}</strong></div>
+            <div className={styles.detailItem}><span>Completed By</span><strong>{form.completed_by_name || '—'}</strong></div>
           </div>
         </div>
 
