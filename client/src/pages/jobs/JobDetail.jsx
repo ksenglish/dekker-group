@@ -11,6 +11,7 @@ import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
 import SalesPresenter from '../presenter/SalesPresenter';
 import AssignModal from '../schedule/AssignModal';
+import JobFormsTab from './JobFormsTab';
 import styles from './Jobs.module.css';
 
 const TAB_LABELS = {
@@ -664,103 +665,6 @@ function JobInvoicesTab({ jobId }) {
   );
 }
 
-// ── Op Form tab ───────────────────────────────────────────────────────────────
-function JobOpForm({ jobId, user }) {
-  const [form, setForm] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState({
-    site_safety_confirmed: false, work_completed_to_spec: false, customer_walkthrough_done: false,
-    notes: '', technician_name: user?.name || '',
-  });
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    api.get(`/jobs/${jobId}/op-form`).then(r => {
-      setForm(r.data);
-      if (!r.data) { setEditing(true); }
-      else {
-        setDraft({
-          site_safety_confirmed: r.data.site_safety_confirmed,
-          work_completed_to_spec: r.data.work_completed_to_spec,
-          customer_walkthrough_done: r.data.customer_walkthrough_done,
-          notes: r.data.notes || '',
-          technician_name: r.data.technician_name,
-        });
-      }
-    }).finally(() => setLoading(false));
-  }, [jobId]);
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const { data } = await api.put(`/jobs/${jobId}/op-form`, draft);
-      setForm(data);
-      setEditing(false);
-    } finally { setSaving(false); }
-  }
-
-  if (loading) return <div className={styles.card}><div className={styles.emptySmall}>Loading…</div></div>;
-
-  if (!editing && form) {
-    return (
-      <div className={styles.card}>
-        <div className={styles.detailGrid}>
-          <div className={styles.detailItem}><span>Site Safety Confirmed</span><strong>{form.site_safety_confirmed ? '✅ Yes' : '❌ No'}</strong></div>
-          <div className={styles.detailItem}><span>Work Completed to Spec</span><strong>{form.work_completed_to_spec ? '✅ Yes' : '❌ No'}</strong></div>
-          <div className={styles.detailItem}><span>Customer Walkthrough Done</span><strong>{form.customer_walkthrough_done ? '✅ Yes' : '❌ No'}</strong></div>
-          <div className={styles.detailItem}><span>Completed By</span><strong>{form.technician_name}</strong></div>
-          <div className={styles.detailItem}><span>Signed</span><strong>{new Date(form.signed_at).toLocaleString('en-NZ')}</strong></div>
-          {form.notes && (
-            <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
-              <span>Notes</span><strong style={{ fontWeight: 400, whiteSpace: 'pre-wrap' }}>{form.notes}</strong>
-            </div>
-          )}
-        </div>
-        <div style={{ padding: '12px 20px', borderTop: '1px solid var(--color-border)' }}>
-          <button className={styles.btnSecondary} onClick={() => setEditing(true)}>Edit</button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={styles.card}>
-      <form onSubmit={handleSubmit} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <label className={styles.techCheckItem} style={{ padding: 0 }}>
-          <input type="checkbox" checked={draft.site_safety_confirmed}
-            onChange={e => setDraft(d => ({ ...d, site_safety_confirmed: e.target.checked }))} />
-          Site safety confirmed
-        </label>
-        <label className={styles.techCheckItem} style={{ padding: 0 }}>
-          <input type="checkbox" checked={draft.work_completed_to_spec}
-            onChange={e => setDraft(d => ({ ...d, work_completed_to_spec: e.target.checked }))} />
-          Work completed to spec
-        </label>
-        <label className={styles.techCheckItem} style={{ padding: 0 }}>
-          <input type="checkbox" checked={draft.customer_walkthrough_done}
-            onChange={e => setDraft(d => ({ ...d, customer_walkthrough_done: e.target.checked }))} />
-          Customer walkthrough done
-        </label>
-        <div className={styles.field}>
-          <label>Completed By *</label>
-          <input value={draft.technician_name} onChange={e => setDraft(d => ({ ...d, technician_name: e.target.value }))} required />
-        </div>
-        <div className={styles.field}>
-          <label>Notes</label>
-          <textarea rows={3} value={draft.notes} onChange={e => setDraft(d => ({ ...d, notes: e.target.value }))} />
-        </div>
-        <div className={styles.formActions}>
-          {form && <button type="button" className={styles.btnSecondary} onClick={() => setEditing(false)}>Cancel</button>}
-          <button type="submit" className={styles.btnPrimary} disabled={saving || !draft.technician_name.trim()}>
-            {saving ? 'Saving…' : form ? 'Save Changes' : '✓ Submit Op Form'}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
 
 const PRIORITY_COLOURS = { low: '#6b7280', medium: '#d97706', high: '#dc2626' };
 
@@ -1104,7 +1008,7 @@ export default function JobDetail() {
 
           {activeTab === 'timesheets' && <JobTimesheets jobId={id} user={user} />}
           {activeTab === 'photos' && <JobAttachments key={attachmentsRefreshKey} jobId={id} user={user} />}
-          {activeTab === 'forms' && <JobOpForm jobId={id} user={user} />}
+          {activeTab === 'forms' && <JobFormsTab jobId={id} job={job} user={user} />}
           {activeTab === 'schedule' && <JobScheduleTab jobId={id} job={job} user={user} />}
           {activeTab === 'quotes' && <JobQuotesTab job={job} user={user} />}
           {activeTab === 'invoices' && <JobInvoicesTab jobId={id} />}

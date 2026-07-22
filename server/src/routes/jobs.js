@@ -75,6 +75,11 @@ router.delete('/:id/notes/:noteId', requireRole('admin', 'office'), c.deleteNote
 router.get('/:id/op-form', c.getOpForm);
 router.put('/:id/op-form', c.saveOpForm);
 
+// Electrical Certificate of Compliance — same "whoever's on site" access as the op form above
+router.get('/:id/electrical-coc', c.getElectricalCoc);
+router.put('/:id/electrical-coc', c.saveElectricalCoc);
+router.get('/:id/electrical-coc/pdf', c.downloadElectricalCocPdf);
+
 // Email customer from job
 router.post('/:id/email', requireRole('admin', 'office'), async (req, res) => {
   try {

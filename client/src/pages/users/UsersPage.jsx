@@ -47,6 +47,8 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
     role: user?.role || 'operations',
     diaries: user ? (user.diaries || []) : diariesFromRole('operations'),
     default_billing_rate_id: user?.default_billing_rate_id || '',
+    licence_number: user?.licence_number || '',
+    mobile: user?.mobile || '',
     password: '',
     confirmPassword: '',
     is_active: user?.is_active !== false,
@@ -79,6 +81,7 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
       const payload = {
         name: form.name, email: form.email, role: form.role, diaries: form.diaries,
         default_billing_rate_id: form.default_billing_rate_id || null, is_active: form.is_active,
+        licence_number: form.licence_number || null, mobile: form.mobile || null,
       };
       if (form.password) payload.password = form.password;
       const { data } = user
@@ -142,6 +145,16 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
                 <option value="">No default</option>
                 {billingRates.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
               </select>
+            </div>
+            <div className={styles.field}>
+              <label>Licence Number</label>
+              <p className={styles.hint}>Registration / practising licence number — pre-fills onsite compliance forms (e.g. Electrical COC).</p>
+              <input value={form.licence_number} onChange={e => set('licence_number', e.target.value)} placeholder="e.g. 123456" />
+            </div>
+            <div className={styles.field}>
+              <label>Mobile</label>
+              <p className={styles.hint}>Pre-fills the phone field on onsite compliance forms.</p>
+              <input value={form.mobile} onChange={e => set('mobile', e.target.value)} placeholder="e.g. 021 123 4567" />
             </div>
             <div className={styles.field}>
               <label>{isNew ? 'Password *' : 'New Password'}</label>

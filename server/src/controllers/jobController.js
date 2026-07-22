@@ -1,5 +1,7 @@
 const pool = require('../db/pool');
 const { normaliseRole } = require('../middleware/auth');
+const { getTheme } = require('./settingsController');
+const { buildElectricalCocPDF } = require('../utils/electricalCocPdf');
 
 async function list(req, res) {
   const { search = '', status, tech, customer, from, to, sort, page = 1, limit = 100 } = req.query;
@@ -82,6 +84,10 @@ async function get(req, res) {
     const { rows } = await pool.query(
       `SELECT j.*,
               c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone, c.email AS customer_email,
+              c.mobile AS customer_mobile, c.contact_name AS customer_contact_name,
+              c.address_street AS customer_address_street, c.address_city AS customer_address_city,
+              c.address_region AS customer_address_region, c.address_postcode AS customer_address_postcode,
+              c.address_country AS customer_address_country,
               s.address AS site_address, s.label AS site_label,
               (SELECT MIN(sc.scheduled_date) FROM schedules sc WHERE sc.job_id=j.id) AS scheduled_date,
               (SELECT COUNT(*) FROM job_attachments a WHERE a.job_id=j.id) AS attachment_count,
@@ -330,7 +336,97 @@ async function saveOpForm(req, res) {
   }
 }
 
+async function getElectricalCoc(req, res) {
+  try {
+    const { rows } = await pool.query('SELECT * FROM job_electrical_coc WHERE job_id=$1', [req.params.id]);
+    res.json(rows[0] || null);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+async function saveElectricalCoc(req, res) {
+  const f = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO job_electrical_coc (
+         job_id, reference_no, location_details, contact_details, electrical_worker_name,
+         licence_number, phone_email, supervised_persons,
+         work_type, risk_level, high_risk_detail, compliance_part,
+         additional_standards_required, additional_standards_detail, work_date_range,
+         fittings_safe, supply_system_type, earthing_correctly_rated,
+         parts_scope, parts_scope_detail,
+         relies_on_manual, manual_identify, manual_link,
+         relies_on_certified_design, design_identify, design_link,
+         relies_on_sdoc, sdoc_identify, sdoc_link,
+         satisfactorily_tested, description_of_work,
+         test_polarity, test_insulation_resistance, test_earth_continuity, test_bonding, test_fault_loop_impedance, test_other,
+         coc_certifier_signature, coc_signed_date,
+         esc_certifier_name, esc_licence_number, esc_certifier_signature, esc_issue_date, esc_connection_date,
+         completed_by, updated_at
+       ) VALUES (
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45, NOW()
+       )
+       ON CONFLICT (job_id) DO UPDATE SET
+         reference_no=$2, location_details=$3, contact_details=$4, electrical_worker_name=$5,
+         licence_number=$6, phone_email=$7, supervised_persons=$8,
+         work_type=$9, risk_level=$10, high_risk_detail=$11, compliance_part=$12,
+         additional_standards_required=$13, additional_standards_detail=$14, work_date_range=$15,
+         fittings_safe=$16, supply_system_type=$17, earthing_correctly_rated=$18,
+         parts_scope=$19, parts_scope_detail=$20,
+         relies_on_manual=$21, manual_identify=$22, manual_link=$23,
+         relies_on_certified_design=$24, design_identify=$25, design_link=$26,
+         relies_on_sdoc=$27, sdoc_identify=$28, sdoc_link=$29,
+         satisfactorily_tested=$30, description_of_work=$31,
+         test_polarity=$32, test_insulation_resistance=$33, test_earth_continuity=$34, test_bonding=$35, test_fault_loop_impedance=$36, test_other=$37,
+         coc_certifier_signature=$38, coc_signed_date=$39,
+         esc_certifier_name=$40, esc_licence_number=$41, esc_certifier_signature=$42, esc_issue_date=$43, esc_connection_date=$44,
+         completed_by=$45, updated_at=NOW()
+       RETURNING *`,
+      [
+        req.params.id, f.reference_no || null, f.location_details || null, f.contact_details || null, f.electrical_worker_name || null,
+        f.licence_number || null, f.phone_email || null, f.supervised_persons || null,
+        f.work_type || null, f.risk_level || null, f.high_risk_detail || null, f.compliance_part || null,
+        f.additional_standards_required ?? null, f.additional_standards_detail || null, f.work_date_range || null,
+        f.fittings_safe ?? null, f.supply_system_type || null, f.earthing_correctly_rated ?? null,
+        f.parts_scope || null, f.parts_scope_detail || null,
+        f.relies_on_manual ?? null, f.manual_identify || null, f.manual_link || null,
+        f.relies_on_certified_design ?? null, f.design_identify || null, f.design_link || null,
+        f.relies_on_sdoc ?? null, f.sdoc_identify || null, f.sdoc_link || null,
+        f.satisfactorily_tested ?? null, f.description_of_work || null,
+        f.test_polarity || null, f.test_insulation_resistance || null, f.test_earth_continuity || null, f.test_bonding || null, f.test_fault_loop_impedance || null, f.test_other || null,
+        f.coc_certifier_signature || null, f.coc_signed_date || null,
+        f.esc_certifier_name || null, f.esc_licence_number || null, f.esc_certifier_signature || null, f.esc_issue_date || null, f.esc_connection_date || null,
+        req.user.id,
+      ]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+async function downloadElectricalCocPdf(req, res) {
+  try {
+    const { rows: [job] } = await pool.query(
+      `SELECT j.*, c.name AS customer_name FROM jobs j LEFT JOIN customers c ON c.id=j.customer_id WHERE j.id=$1`,
+      [req.params.id]
+    );
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    const { rows: [form] } = await pool.query('SELECT * FROM job_electrical_coc WHERE job_id=$1', [req.params.id]);
+    if (!form) return res.status(404).json({ error: 'Form has not been completed yet' });
+    const theme = await getTheme();
+    const pdf = await buildElectricalCocPDF({ job, form, theme });
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="electrical-coc-${job.id.slice(0, 8)}.pdf"` });
+    res.send(pdf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'PDF generation failed' });
+  }
+}
+
 module.exports = {
   list, get, create, update, updateStatus, remove, updateLineItems, listNotes, createNote, deleteNote,
-  getOpForm, saveOpForm,
+  getOpForm, saveOpForm, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf,
 };
