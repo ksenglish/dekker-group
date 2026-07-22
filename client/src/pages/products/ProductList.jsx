@@ -4,6 +4,8 @@ import { useAuth } from '../../context/AuthContext';
 import styles from './Products.module.css';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const GST_RATE = 0.15;
+const fmtIncGst = cents => fmt(Math.round(cents * (1 + GST_RATE)));
 const UNITS = ['each', 'hr', 'm', 'm²', 'kg', 'L', 'day', 'kit', 'set'];
 
 function ImageUpload({ value, onChange }) {
@@ -329,6 +331,7 @@ function exportCsv(products) {
 export default function ProductList() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isSales = user?.role === 'sales';
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [search, setSearch] = useState('');
@@ -481,10 +484,10 @@ export default function ProductList() {
                   }} />
                 <span></span>
                 <span>Product</span>
-                <span>Supplier</span>
+                {!isSales && <span>Supplier</span>}
                 <span>Unit</span>
                 {isAdmin && <span style={{ textAlign: 'right' }}>Cost</span>}
-                <span style={{ textAlign: 'right' }}>Sell (ex GST)</span>
+                <span style={{ textAlign: 'right' }}>Sell (inc GST)</span>
                 {isAdmin && <span style={{ textAlign: 'right' }}>Margin</span>}
                 <span></span>
               </div>
@@ -505,14 +508,14 @@ export default function ProductList() {
                       <div className={styles.productName}>{p.name} {!p.is_active && <span className={styles.inactiveBadge}>Inactive</span>}</div>
                       {p.description && <div className={styles.productDesc}>{p.description}</div>}
                     </div>
-                    <div className={styles.supplierCol}>{p.supplier || <span className={styles.muted}>—</span>}</div>
+                    {!isSales && <div className={styles.supplierCol}>{p.supplier || <span className={styles.muted}>—</span>}</div>}
                     <div>{p.unit}</div>
                     {isAdmin && (
                       <div style={{ textAlign: 'right', color: 'var(--color-text-muted)' }}>
                         {p.cost_price ? fmt(p.cost_price) : <span className={styles.muted}>—</span>}
                       </div>
                     )}
-                    <div style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(p.unit_price)}</div>
+                    <div style={{ textAlign: 'right', fontWeight: 600 }}>{fmtIncGst(p.unit_price)}</div>
                     {isAdmin && (
                       <div style={{ textAlign: 'right' }}>
                         {margin !== null

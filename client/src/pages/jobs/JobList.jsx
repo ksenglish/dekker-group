@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
-import { canAct } from '../../lib/permissions';
+import { canAct, isAdmin as isAdminRole } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Jobs.module.css';
 
@@ -133,6 +133,7 @@ export default function JobList() {
   }
 
   const period = filters.period ? periodInfo(filters.period, filters.date) : null;
+  const isAdmin = isAdminRole(user?.role);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,7 +153,10 @@ export default function JobList() {
   }, [searchParams]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { api.get('/users').then(r => setTechs(r.data)).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.get('/users').then(r => setTechs(r.data)).catch(() => {});
+  }, [isAdmin]);
 
   async function openTemplates() {
     const { data } = await api.get('/settings/job-templates');
@@ -226,10 +230,12 @@ export default function JobList() {
           <option value="">All priorities</option>
           {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        <select className={styles.filterSelect} value={filters.tech} onChange={e => setFilter('tech', e.target.value)}>
-          <option value="">All technicians</option>
-          {techs.filter(t => t.role !== 'office').map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
+        {isAdmin && (
+          <select className={styles.filterSelect} value={filters.tech} onChange={e => setFilter('tech', e.target.value)}>
+            <option value="">All technicians</option>
+            {techs.filter(t => t.role !== 'office').map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
         {activeFilters > 0 && (
           <button className={styles.clearBtn} onClick={() => {
             if (user) { localStorage.setItem(periodStorageKey, ''); localStorage.removeItem(dateStorageKey); }
