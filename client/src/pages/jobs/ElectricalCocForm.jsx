@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 import { toLocalDateStr } from '../../lib/date';
 import { isAdmin } from '../../lib/permissions';
+import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Jobs.module.css';
 import formStyles from './ElectricalCocForm.module.css';
 
@@ -22,7 +23,7 @@ function buildPhoneEmail(user) {
 function emptyDraft(job, user) {
   const today = toLocalDateStr();
   return {
-    reference_no: '',
+    reference_no: job ? `DEK${formatJobNumber(job)}` : '',
     location_details: job?.site_address || '',
     contact_details: buildContactDetails(job),
     electrical_worker_name: user?.name || '',

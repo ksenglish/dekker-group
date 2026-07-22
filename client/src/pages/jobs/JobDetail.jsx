@@ -787,7 +787,7 @@ export default function JobDetail() {
   const gst = Math.round(subtotal * 0.15);
   const total = subtotal + gst;
   const hasPhotos = parseInt(job?.attachment_count) > 0;
-  const hasOpForm = !!job?.has_op_form;
+  const hasOpForm = !!job?.has_completed_forms;
 
   if (loading) return <div className={styles.page}><div className={styles.loading}>Loading…</div></div>;
 

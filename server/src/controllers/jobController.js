@@ -91,7 +91,9 @@ async function get(req, res) {
               s.address AS site_address, s.label AS site_label,
               (SELECT MIN(sc.scheduled_date) FROM schedules sc WHERE sc.job_id=j.id) AS scheduled_date,
               (SELECT COUNT(*) FROM job_attachments a WHERE a.job_id=j.id) AS attachment_count,
-              EXISTS (SELECT 1 FROM job_op_forms f WHERE f.job_id=j.id) AS has_op_form
+              -- True once any Post Install Form is completed — OR in new form
+              -- tables here as the library grows beyond just Electrical COC.
+              EXISTS (SELECT 1 FROM job_electrical_coc f WHERE f.job_id=j.id) AS has_completed_forms
        FROM jobs j
        LEFT JOIN customers c ON c.id = j.customer_id
        LEFT JOIN customer_sites s ON s.id = j.site_id
