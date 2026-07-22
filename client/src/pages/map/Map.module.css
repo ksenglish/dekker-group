@@ -57,6 +57,26 @@
 .btnSecondary:hover:not(:disabled) { background: #f1f5f9; }
 .btnSecondary:disabled { opacity: 0.6; cursor: not-allowed; }
 
+/* Job preview panel — shown when a marker on the map is clicked */
+.previewOverlay {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.35);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 16px;
+}
+.previewPanel {
+  background: var(--color-surface); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  width: 100%; max-width: 380px; padding: 20px;
+}
+.previewHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.previewClose { background: none; border: none; font-size: 16px; color: var(--color-text-muted); cursor: pointer; padding: 4px; line-height: 1; }
+.previewClose:hover { color: var(--color-text); }
+.previewTitle { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+.previewRow { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--color-border); font-size: 13px; }
+.previewRow:first-of-type { border-top: none; }
+.previewLabel { color: var(--color-text-muted); flex-shrink: 0; }
+.previewValue { text-align: right; font-weight: 500; }
+.previewActions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
 @media (max-width: 900px) {
   .page { padding: 12px; height: auto; }
   .mapLayout { grid-template-columns: 1fr; }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -69,7 +69,13 @@ export default function MapPage() {
     };
   }, [loading]);
 
-  const visibleJobs = jobs.filter(j => {
+  // Memoised so this only changes when the underlying job set or filters
+  // actually change — not on every render (e.g. selecting a job on the map).
+  // The marker-redraw effect below depends on this array by reference, so an
+  // unmemoised new array on every render was wiping and rebuilding every
+  // marker (and re-fitting the map's bounds) on each click, which destroyed
+  // the just-opened popup before it was ever visible.
+  const visibleJobs = useMemo(() => jobs.filter(j => {
     const matchesFilter =
       statusFilter === 'all'    ? true :
       statusFilter === 'active' ? !['complete','cancelled'].includes(j.status) :
@@ -80,7 +86,7 @@ export default function MapPage() {
       j.customer_name?.toLowerCase().includes(q) ||
       j.site_address?.toLowerCase().includes(q);
     return matchesFilter && matchesSearch;
-  });
+  }), [jobs, statusFilter, searchQuery]);
 
   const jobsWithLocation    = visibleJobs.filter(j => j.site_lat && j.site_lng);
   const jobsWithoutLocation = visibleJobs.filter(j => !j.site_lat || !j.site_lng);
@@ -101,19 +107,6 @@ export default function MapPage() {
         color: 'white', weight: 2,
       }).addTo(mapInstance.current);
 
-      marker.bindPopup(`
-        <div style="min-width:200px;font-family:sans-serif;">
-          <div style="font-weight:700;font-size:13px;margin-bottom:4px;">${formatJobNumber(job)} — ${job.description || 'Job'}</div>
-          <div style="font-size:12px;color:#6b7280;margin-bottom:4px;">${job.customer_name || ''}</div>
-          <div style="font-size:12px;margin-bottom:8px;">${job.site_address || ''}</div>
-          <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;background:${colour}18;color:${colour};">
-            ${STATUS_LABELS[job.status] || job.status}
-          </span>
-          <div style="margin-top:10px;">
-            <a href="/jobs/${job.id}" style="font-size:12px;color:#0891b2;">View Job →</a>
-          </div>
-        </div>
-      `);
       marker.on('click', () => setSelectedJob(job));
       markersRef.current.push(marker);
       bounds.push([lat, lng]);
@@ -244,6 +237,48 @@ export default function MapPage() {
           </div>
         </div>
       </div>
+
+      {/* Preview panel for a clicked marker */}
+      {selectedJob && (
+        <div className={styles.previewOverlay} onClick={() => setSelectedJob(null)}>
+          <div className={styles.previewPanel} onClick={e => e.stopPropagation()}>
+            <div className={styles.previewHeader}>
+              <span className={styles.jobNum}>{formatJobNumber(selectedJob)}</span>
+              <button className={styles.previewClose} onClick={() => setSelectedJob(null)}>✕</button>
+            </div>
+            <div className={styles.previewTitle}>{selectedJob.description || 'Job'}</div>
+            <div className={styles.previewRow}>
+              <span className={styles.previewLabel}>Customer</span>
+              <span className={styles.previewValue}>{selectedJob.customer_name || '—'}</span>
+            </div>
+            <div className={styles.previewRow}>
+              <span className={styles.previewLabel}>Type</span>
+              <span className={styles.previewValue} style={{ textTransform: 'capitalize' }}>{selectedJob.type?.replace('_', ' ') || '—'}</span>
+            </div>
+            <div className={styles.previewRow}>
+              <span className={styles.previewLabel}>Status</span>
+              <span className={styles.badge}
+                style={{ background: STATUS_COLOURS[selectedJob.status] + '18', color: STATUS_COLOURS[selectedJob.status] }}>
+                {STATUS_LABELS[selectedJob.status] || selectedJob.status}
+              </span>
+            </div>
+            <div className={styles.previewRow}>
+              <span className={styles.previewLabel}>Address</span>
+              <span className={styles.previewValue}>{selectedJob.site_address || '—'}</span>
+            </div>
+            {selectedJob.scheduled_date && (
+              <div className={styles.previewRow}>
+                <span className={styles.previewLabel}>Scheduled</span>
+                <span className={styles.previewValue}>{new Date(selectedJob.scheduled_date).toLocaleDateString('en-NZ')}</span>
+              </div>
+            )}
+            <div className={styles.previewActions}>
+              <button className={styles.btnSecondary} onClick={() => setSelectedJob(null)}>Close</button>
+              <button className={styles.btnPrimary} onClick={() => navigate(`/jobs/${selectedJob.id}`)}>Open Job →</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
