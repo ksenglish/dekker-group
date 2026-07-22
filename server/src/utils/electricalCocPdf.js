@@ -15,6 +15,17 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+// pdfkit's standard fonts (Helvetica etc.) use WinAnsiEncoding, which has no
+// glyphs for macron vowels common in NZ place names (e.g. "Ngongotahā") —
+// left as-is they corrupt not just that character but everything after it on
+// the same line. Fold to plain ASCII rather than risk garbled text on a
+// compliance document.
+const COMBINING_MARKS_RE = new RegExp('[\\u0300-\\u036f]', 'g');
+function stripDiacritics(value) {
+  if (value == null) return value;
+  return String(value).normalize('NFD').replace(COMBINING_MARKS_RE, '');
+}
+
 const WORK_TYPE_LABEL = { addition: 'Addition', alteration: 'Alteration', new_work: 'New work' };
 const RISK_LABEL = { low_risk: 'Low risk', general: 'General', high_risk: 'High-risk' };
 const COMPLIANCE_PART_LABEL = { part1: 'Part 1 of AS/NZS 3000', part2: 'Part 2 of AS/NZS 3000' };
@@ -54,7 +65,7 @@ async function buildElectricalCocPDF({ job, form, theme = {} }) {
       doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY);
       const labelHeight = doc.heightOfString(label, { width });
       doc.fontSize(9).font('Helvetica').fillColor(TEXT);
-      const text = value || '—';
+      const text = stripDiacritics(value) || '—';
       const valueHeight = doc.heightOfString(text, { width });
       ensureSpace(labelHeight + valueHeight + 10);
       doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text(label, MARGIN, y, { width });
@@ -66,23 +77,29 @@ async function buildElectricalCocPDF({ job, form, theme = {} }) {
     function fieldRow(fields) {
       // fields: [{label, value}, ...] laid out side by side, equal width
       const width = (CONTENT_W - (fields.length - 1) * 16) / fields.length;
+      const values = fields.map(f => stripDiacritics(f.value) || '—');
       doc.fontSize(8).font('Helvetica-Bold');
       const labelH = Math.max(...fields.map(f => doc.heightOfString(f.label, { width })));
       doc.fontSize(9).font('Helvetica');
-      const valueH = Math.max(...fields.map(f => doc.heightOfString(f.value || '—', { width })));
+      const valueH = Math.max(...values.map(v => doc.heightOfString(v, { width })));
       ensureSpace(labelH + valueH + 10);
       fields.forEach((f, i) => {
         const x = MARGIN + i * (width + 16);
         doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text(f.label, x, y, { width });
-        doc.fontSize(9).font('Helvetica').fillColor(TEXT).text(f.value || '—', x, y + labelH + 2, { width });
+        doc.fontSize(9).font('Helvetica').fillColor(TEXT).text(values[i], x, y + labelH + 2, { width });
       });
       y += labelH + valueH + 10;
     }
 
+    const BOX = 9;
     function checkbox(x, yy, checked) {
-      doc.rect(x, yy, 9, 9).lineWidth(1).strokeColor(TEXT).stroke();
+      doc.rect(x, yy, BOX, BOX).lineWidth(1).strokeColor(TEXT).stroke();
       if (checked) {
-        doc.fontSize(9).font('Helvetica-Bold').fillColor(TEXT).text('X', x + 1.2, yy - 1.5);
+        const size = 7;
+        doc.fontSize(size).font('Helvetica-Bold').fillColor(TEXT);
+        const tw = doc.widthOfString('X');
+        const th = doc.currentLineHeight();
+        doc.text('X', x + (BOX - tw) / 2, yy + (BOX - th) / 2);
       }
     }
 
@@ -117,16 +134,21 @@ async function buildElectricalCocPDF({ job, form, theme = {} }) {
       y += 10;
     }
 
-    // ── Letterhead ──────────────────────────────────────────────
-    doc.rect(MARGIN, y, CONTENT_W, 50).fill(theme.brandColour || '#1e40af');
-    doc.fillColor('white').fontSize(15).font('Helvetica-Bold').text(theme.companyName || 'DEKKER GROUP', MARGIN + 12, y + 10);
-    doc.fontSize(8).font('Helvetica').fillColor('rgba(255,255,255,0.85)').text(theme.tagline || '', MARGIN + 12, y + 30);
+    // ── Title bar — shrink-to-fit so the full certificate name stays on one line ──
+    const TITLE = 'ELECTRICAL CERTIFICATE OF COMPLIANCE & ELECTRICAL SAFETY CERTIFICATE';
+    const TITLE_PAD = 16;
+    const BAR_H = 34;
+    doc.font('Helvetica-Bold');
+    let titleSize = 15;
+    while (titleSize > 7 && doc.fontSize(titleSize).widthOfString(TITLE) > CONTENT_W - TITLE_PAD * 2) {
+      titleSize -= 0.5;
+    }
+    doc.rect(MARGIN, y, CONTENT_W, BAR_H).fill(theme.brandColour || '#1e40af');
+    doc.fillColor('white').fontSize(titleSize).font('Helvetica-Bold')
+      .text(TITLE, MARGIN, y + (BAR_H - titleSize) / 2, { width: CONTENT_W, align: 'center' });
     doc.fillColor(TEXT);
-    y += 62;
+    y += BAR_H + 10;
 
-    doc.fontSize(15).font('Helvetica-Bold').fillColor(theme.brandColour || '#1e40af')
-      .text('ELECTRICAL CERTIFICATE OF COMPLIANCE & ELECTRICAL SAFETY CERTIFICATE', MARGIN, y, { width: CONTENT_W });
-    y += doc.heightOfString('ELECTRICAL CERTIFICATE OF COMPLIANCE & ELECTRICAL SAFETY CERTIFICATE', { width: CONTENT_W }) + 8;
     doc.fontSize(8).font('Helvetica').fillColor(MID_GREY)
       .text('Certifies that installations or part installations under Part 1 or Part 2 of AS/NZS 3000 are safe to be connected to the specified system of electrical supply.', MARGIN, y, { width: CONTENT_W });
     y += doc.heightOfString('x', { width: CONTENT_W }) * 2 + 10;
