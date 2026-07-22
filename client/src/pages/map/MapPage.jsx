@@ -51,7 +51,11 @@ export default function MapPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Initialise map once the DOM node is ready
+  // Initialise map once the DOM node is ready. The ref'd div only exists in
+  // the post-loading render branch below, so this must re-run once `loading`
+  // flips to false — with an empty dep array it fired only after the very
+  // first render (while still showing the loading state), found mapRef.current
+  // still null, and silently gave up for good, leaving the map blank forever.
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
     mapInstance.current = L.map(mapRef.current, { zoomControl: true }).setView(DEFAULT_CENTER, 10);
@@ -63,7 +67,7 @@ export default function MapPage() {
       mapInstance.current?.remove();
       mapInstance.current = null;
     };
-  }, []);
+  }, [loading]);
 
   const visibleJobs = jobs.filter(j => {
     const matchesFilter =
