@@ -256,6 +256,12 @@ export default function SettingsPage() {
                       <input value={theme.location} onChange={e => set('location', e.target.value)}
                         placeholder="New Zealand" />
                     </div>
+                    <div className={styles.field}>
+                      <label>GST Number</label>
+                      <input value={theme.gstNumber} onChange={e => set('gstNumber', e.target.value)}
+                        placeholder="123-456-789" />
+                      <span className={styles.hint}>Shown on quotes and invoices</span>
+                    </div>
                   </div>
                 </div>
               </div>

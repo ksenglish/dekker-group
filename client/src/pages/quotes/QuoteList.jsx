@@ -14,7 +14,7 @@ const TABS = [
 ];
 
 const STATUS_COLOURS = {
-  draft: '#6b7280', sent: '#0891b2', accepted: '#16a34a',
+  draft: '#6b7280', approved: '#7c3aed', sent: '#0891b2', accepted: '#16a34a',
   declined: '#dc2626', cancelled: '#6b7280',
 };
 

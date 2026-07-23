@@ -7,6 +7,7 @@ const DEFAULT_THEME = {
   email: 'kyle@dekkergroup.co.nz',
   phone: '',
   location: 'New Zealand',
+  gstNumber: '',
   brandColour: '#1e40af',
   footerLine1: 'Thank you for your business.',
   footerLine2: 'Dekker Group · New Zealand · GST registered',

@@ -4,8 +4,23 @@ import axios from 'axios';
 
 const API = '/api';
 
+const STATUS_COLOURS = {
+  draft: '#6b7280', approved: '#7c3aed', sent: '#0891b2', accepted: '#16a34a',
+  declined: '#dc2626', cancelled: '#6b7280',
+};
+
 function fmt(cents) {
   return (cents / 100).toLocaleString('en-NZ', { style: 'currency', currency: 'NZD' });
+}
+
+function fmtDate(d) {
+  return d ? new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+}
+
+function jobNumberDisplay(quote) {
+  if (quote.job_external_ref) return quote.job_external_ref;
+  if (quote.job_number != null) return 'JB' + String(quote.job_number).padStart(5, '0');
+  return '';
 }
 
 export default function PublicQuote() {
@@ -43,6 +58,7 @@ export default function PublicQuote() {
   const alreadyAccepted = quote.status === 'accepted';
   const isExpired = quote.is_expired;
   const hasThumb = quote.line_items?.some(i => i.media_base64);
+  const jobNumber = jobNumberDisplay(quote);
   const brochures = (() => {
     const seen = new Set();
     return (quote.line_items || []).filter(i => {
@@ -84,11 +100,16 @@ export default function PublicQuote() {
                   {contactBlock}
                 </div>
                 <div style={{ ...s.quoteRef, flexShrink: 0 }}>
-                  <div style={s.quoteNumber}>{quote.number}</div>
-                  <div style={s.quoteDate}>{new Date(quote.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                    <span style={s.quoteNumber}>{quote.number}</span>
+                    <span style={{ ...s.statusBadge, background: STATUS_COLOURS[quote.status] || '#6b7280' }}>
+                      {quote.status?.toUpperCase()}
+                    </span>
+                  </div>
+                  <div style={s.quoteDate}>{fmtDate(quote.created_at)}</div>
                   {quote.expires_at && (
                     <div style={{ fontSize: 12, color: quote.is_expired ? '#dc2626' : '#64748b', marginTop: 4 }}>
-                      Valid until: {new Date(quote.expires_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      Valid until: {fmtDate(quote.expires_at)}
                     </div>
                   )}
                 </div>
@@ -97,13 +118,58 @@ export default function PublicQuote() {
           );
         })()}
 
-        {/* Customer */}
-        <div style={s.customerBlock}>
-          <div style={s.label}>Prepared for</div>
-          <div style={s.customerName}>{quote.customer_name}</div>
-          {quote.customer_company && <div style={s.customerDetail}>{quote.customer_company}</div>}
-          {quote.customer_phone && <div style={s.customerDetail}>{quote.customer_phone}</div>}
+        {/* Bill To / Job Details / Quote Details */}
+        <div style={s.detailGrid}>
+          <div>
+            <div style={s.label}>Bill To</div>
+            <div style={s.customerName}>{quote.customer_name}</div>
+            {quote.customer_company && <div style={s.customerDetail}>{quote.customer_company}</div>}
+            {quote.customer_address && <div style={s.customerDetail}>{quote.customer_address}</div>}
+            {quote.customer_phone && <div style={s.customerDetail}>{quote.customer_phone}</div>}
+          </div>
+          <div>
+            <div style={s.label}>Job Details</div>
+            {jobNumber && (
+              <div style={s.detailField}>
+                <div style={s.detailFieldLabel}>Job Number</div>
+                <div style={s.detailFieldValue}>{jobNumber}</div>
+              </div>
+            )}
+            {quote.job_address && (
+              <div style={s.detailField}>
+                <div style={s.detailFieldLabel}>Job Address</div>
+                <div style={s.detailFieldValue}>{quote.job_address}</div>
+              </div>
+            )}
+          </div>
+          <div>
+            <div style={s.label}>Quote Details</div>
+            <div style={s.detailField}>
+              <div style={s.detailFieldLabel}>Issue Date</div>
+              <div style={s.detailFieldValue}>{fmtDate(quote.created_at)}</div>
+            </div>
+            {quote.expires_at && (
+              <div style={s.detailField}>
+                <div style={s.detailFieldLabel}>Expiry Date</div>
+                <div style={{ ...s.detailFieldValue, color: quote.is_expired ? '#dc2626' : undefined }}>{fmtDate(quote.expires_at)}</div>
+              </div>
+            )}
+            {quote.company?.gstNumber && (
+              <div style={s.detailField}>
+                <div style={s.detailFieldLabel}>GST Number</div>
+                <div style={s.detailFieldValue}>{quote.company.gstNumber}</div>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Notes — above the line items */}
+        {quote.notes && (
+          <div style={s.notes}>
+            <div style={s.label}>Notes</div>
+            <p style={{ fontSize: 14, whiteSpace: 'pre-wrap', margin: 0 }}>{quote.notes}</p>
+          </div>
+        )}
 
         {/* Line items */}
         <table style={s.table}>
@@ -154,11 +220,11 @@ export default function PublicQuote() {
           </div>
         )}
 
-        {/* Notes */}
-        {quote.notes && (
+        {/* Terms & Conditions — below the drawing */}
+        {quote.terms && (
           <div style={s.notes}>
-            <div style={s.label}>Notes</div>
-            <p style={{ fontSize: 14, whiteSpace: 'pre-wrap', margin: 0 }}>{quote.notes}</p>
+            <div style={s.label}>Terms & Conditions</div>
+            <p style={{ fontSize: 13, color: '#64748b', whiteSpace: 'pre-wrap', margin: 0 }}>{quote.terms}</p>
           </div>
         )}
 
@@ -166,12 +232,12 @@ export default function PublicQuote() {
         <div style={s.acceptSection}>
           {isExpired && !alreadyAccepted ? (
             <div style={{ ...s.acceptedBanner, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626' }}>
-              ✕ This quote expired on {new Date(quote.expires_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}. Please contact us for an updated quote.
+              ✕ This quote expired on {fmtDate(quote.expires_at)}. Please contact us for an updated quote.
             </div>
           ) : alreadyAccepted ? (
             <div style={s.acceptedBanner}>
               ✓ This quote was accepted{quote.accepted_name ? ` by ${quote.accepted_name}` : ''}
-              {quote.accepted_at ? ` on ${new Date(quote.accepted_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' })}` : ''}.
+              {quote.accepted_at ? ` on ${fmtDate(quote.accepted_at)}` : ''}.
             </div>
           ) : accepted ? (
             <div style={s.acceptedBanner}>
@@ -230,11 +296,15 @@ const s = {
   companyContact: { fontSize: 12, color: '#64748b', marginTop: 2 },
   quoteRef: { textAlign: 'right' },
   quoteNumber: { fontSize: 18, fontWeight: 700, color: '#0f172a' },
+  statusBadge: { fontSize: 10, fontWeight: 700, color: 'white', padding: '3px 8px', borderRadius: 4, letterSpacing: '0.03em' },
   quoteDate: { fontSize: 12, color: '#64748b', marginTop: 4 },
-  customerBlock: { padding: '20px 32px', borderBottom: '1px solid #e2e8f0' },
-  label: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', marginBottom: 6 },
-  customerName: { fontSize: 16, fontWeight: 600 },
-  customerDetail: { fontSize: 13, color: '#64748b', marginTop: 2 },
+  detailGrid: { padding: '20px 32px', borderBottom: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20 },
+  label: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', marginBottom: 8 },
+  customerName: { fontSize: 15, fontWeight: 600 },
+  customerDetail: { fontSize: 12, color: '#64748b', marginTop: 3 },
+  detailField: { marginBottom: 8 },
+  detailFieldLabel: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' },
+  detailFieldValue: { fontSize: 12, color: '#0f172a', marginTop: 2 },
   table: { width: '100%', borderCollapse: 'collapse' },
   tableHead: { background: '#f8fafc' },
   th: { padding: '10px 8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#64748b', borderBottom: '1px solid #e2e8f0', borderTop: '1px solid #e2e8f0' },

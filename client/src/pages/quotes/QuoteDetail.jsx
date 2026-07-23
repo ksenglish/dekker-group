@@ -6,8 +6,8 @@ import { formatJobNumber } from '../../lib/formatJobNumber';
 import EmailComposeModal from './EmailComposeModal';
 import styles from './Quotes.module.css';
 
-const STATUSES = ['draft', 'sent', 'accepted', 'declined', 'cancelled'];
-const STATUS_COLOURS = { draft:'#6b7280', sent:'#0891b2', accepted:'#16a34a', declined:'#dc2626', cancelled:'#6b7280' };
+const STATUSES = ['draft', 'approved', 'sent', 'accepted', 'declined', 'cancelled'];
+const STATUS_COLOURS = { draft:'#6b7280', approved:'#7c3aed', sent:'#0891b2', accepted:'#16a34a', declined:'#dc2626', cancelled:'#6b7280' };
 
 export default function QuoteDetail() {
   const { id } = useParams();
@@ -34,6 +34,16 @@ export default function QuoteDetail() {
       setQuote(q => ({ ...q, ...data }));
       flash('success', `Quote marked as ${status}`);
     } catch { flash('error', 'Failed to update status'); }
+    finally { setSaving(false); }
+  }
+
+  async function handleApprove() {
+    setSaving(true);
+    try {
+      const { data } = await api.post(`/quotes/${id}/approve`);
+      setQuote(q => ({ ...q, ...data }));
+      flash('success', 'Quote approved');
+    } catch (err) { flash('error', err.response?.data?.error || 'Failed to approve quote'); }
     finally { setSaving(false); }
   }
 
@@ -111,6 +121,11 @@ export default function QuoteDetail() {
               const url = `${window.location.origin}/q/${quote.public_token}`;
               navigator.clipboard.writeText(url).then(() => flash('success', 'Acceptance link copied to clipboard'));
             }}>🔗 Copy Link</button>
+          )}
+          {quote.status === 'draft' && (
+            <button className={styles.btnPrimary} onClick={handleApprove} disabled={saving}>
+              {saving ? 'Approving…' : '✓ Approve Quote'}
+            </button>
           )}
           {quote.customer_email && (
             <button className={styles.btnSecondary} onClick={() => setShowEmailModal(true)}>

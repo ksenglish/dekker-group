@@ -131,6 +131,21 @@ async function update(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+// Internal sales-review step, ahead of actually sending — flips the badge
+// from DRAFT to APPROVED so a customer never sees "Draft" on a quote that
+// was in fact reviewed and sent to them.
+async function approve(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE quotes SET status='approved', approved_at=NOW(), approved_by=$1, updated_at=NOW()
+       WHERE id=$2 AND status='draft' RETURNING *`,
+      [req.user.id, req.params.id]
+    );
+    if (!rows[0]) return res.status(400).json({ error: 'Only draft quotes can be approved' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
 async function remove(req, res) {
   try {
     await pool.query('DELETE FROM quotes WHERE id=$1', [req.params.id]);
@@ -159,6 +174,46 @@ async function convertToInvoice(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+// Shared fetch for anything that needs the full quote picture — customer
+// (incl. postal address), linked job's number/address, everything the
+// Tradify-style layout needs — used by downloadPdf, sendEmail, and
+// publicGet so those three call sites stop maintaining separate near-
+// identical queries.
+async function getQuoteFull({ id, token }) {
+  const { rows: [q] } = await pool.query(
+    `SELECT q.*,
+            c.name AS customer_name, c.email AS customer_email,
+            c.company AS customer_company, c.phone AS customer_phone,
+            c.address_street AS customer_address_street, c.address_city AS customer_address_city,
+            c.address_region AS customer_address_region, c.address_postcode AS customer_address_postcode,
+            c.address_country AS customer_address_country,
+            j.job_number, j.external_ref, j.site_address AS job_freeform_address,
+            s.address AS job_site_address
+     FROM quotes q
+     LEFT JOIN customers c ON c.id = q.customer_id
+     LEFT JOIN jobs j ON j.id = q.job_id
+     LEFT JOIN customer_sites s ON s.id = j.site_id
+     WHERE ${id ? 'q.id=$1' : 'q.public_token=$1'}`,
+    [id || token]
+  );
+  return q;
+}
+
+function formatCustomerAddress(q) {
+  return [q.customer_address_street, q.customer_address_city, q.customer_address_region, q.customer_address_postcode, q.customer_address_country]
+    .filter(Boolean).join(', ');
+}
+
+function formatJobAddress(q) {
+  return q.job_site_address || q.job_freeform_address || '';
+}
+
+function formatJobNumberDisplay(q) {
+  if (q.external_ref) return q.external_ref;
+  if (q.job_number != null) return 'JB' + String(q.job_number).padStart(5, '0');
+  return '';
+}
+
 async function getJobDrawingImages(jobId) {
   const { rows } = await pool.query(
     `SELECT data_base64 FROM job_attachments WHERE job_id=$1 AND arcsite_drawing_id IS NOT NULL ORDER BY created_at`,
@@ -181,12 +236,7 @@ async function enrichItemsWithImages(items) {
 
 async function downloadPdf(req, res) {
   try {
-    const { rows: [q] } = await pool.query(
-      `SELECT q.*, c.name AS customer_name, c.email AS customer_email,
-              c.company AS customer_company, c.phone AS customer_phone
-       FROM quotes q LEFT JOIN customers c ON c.id=q.customer_id WHERE q.id=$1`,
-      [req.params.id]
-    );
+    const q = await getQuoteFull({ id: req.params.id });
     if (!q) return res.status(404).json({ error: 'Not found' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
@@ -194,7 +244,8 @@ async function downloadPdf(req, res) {
     const theme = await getTheme();
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
-      customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
+      customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
+      jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme,
       appendixImages,
@@ -248,7 +299,7 @@ async function emailPreview(req, res) {
 
 async function sendEmail(req, res) {
   try {
-    const q = await getQuoteForEmail(req.params.id);
+    const q = await getQuoteFull({ id: req.params.id });
     if (!q) return res.status(404).json({ error: 'Not found' });
     if (!q.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
@@ -257,7 +308,8 @@ async function sendEmail(req, res) {
     const theme = await getTheme();
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
-      customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone },
+      customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
+      jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme,
       appendixImages,
@@ -314,15 +366,8 @@ async function sendEmail(req, res) {
 // Public: view quote by token (no auth)
 async function publicGet(req, res) {
   try {
-    const { rows } = await pool.query(
-      `SELECT q.*, c.name AS customer_name, c.company AS customer_company,
-              c.phone AS customer_phone
-       FROM quotes q LEFT JOIN customers c ON c.id=q.customer_id
-       WHERE q.public_token=$1`,
-      [req.params.token]
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'Quote not found' });
-    const q = rows[0];
+    const q = await getQuoteFull({ token: req.params.token });
+    if (!q) return res.status(404).json({ error: 'Quote not found' });
     // Mark as viewed if it was only sent before
     if (q.delivery_status === 'sent') {
       await pool.query('UPDATE quotes SET delivery_status=\'viewed\' WHERE public_token=$1', [req.params.token]);
@@ -338,7 +383,12 @@ async function publicGet(req, res) {
       customer_name: q.customer_name,
       customer_company: q.customer_company,
       customer_phone: q.customer_phone,
+      customer_address: formatCustomerAddress(q),
+      job_number: q.job_number,
+      job_external_ref: q.external_ref,
+      job_address: formatJobAddress(q),
       notes: q.notes,
+      terms: theme.quoteTerms || '',
       subtotal: q.subtotal, gst: q.gst, total: q.total,
       created_at: q.created_at,
       accepted_at: q.accepted_at,
@@ -348,7 +398,8 @@ async function publicGet(req, res) {
       line_items: enrichedItems,
       arcsite_drawings: arcsiteDrawings,
       company: { name: theme.companyName, email: theme.email, phone: theme.phone, logo: theme.logoBase64,
-        logoSize: theme.logoSize, logoPosition: theme.logoPosition, contactPosition: theme.contactPosition },
+        logoSize: theme.logoSize, logoPosition: theme.logoPosition, contactPosition: theme.contactPosition,
+        gstNumber: theme.gstNumber || '' },
     });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
@@ -372,4 +423,4 @@ async function publicAccept(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, remove, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept };
+module.exports = { list, get, create, update, remove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept };

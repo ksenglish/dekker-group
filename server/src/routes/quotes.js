@@ -14,6 +14,7 @@ router.get('/', c.list);
 router.post('/', c.create);
 router.get('/:id', c.get);
 router.put('/:id', c.update);
+router.post('/:id/approve', c.approve);
 router.delete('/:id', c.remove);
 router.post('/:id/convert', c.convertToInvoice);
 router.get('/:id/pdf', c.downloadPdf);
