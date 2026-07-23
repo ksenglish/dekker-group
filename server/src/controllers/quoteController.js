@@ -382,6 +382,7 @@ async function publicGet(req, res) {
       status: q.status,
       customer_name: q.customer_name,
       customer_company: q.customer_company,
+      customer_email: q.customer_email,
       customer_phone: q.customer_phone,
       customer_address: formatCustomerAddress(q),
       job_number: q.job_number,

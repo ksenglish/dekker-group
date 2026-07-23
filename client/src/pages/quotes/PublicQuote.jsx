@@ -125,6 +125,7 @@ export default function PublicQuote() {
             <div style={s.customerName}>{quote.customer_name}</div>
             {quote.customer_company && <div style={s.customerDetail}>{quote.customer_company}</div>}
             {quote.customer_address && <div style={s.customerDetail}>{quote.customer_address}</div>}
+            {quote.customer_email && <div style={s.customerDetail}>{quote.customer_email}</div>}
             {quote.customer_phone && <div style={s.customerDetail}>{quote.customer_phone}</div>}
           </div>
           <div>
