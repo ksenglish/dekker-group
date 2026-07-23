@@ -571,23 +571,30 @@ function JobScheduleTab({ jobId, job, user }) {
 }
 
 // ── Quotes tab ────────────────────────────────────────────────────────────────
-const QUOTE_STATUS_COLOURS = { draft: '#6b7280', sent: '#0891b2', accepted: '#16a34a', declined: '#dc2626', cancelled: '#6b7280' };
+const QUOTE_STATUS_COLOURS = { draft: '#6b7280', approved: '#7c3aed', sent: '#0891b2', accepted: '#16a34a', declined: '#dc2626', cancelled: '#6b7280' };
 function fmtQuoteNum(q) { return q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : `Q-${q.id.slice(0, 6).toUpperCase()}`; }
 
 function JobQuotesTab({ job, user }) {
   const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [themes, setThemes] = useState([]);
+  const [themeId, setThemeId] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
     api.get('/quotes', { params: { job: job.id } }).then(r => setQuotes(r.data)).finally(() => setLoading(false));
+    api.get('/settings/themes').then(r => {
+      const active = r.data.filter(t => !t.archived);
+      setThemes(active);
+      setThemeId(active.find(t => t.isDefault)?.id || active[0]?.id || '');
+    }).catch(() => {});
   }, [job.id]);
 
   async function handleCreate() {
     setCreating(true);
     try {
-      const { data } = await api.post('/quotes', { job_id: job.id, customer_id: job.customer_id });
+      const { data } = await api.post('/quotes', { job_id: job.id, customer_id: job.customer_id, theme_id: themeId || undefined });
       navigate(`/quotes/${data.id}`);
     } catch {
       setCreating(false);
@@ -597,10 +604,17 @@ function JobQuotesTab({ job, user }) {
   return (
     <div className={styles.card}>
       {user?.role !== 'field_tech' && (
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button className={styles.btnPrimary} onClick={handleCreate} disabled={creating}>
             {creating ? 'Creating…' : '+ Create Quote'}
           </button>
+          {themes.length > 1 && (
+            <select value={themeId} onChange={e => setThemeId(e.target.value)}
+              style={{ padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13, fontFamily: 'inherit' }}
+              title="Which branding this quote will use">
+              {themes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          )}
         </div>
       )}
       {loading ? <div className={styles.emptySmall}>Loading…</div> :

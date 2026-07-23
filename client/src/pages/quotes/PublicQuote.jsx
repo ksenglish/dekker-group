@@ -81,10 +81,10 @@ export default function PublicQuote() {
               }
             </div>
           );
+          const contactLines = (quote.company?.contactDetails || '').split('\n').map(l => l.trim()).filter(Boolean);
           const contactBlock = (
             <div style={{ textAlign: contactOnLeft ? 'left' : 'right', order: contactOnLeft ? 1 : 2 }}>
-              {quote.company?.email && <div style={s.companyContact}>{quote.company.email}</div>}
-              {quote.company?.phone && <div style={s.companyContact}>{quote.company.phone}</div>}
+              {contactLines.map((line, i) => <div key={i} style={s.companyContact}>{line}</div>)}
             </div>
           );
           return (

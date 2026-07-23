@@ -7,7 +7,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Settings.module.css';
 
-const TABS = ['My Account', 'Security', 'Quote Theme', 'Terms & Conditions', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
+const TABS = ['My Account', 'Security', 'Document Themes', 'Terms & Conditions', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
 
 // ── Sortable job status row (drag to reorder) ─────────────────────────────────
 function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
@@ -40,8 +40,6 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
-  const fileRef = useRef();
 
   // Email / SMTP state
   const [email, setEmail] = useState({ provider: 'smtp', host: 'smtp-relay.brevo.com', port: 587, user: '', pass: '', from: '', fromName: 'Dekker Group' });
@@ -91,29 +89,6 @@ export default function SettingsPage() {
     } finally { setSaving(false); }
   }
 
-  async function handlePreview() {
-    setPreviewing(true);
-    try {
-      // Save first, then download a sample PDF
-      await api.put('/settings', theme);
-      const res = await api.get('/settings/preview-pdf', { responseType: 'blob' });
-      const url = URL.createObjectURL(res.data);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-    } catch (err) {
-      alert(err.response?.data?.error || 'Preview failed');
-    } finally { setPreviewing(false); }
-  }
-
-  function handleLogoUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 500 * 1024) { alert('Logo must be under 500KB'); return; }
-    const reader = new FileReader();
-    reader.onload = ev => set('logoBase64', ev.target.result);
-    reader.readAsDataURL(file);
-  }
-
   if (!theme) return <div className={styles.page}><div className={styles.loading}>Loading…</div></div>;
 
   return (
@@ -123,14 +98,13 @@ export default function SettingsPage() {
           <h1 className={styles.pageTitle}>Settings</h1>
           <p className={styles.pageSubtitle}>Manage your company branding and document templates</p>
         </div>
-        <div className={styles.headerActions}>
-          <button className={styles.btnSecondary} onClick={handlePreview} disabled={previewing}>
-            {previewing ? 'Generating…' : '👁 Preview PDF'}
-          </button>
-          <button className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
-          </button>
-        </div>
+        {activeTab === 'Terms & Conditions' && (
+          <div className={styles.headerActions}>
+            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className={styles.layout}>
@@ -150,256 +124,7 @@ export default function SettingsPage() {
 
           {activeTab === 'Security' && <SecurityTab />}
 
-          {activeTab === 'Quote Theme' && (
-            <div className={styles.section}>
-              {/* Logo */}
-              <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>Logo</h2></div>
-                <div className={styles.cardBody}>
-                  <div className={styles.logoRow}>
-                    {theme.logoBase64 ? (
-                      <div className={styles.logoPreview}>
-                        <img src={theme.logoBase64} alt="Logo preview" />
-                        <button className={styles.removeLogo} onClick={() => set('logoBase64', '')}>Remove</button>
-                      </div>
-                    ) : (
-                      <div className={styles.logoPlaceholder}>No logo — company name text will be used</div>
-                    )}
-                    <div>
-                      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml"
-                        style={{ display: 'none' }} onChange={handleLogoUpload} />
-                      <button className={styles.btnSecondary} onClick={() => fileRef.current.click()}>
-                        {theme.logoBase64 ? 'Replace Logo' : 'Upload Logo'}
-                      </button>
-                      <p className={styles.hint}>PNG or JPG, max 500KB. Appears in the PDF header.</p>
-                    </div>
-                  </div>
-
-                  {/* Logo size */}
-                  <div className={styles.field} style={{ marginTop: 20 }}>
-                    <label>Logo Size</label>
-                    <div className={styles.segmentedControl}>
-                      {['small', 'medium', 'large'].map(sz => (
-                        <button key={sz} type="button"
-                          className={`${styles.segmentBtn} ${(theme.logoSize || 'medium') === sz ? styles.segmentBtnActive : ''}`}
-                          onClick={() => set('logoSize', sz)}>
-                          {sz.charAt(0).toUpperCase() + sz.slice(1)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Logo position */}
-                  <div className={styles.field} style={{ marginTop: 16 }}>
-                    <label>Logo Position</label>
-                    <div className={styles.segmentedControl}>
-                      {[['left', 'Left'], ['right', 'Right']].map(([val, lbl]) => (
-                        <button key={val} type="button"
-                          className={`${styles.segmentBtn} ${(theme.logoPosition || 'left') === val ? styles.segmentBtnActive : ''}`}
-                          onClick={() => set('logoPosition', val)}>
-                          {lbl}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Company details position */}
-                  <div className={styles.field} style={{ marginTop: 16 }}>
-                    <label>Company Details Position</label>
-                    <div className={styles.segmentedControl}>
-                      {[['left', 'Left'], ['right', 'Right']].map(([val, lbl]) => (
-                        <button key={val} type="button"
-                          className={`${styles.segmentBtn} ${(theme.contactPosition || 'right') === val ? styles.segmentBtnActive : ''}`}
-                          onClick={() => set('contactPosition', val)}>
-                          {lbl}
-                        </button>
-                      ))}
-                    </div>
-                    <span className={styles.hint}>Where website, email, phone, and location appear in the header</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Company details */}
-              <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>Company Details</h2></div>
-                <div className={styles.cardBody}>
-                  <div className={styles.formGrid}>
-                    <div className={styles.field}>
-                      <label>Company Name</label>
-                      <input value={theme.companyName} onChange={e => set('companyName', e.target.value)}
-                        placeholder="DEKKER GROUP" />
-                      <span className={styles.hint}>Shown in the header when no logo is uploaded</span>
-                    </div>
-                    <div className={styles.field}>
-                      <label>Tagline</label>
-                      <input value={theme.tagline} onChange={e => set('tagline', e.target.value)}
-                        placeholder="HVAC Installation & Field Services" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Website</label>
-                      <input value={theme.website} onChange={e => set('website', e.target.value)}
-                        placeholder="dekkergroup.co.nz" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Email</label>
-                      <input type="email" value={theme.email} onChange={e => set('email', e.target.value)}
-                        placeholder="kyle@dekkergroup.co.nz" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Phone</label>
-                      <input value={theme.phone} onChange={e => set('phone', e.target.value)}
-                        placeholder="+64 21 123 456" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Location</label>
-                      <input value={theme.location} onChange={e => set('location', e.target.value)}
-                        placeholder="New Zealand" />
-                    </div>
-                    <div className={styles.field}>
-                      <label>GST Number</label>
-                      <input value={theme.gstNumber} onChange={e => set('gstNumber', e.target.value)}
-                        placeholder="123-456-789" />
-                      <span className={styles.hint}>Shown on quotes and invoices</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Branding */}
-              <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>Branding</h2></div>
-                <div className={styles.cardBody}>
-                  <div className={styles.field}>
-                    <label>Brand Colour</label>
-                    <div className={styles.colourRow}>
-                      <input type="color" value={theme.brandColour}
-                        onChange={e => set('brandColour', e.target.value)}
-                        className={styles.colourPicker} />
-                      <input value={theme.brandColour} onChange={e => set('brandColour', e.target.value)}
-                        className={styles.colourHex} placeholder="#1e40af" maxLength={7} />
-                      <div className={styles.colourSwatch} style={{ background: theme.brandColour }} />
-                    </div>
-                    <span className={styles.hint}>Used for the header bar, table headers, totals, and accents</span>
-                  </div>
-
-                  <div className={styles.colourPresets}>
-                    <span className={styles.hint}>Presets:</span>
-                    {[
-                      { label: 'Blue',   hex: '#1e40af' },
-                      { label: 'Navy',   hex: '#1e3a5f' },
-                      { label: 'Green',  hex: '#166534' },
-                      { label: 'Slate',  hex: '#334155' },
-                      { label: 'Red',    hex: '#991b1b' },
-                      { label: 'Orange', hex: '#c2410c' },
-                      { label: 'Black',  hex: '#000000' },
-                      { label: 'White',  hex: '#ffffff' },
-                    ].map(p => (
-                      <button key={p.hex} className={styles.presetBtn}
-                        style={{ background: p.hex, outline: theme.brandColour === p.hex ? '2px solid #6366f1' : 'none',
-                          border: p.hex === '#ffffff' ? '1px solid #d1d5db' : 'none' }}
-                        onClick={() => { set('brandColour', p.hex); if (p.hex === '#ffffff') set('transparentHeader', true); }}
-                        title={p.label} />
-                    ))}
-                  </div>
-
-                  <div className={styles.toggleRow} style={{ marginTop: 16 }}>
-                    <label className={styles.toggleLabel}>
-                      <input type="checkbox" checked={!!theme.transparentHeader}
-                        onChange={e => set('transparentHeader', e.target.checked)} />
-                      <span>Transparent header</span>
-                    </label>
-                    <span className={styles.hint}>Removes the coloured background — text and logo appear on white</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quote Expiry */}
-              <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>Quote Expiry</h2></div>
-                <div className={styles.cardBody}>
-                  <div className={styles.field}>
-                    <label>Default Expiry (days)</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <input type="number" min="0" max="365" step="1"
-                        value={theme.quoteExpiryDays ?? 30}
-                        onChange={e => set('quoteExpiryDays', Math.max(0, parseInt(e.target.value) || 0))}
-                        style={{ width: 90 }} />
-                      <span style={{ fontSize: 13, color: '#64748b' }}>
-                        {(theme.quoteExpiryDays ?? 30) === 0
-                          ? 'No expiry date will be set'
-                          : `Quotes expire ${theme.quoteExpiryDays ?? 30} days after creation`}
-                      </span>
-                    </div>
-                    <span className={styles.hint}>Set to 0 to create quotes with no expiry date. The expiry date is shown on the PDF and the customer's quote link.</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>Footer Text</h2></div>
-                <div className={styles.cardBody}>
-                  <div className={styles.formGrid}>
-                    <div className={styles.field}>
-                      <label>Footer Line 1</label>
-                      <input value={theme.footerLine1} onChange={e => set('footerLine1', e.target.value)}
-                        placeholder="Thank you for your business." />
-                    </div>
-                    <div className={styles.field}>
-                      <label>Footer Line 2</label>
-                      <input value={theme.footerLine2} onChange={e => set('footerLine2', e.target.value)}
-                        placeholder="Dekker Group · New Zealand · GST registered" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Live preview */}
-              <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>Header Preview</h2></div>
-                <div className={styles.cardBody}>
-                  {(() => {
-                    const subCol = theme.transparentHeader ? '#64748b' : 'rgba(255,255,255,0.85)';
-                    const logoSizePx = { small: 28, medium: 42, large: 56 }[theme.logoSize || 'medium'] || 42;
-                    const logoOnLeft = (theme.logoPosition || 'left') === 'left';
-                    const contactOnLeft = (theme.contactPosition || 'right') === 'left';
-                    const logoBlock = (
-                      <div style={{ order: logoOnLeft ? 1 : 3 }}>
-                        {theme.logoBase64
-                          ? <img src={theme.logoBase64} alt="logo" style={{ height: logoSizePx, maxWidth: logoSizePx * 2.8, objectFit: 'contain', display: 'block' }} />
-                          : <div>
-                              <div className={styles.previewName} style={{ color: theme.transparentHeader ? theme.brandColour : 'white' }}>{theme.companyName || 'COMPANY NAME'}</div>
-                              <div className={styles.previewTagline} style={{ color: subCol }}>{theme.tagline}</div>
-                            </div>
-                        }
-                      </div>
-                    );
-                    const contactBlock = (
-                      <div style={{ order: contactOnLeft ? 1 : 3, textAlign: contactOnLeft ? 'left' : 'right', fontSize: 10, color: subCol, lineHeight: 1.6 }}>
-                        {[theme.website, theme.email, theme.phone, theme.location].filter(Boolean).map((l, i) => <div key={i}>{l}</div>)}
-                      </div>
-                    );
-                    return (
-                      <div className={styles.pdfPreview} style={{
-                        background: theme.transparentHeader ? 'transparent' : theme.brandColour,
-                        border: theme.transparentHeader ? '1px dashed #d1d5db' : 'none',
-                        justifyContent: 'space-between', gap: 12,
-                      }}>
-                        {logoOnLeft === contactOnLeft
-                          ? <>{logoBlock}<div style={{ flex: 1 }} />{contactBlock}</>
-                          : <>{logoBlock}{contactBlock}</>
-                        }
-                      </div>
-                    );
-                  })()}
-                  <p className={styles.hint} style={{ marginTop: 8 }}>
-                    Click <strong>Preview PDF</strong> above to download a full sample document.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+          {activeTab === 'Document Themes' && <DocumentThemesTab />}
 
           {activeTab === 'Email' && (
             <div className={styles.section}>
@@ -500,10 +225,336 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+
+              <div className={styles.card}>
+                <div className={styles.cardHeader}><h2>Quote Expiry</h2></div>
+                <div className={styles.cardBody}>
+                  <div className={styles.field}>
+                    <label>Default Expiry (days)</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input type="number" min="0" max="365" step="1"
+                        value={theme.quoteExpiryDays ?? 30}
+                        onChange={e => set('quoteExpiryDays', Math.max(0, parseInt(e.target.value) || 0))}
+                        style={{ width: 90 }} />
+                      <span style={{ fontSize: 13, color: '#64748b' }}>
+                        {(theme.quoteExpiryDays ?? 30) === 0
+                          ? 'No expiry date will be set'
+                          : `Quotes expire ${theme.quoteExpiryDays ?? 30} days after creation`}
+                      </span>
+                    </div>
+                    <span className={styles.hint}>Set to 0 to create quotes with no expiry date. The expiry date is shown on the PDF and the customer's quote link.</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+const THEME_COLOUR_PRESETS = [
+  { label: 'Blue',   hex: '#1e40af' },
+  { label: 'Navy',   hex: '#1e3a5f' },
+  { label: 'Green',  hex: '#166534' },
+  { label: 'Slate',  hex: '#334155' },
+  { label: 'Red',    hex: '#991b1b' },
+  { label: 'Orange', hex: '#c2410c' },
+  { label: 'Black',  hex: '#000000' },
+  { label: 'White',  hex: '#ffffff' },
+];
+
+const EMPTY_DOC_THEME = {
+  name: '', companyName: 'DEKKER GROUP', gstNumber: '', contactDetails: '',
+  brandColour: '#1e40af', logoBase64: '', logoSize: 'medium', logoPosition: 'left',
+  contactPosition: 'right', transparentHeader: false,
+  footerLine1: 'Thank you for your business.', footerLine2: '',
+};
+
+// Full branding form for one theme — used both to create a new theme and to
+// edit an existing one. Quotes/invoices pick a theme by id at creation time.
+function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
+  const isNew = !theme;
+  const [form, setForm] = useState(theme ? { ...theme } : { ...EMPTY_DOC_THEME });
+  // Tracks the persisted row once this (originally-new) theme has been saved
+  // at least once — e.g. via Preview — so a later Save updates it instead of
+  // creating a second duplicate theme.
+  const [savedId, setSavedId] = useState(theme?.id || null);
+  const [saving, setSaving] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [err, setErr] = useState('');
+  const fileRef = useRef();
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  function handleLogoUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) { alert('Logo must be under 500KB'); return; }
+    const reader = new FileReader();
+    reader.onload = ev => set('logoBase64', ev.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  // Create-or-update against whatever's already been persisted, without
+  // touching the parent's editing state — shared by Save and Preview.
+  async function persist() {
+    const { data } = savedId
+      ? await api.put(`/settings/themes/${savedId}`, form)
+      : await api.post('/settings/themes', form);
+    setSavedId(data.id);
+    return data;
+  }
+
+  async function handleSave() {
+    if (!form.name.trim()) { setErr('Theme name is required'); return; }
+    setSaving(true); setErr('');
+    try {
+      const data = await persist();
+      onSaved(data);
+    } catch (e) { setErr(e.response?.data?.error || 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  async function handlePreview() {
+    if (!form.name.trim()) { setErr('Theme name is required before previewing'); return; }
+    setPreviewing(true); setErr('');
+    try {
+      const data = await persist();
+      onSilentSave();
+      const res = await api.get(`/settings/preview-pdf?theme_id=${data.id}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) { setErr(e.response?.data?.error || 'Preview failed'); }
+    finally { setPreviewing(false); }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: 'white', borderRadius: 10, width: 640, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+        <div style={{ padding: '20px 28px', borderBottom: '1px solid var(--color-border)' }}>
+          <h3 style={{ fontSize: 17, fontWeight: 700 }}>{isNew ? 'New Document Theme' : 'Edit Theme'}</h3>
+        </div>
+        <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {err && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 14px', borderRadius: 6, fontSize: 13 }}>{err}</div>}
+
+          <div className={styles.field}>
+            <label>Theme Name</label>
+            <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Dekker Group, Dekker Air" />
+            <span className={styles.hint}>Internal label only — not shown on the document itself</span>
+          </div>
+
+          <div className={styles.field}>
+            <label>Company Name</label>
+            <input value={form.companyName} onChange={e => set('companyName', e.target.value)} placeholder="DEKKER GROUP" />
+            <span className={styles.hint}>Shown when no logo is uploaded; also used in email subject lines</span>
+          </div>
+
+          <div className={styles.field}>
+            <label>GST Number</label>
+            <input value={form.gstNumber || ''} onChange={e => set('gstNumber', e.target.value)} placeholder="123-456-789" />
+          </div>
+
+          <div className={styles.field}>
+            <label>Contact Details</label>
+            <textarea rows={5} value={form.contactDetails || ''} onChange={e => set('contactDetails', e.target.value)}
+              placeholder={'Dekker Group Limited\n15 Dekker Road, Omanawa, 3173, New Zealand\nEmail: office@dekkergroup.co.nz\nPhone: 0800 477 123'}
+              className={styles.termsArea} style={{ minHeight: 100 }} />
+            <span className={styles.hint}>Printed exactly as typed, one line at a time, in the document header</span>
+          </div>
+
+          <div className={styles.field}>
+            <label>Logo</label>
+            {form.logoBase64 ? (
+              <div className={styles.logoPreview}>
+                <img src={form.logoBase64} alt="Logo preview" />
+                <button className={styles.removeLogo} onClick={() => set('logoBase64', '')}>Remove</button>
+              </div>
+            ) : (
+              <div className={styles.logoPlaceholder}>No logo — company name text will be used</div>
+            )}
+            <div style={{ marginTop: 8 }}>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml" style={{ display: 'none' }} onChange={handleLogoUpload} />
+              <button type="button" className={styles.btnSecondary} onClick={() => fileRef.current.click()}>
+                {form.logoBase64 ? 'Replace Logo' : 'Upload Logo'}
+              </button>
+              <p className={styles.hint}>PNG or JPG, max 500KB</p>
+            </div>
+          </div>
+
+          <div className={styles.formGrid}>
+            <div className={styles.field}>
+              <label>Logo Size</label>
+              <div className={styles.segmentedControl}>
+                {['small', 'medium', 'large'].map(sz => (
+                  <button key={sz} type="button"
+                    className={`${styles.segmentBtn} ${(form.logoSize || 'medium') === sz ? styles.segmentBtnActive : ''}`}
+                    onClick={() => set('logoSize', sz)}>
+                    {sz.charAt(0).toUpperCase() + sz.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className={styles.field}>
+              <label>Logo Position</label>
+              <div className={styles.segmentedControl}>
+                {[['left', 'Left'], ['right', 'Right']].map(([val, lbl]) => (
+                  <button key={val} type="button"
+                    className={`${styles.segmentBtn} ${(form.logoPosition || 'left') === val ? styles.segmentBtnActive : ''}`}
+                    onClick={() => set('logoPosition', val)}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+            <div className={styles.field}>
+              <label>Contact Details Position</label>
+              <div className={styles.segmentedControl}>
+                {[['left', 'Left'], ['right', 'Right']].map(([val, lbl]) => (
+                  <button key={val} type="button"
+                    className={`${styles.segmentBtn} ${(form.contactPosition || 'right') === val ? styles.segmentBtnActive : ''}`}
+                    onClick={() => set('contactPosition', val)}>{lbl}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.field}>
+            <label>Brand Colour</label>
+            <div className={styles.colourRow}>
+              <input type="color" value={form.brandColour} onChange={e => set('brandColour', e.target.value)} className={styles.colourPicker} />
+              <input value={form.brandColour} onChange={e => set('brandColour', e.target.value)} className={styles.colourHex} maxLength={7} />
+              <div className={styles.colourSwatch} style={{ background: form.brandColour }} />
+            </div>
+            <div className={styles.colourPresets}>
+              <span className={styles.hint}>Presets:</span>
+              {THEME_COLOUR_PRESETS.map(p => (
+                <button key={p.hex} type="button" className={styles.presetBtn}
+                  style={{ background: p.hex, outline: form.brandColour === p.hex ? '2px solid #6366f1' : 'none',
+                    border: p.hex === '#ffffff' ? '1px solid #d1d5db' : 'none' }}
+                  onClick={() => { set('brandColour', p.hex); if (p.hex === '#ffffff') set('transparentHeader', true); }}
+                  title={p.label} />
+              ))}
+            </div>
+            <div className={styles.toggleRow} style={{ marginTop: 12 }}>
+              <label className={styles.toggleLabel}>
+                <input type="checkbox" checked={!!form.transparentHeader} onChange={e => set('transparentHeader', e.target.checked)} />
+                <span>Transparent header</span>
+              </label>
+            </div>
+          </div>
+
+          <div className={styles.formGrid}>
+            <div className={styles.field}>
+              <label>Footer Line 1</label>
+              <input value={form.footerLine1 || ''} onChange={e => set('footerLine1', e.target.value)} placeholder="Thank you for your business." />
+            </div>
+            <div className={styles.field}>
+              <label>Footer Line 2</label>
+              <input value={form.footerLine2 || ''} onChange={e => set('footerLine2', e.target.value)} />
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '16px 28px', borderTop: '1px solid var(--color-border)' }}>
+          <button className={styles.btnSecondary} onClick={handlePreview} disabled={previewing}>
+            {previewing ? 'Generating…' : '👁 Preview PDF'}
+          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className={styles.btnSecondary} onClick={onClose}>Cancel</button>
+            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : isNew ? 'Create Theme' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocumentThemesTab() {
+  const [themes, setThemes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null); // theme object | 'new' | null
+  const [busyId, setBusyId] = useState(null);
+
+  function load() {
+    return api.get('/settings/themes').then(r => setThemes(r.data)).finally(() => setLoading(false));
+  }
+  useEffect(() => { load(); }, []);
+
+  async function setDefault(id) {
+    setBusyId(id);
+    try { await api.post(`/settings/themes/${id}/set-default`); await load(); }
+    catch (e) { alert(e.response?.data?.error || 'Failed'); }
+    finally { setBusyId(null); }
+  }
+
+  async function toggleArchive(t) {
+    setBusyId(t.id);
+    try { await api.patch(`/settings/themes/${t.id}/archive`, { archived: !t.archived }); await load(); }
+    catch (e) { alert(e.response?.data?.error || 'Failed'); }
+    finally { setBusyId(null); }
+  }
+
+  function onSaved() {
+    setEditing(null);
+    load();
+  }
+
+  if (loading) return <div className={styles.loading}>Loading…</div>;
+
+  return (
+    <div className={styles.section}>
+      <div className={styles.card}>
+        <div className={styles.cardHeader} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2>Document Themes</h2>
+          <button className={styles.btnPrimary} onClick={() => setEditing('new')}>+ Add Theme</button>
+        </div>
+        <div className={styles.cardBody}>
+          <p className={styles.hint} style={{ marginBottom: 16 }}>
+            Each theme is a full set of branding — logo, trading name, contact details, and colour — that a quote or invoice picks when it's created. Useful if you trade under more than one name.
+          </p>
+          {themes.length === 0 ? (
+            <p className={styles.hint}>No themes yet — add one to get started.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {themes.map(t => (
+                <div key={t.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px',
+                  background: t.archived ? '#f8fafc' : 'white', border: '1px solid var(--color-border)', borderRadius: 8,
+                  opacity: t.archived ? 0.6 : 1,
+                }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 6, background: t.brandColour, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    {t.logoBase64 && <img src={t.logoBase64} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {t.name}
+                      {t.isDefault && <span style={{ fontSize: 10, fontWeight: 700, color: 'white', background: '#16a34a', padding: '2px 8px', borderRadius: 99 }}>DEFAULT</span>}
+                      {t.archived && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', background: '#e2e8f0', padding: '2px 8px', borderRadius: 99 }}>ARCHIVED</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t.companyName}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                    <button className={styles.btnSecondary} onClick={() => setEditing(t)}>Edit</button>
+                    {!t.isDefault && !t.archived && (
+                      <button className={styles.btnSecondary} onClick={() => setDefault(t.id)} disabled={busyId === t.id}>Set Default</button>
+                    )}
+                    {!t.isDefault && (
+                      <button className={styles.btnSecondary} onClick={() => toggleArchive(t)} disabled={busyId === t.id}>
+                        {t.archived ? 'Unarchive' : 'Archive'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {editing !== null && (
+        <ThemeModal theme={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={onSaved} onSilentSave={load} />
+      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ const pool = require('../db/pool');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getTheme } = require('./settingsController');
+const { getThemeById } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
 
 async function enrichItemsWithImages(items) {
@@ -99,12 +100,13 @@ async function downloadPdf(req, res) {
     if (!inv) return res.status(404).json({ error: 'Not found' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [inv.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
-    const theme = await getTheme();
+    const settings = await getTheme();
+    const docTheme = await getThemeById(inv.theme_id);
     const pdf = await buildPDF({
       type: 'Invoice', number: inv.invoice_number ? `INV-${String(inv.invoice_number).padStart(4,'0')}` : `INV-${inv.id.slice(0,8).toUpperCase()}`,
       customer: { name: inv.customer_name, company: inv.customer_company, email: inv.customer_email, phone: inv.customer_phone },
       items: enrichedItems, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
-      status: inv.status, dueDate: inv.due_date, notes: inv.notes, terms: theme.invoiceTerms || '', issuedAt: inv.created_at, theme,
+      status: inv.status, dueDate: inv.due_date, notes: inv.notes, terms: settings.invoiceTerms || '', issuedAt: inv.created_at, theme: docTheme,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="invoice-${inv.id.slice(0,8)}.pdf"` });
     res.send(pdf);
@@ -123,23 +125,24 @@ async function sendEmail(req, res) {
     if (!inv.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [inv.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
-    const theme = await getTheme();
+    const settings = await getTheme();
+    const docTheme = await getThemeById(inv.theme_id);
     const pdf = await buildPDF({
       type: 'Invoice', number: inv.invoice_number ? `INV-${String(inv.invoice_number).padStart(4,'0')}` : `INV-${inv.id.slice(0,8).toUpperCase()}`,
       customer: { name: inv.customer_name, company: inv.customer_company, email: inv.customer_email, phone: inv.customer_phone },
       items: enrichedItems, subtotal: inv.subtotal, gst: inv.gst, total: inv.total,
-      status: inv.status, dueDate: inv.due_date, notes: inv.notes, terms: theme.invoiceTerms || '', issuedAt: inv.created_at, theme,
+      status: inv.status, dueDate: inv.due_date, notes: inv.notes, terms: settings.invoiceTerms || '', issuedAt: inv.created_at, theme: docTheme,
     });
     const totalNZD = `$${(inv.total / 100).toFixed(2)}`;
     const dueStr = inv.due_date ? new Date(inv.due_date).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
     await sendMail({
       to: inv.customer_email,
-      subject: `Invoice from ${theme.companyName} — ${totalNZD} due ${dueStr}`,
+      subject: `Invoice from ${docTheme.companyName} — ${totalNZD} due ${dueStr}`,
       html: `<p>Hi ${inv.customer_name},</p>
-<p>Please find your invoice from ${theme.companyName} attached.</p>
+<p>Please find your invoice from ${docTheme.companyName} attached.</p>
 <p><strong>Amount due: ${totalNZD} (incl. 15% GST)</strong>${dueStr ? `<br>Due date: ${dueStr}` : ''}</p>
-<p>If you have any questions, please contact us at ${theme.email}.</p>
-<p>Kind regards,<br>${theme.companyName}</p>`,
+<p>If you have any questions, please don't hesitate to get in touch.</p>
+<p>Kind regards,<br>${docTheme.companyName}</p>`,
       attachments: [{ filename: `invoice-${inv.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }],
     });
     await pool.query(`UPDATE invoices SET status='sent', delivery_status='sent', updated_at=NOW() WHERE id=$1`, [req.params.id]);

@@ -3,6 +3,7 @@ const { normaliseRole } = require('../middleware/auth');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getTheme } = require('./settingsController');
+const { getThemeById, getDefaultTheme } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
 
 function calcTotals(items) {
@@ -91,7 +92,7 @@ async function get(req, res) {
 }
 
 async function create(req, res) {
-  const { job_id, customer_id, notes } = req.body;
+  const { job_id, customer_id, notes, theme_id } = req.body;
   if (!job_id) return res.status(400).json({ error: 'job_id is required' });
   try {
     // Pull line items from the job to calculate totals
@@ -100,10 +101,11 @@ async function create(req, res) {
     const theme = await getTheme();
     const expiryDays = theme.quoteExpiryDays ?? 30;
     const expiresAt = expiryDays > 0 ? (() => { const d = new Date(); d.setDate(d.getDate() + expiryDays); return d; })() : null;
+    const docTheme = theme_id ? await getThemeById(theme_id) : await getDefaultTheme();
     const { rows } = await pool.query(
-      `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by)
-       VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [job_id, customer_id || null, subtotal, gst, total, notes || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id]
+      `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by, theme_id)
+       VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [job_id, customer_id || null, subtotal, gst, total, notes || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id, docTheme?.id || null]
     );
     // Move job to quoted status
     await pool.query(
@@ -165,9 +167,9 @@ async function convertToInvoice(req, res) {
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 30);
     const { rows } = await pool.query(
-      `INSERT INTO invoices (job_id, quote_id, customer_id, status, subtotal, gst, total, due_date)
-       VALUES ($1,$2,$3,'draft',$4,$5,$6,$7) RETURNING *`,
-      [quote.job_id, quote.id, quote.customer_id, quote.subtotal, quote.gst, quote.total, dueDate.toISOString().split('T')[0]]
+      `INSERT INTO invoices (job_id, quote_id, customer_id, status, subtotal, gst, total, due_date, theme_id)
+       VALUES ($1,$2,$3,'draft',$4,$5,$6,$7,$8) RETURNING *`,
+      [quote.job_id, quote.id, quote.customer_id, quote.subtotal, quote.gst, quote.total, dueDate.toISOString().split('T')[0], quote.theme_id]
     );
     await pool.query(`UPDATE jobs SET status='invoiced', updated_at=NOW() WHERE id=$1`, [quote.job_id]);
     res.status(201).json(rows[0]);
@@ -241,13 +243,14 @@ async function downloadPdf(req, res) {
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const appendixImages = await getJobDrawingImages(q.job_id);
-    const theme = await getTheme();
+    const settings = await getTheme();
+    const docTheme = await getThemeById(q.theme_id);
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme,
+      status: q.status, notes: q.notes, terms: settings.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="quote-${q.id.slice(0,8)}.pdf"` });
@@ -273,8 +276,8 @@ async function emailPreview(req, res) {
   try {
     const q = await getQuoteForEmail(req.params.id);
     if (!q) return res.status(404).json({ error: 'Not found' });
-    const theme = await getTheme();
-    const ctx = await buildQuoteEmailContext(q, theme, req.user?.name);
+    const docTheme = await getThemeById(q.theme_id);
+    const ctx = await buildQuoteEmailContext(q, docTheme, req.user?.name);
 
     let template;
     if (req.query.templateId) {
@@ -305,13 +308,14 @@ async function sendEmail(req, res) {
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const appendixImages = await getJobDrawingImages(q.job_id);
-    const theme = await getTheme();
+    const settings = await getTheme();
+    const docTheme = await getThemeById(q.theme_id);
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, terms: theme.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme,
+      status: q.status, notes: q.notes, terms: settings.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
     });
 
@@ -319,12 +323,12 @@ async function sendEmail(req, res) {
     // category's default template so the endpoint still works if called directly.
     let { subject, body } = req.body || {};
     if (!subject || !body) {
-      const ctx = await buildQuoteEmailContext(q, theme, req.user?.name);
+      const ctx = await buildQuoteEmailContext(q, docTheme, req.user?.name);
       const { rows } = await pool.query(
         `SELECT * FROM email_templates WHERE category='quote' ORDER BY is_default DESC, name LIMIT 1`
       );
       const template = rows[0];
-      subject = subject || (template ? resolveTemplateText(template.subject, ctx) : `Quote from ${theme.companyName} — ${ctx.quote_total}`);
+      subject = subject || (template ? resolveTemplateText(template.subject, ctx) : `Quote from ${docTheme.companyName} — ${ctx.quote_total}`);
       body = body || (template ? resolveTemplateText(template.body, ctx) : `Hi ${ctx.customer_first_name},\n\nPlease find your quote attached.`);
     }
     const htmlBody = body.split('\n').map(line => `<p>${line || '&nbsp;'}</p>`).join('\n');
@@ -375,7 +379,8 @@ async function publicGet(req, res) {
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const arcsiteDrawings = await getJobDrawingImages(q.job_id);
-    const theme = await getTheme();
+    const settings = await getTheme();
+    const docTheme = await getThemeById(q.theme_id);
     res.json({
       id: q.id,
       number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
@@ -389,7 +394,7 @@ async function publicGet(req, res) {
       job_external_ref: q.external_ref,
       job_address: formatJobAddress(q),
       notes: q.notes,
-      terms: theme.quoteTerms || '',
+      terms: settings.quoteTerms || '',
       subtotal: q.subtotal, gst: q.gst, total: q.total,
       created_at: q.created_at,
       accepted_at: q.accepted_at,
@@ -398,9 +403,9 @@ async function publicGet(req, res) {
       is_expired: q.expires_at ? new Date(q.expires_at) < new Date() : false,
       line_items: enrichedItems,
       arcsite_drawings: arcsiteDrawings,
-      company: { name: theme.companyName, email: theme.email, phone: theme.phone, logo: theme.logoBase64,
-        logoSize: theme.logoSize, logoPosition: theme.logoPosition, contactPosition: theme.contactPosition,
-        gstNumber: theme.gstNumber || '' },
+      company: { name: docTheme.companyName, contactDetails: docTheme.contactDetails, logo: docTheme.logoBase64,
+        logoSize: docTheme.logoSize, logoPosition: docTheme.logoPosition, contactPosition: docTheme.contactPosition,
+        gstNumber: docTheme.gstNumber || '' },
     });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }

@@ -7,11 +7,7 @@ const TEXT = '#0f172a';
 
 const DEFAULT_THEME = {
   companyName: 'DEKKER GROUP',
-  tagline: 'HVAC Installation & Field Services',
-  website: 'dekkergroup.co.nz',
-  email: 'kyle@dekkergroup.co.nz',
-  phone: '',
-  location: 'New Zealand',
+  contactDetails: 'dekkergroup.co.nz\nkyle@dekkergroup.co.nz\nNew Zealand',
   gstNumber: '',
   brandColour: '#1e40af',
   footerLine1: 'Thank you for your business.',
@@ -50,6 +46,9 @@ const STATUS_COLOURS = {
 
 async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, issuedAt, theme = {}, appendixImages = [] }) {
   const t = { ...DEFAULT_THEME, ...theme };
+  t.companyName = stripDiacritics(t.companyName);
+  t.contactDetails = stripDiacritics(t.contactDetails);
+  t.gstNumber = stripDiacritics(t.gstNumber);
   const BRAND = t.brandColour || '#1e40af';
   const logoH = LOGO_SIZES[t.logoSize] || 58;
   const logoOnLeft  = (t.logoPosition  || 'left')  === 'left';
@@ -117,22 +116,33 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
     const logoTopY = 50 + Math.round((70 - logoH) / 2);
     const logoX    = logoOnLeft ? 60 : 50 + W - logoFit[0] - 10;
     const textX    = logoOnLeft ? 66 : 50 + W - 220;
+    // Leave room for the contact block when they're on opposite sides — a
+    // long trading name (e.g. "Dekker Group Limited T/A Dekker Air") would
+    // otherwise run straight under it.
+    const nameMaxWidth = logoOnLeft !== contactOnLeft ? W * 0.55 : W - 20;
+
+    function drawCompanyName() {
+      let size = 22;
+      doc.font('Helvetica-Bold');
+      while (size > 11 && doc.fontSize(size).widthOfString(t.companyName) > nameMaxWidth) size -= 1;
+      doc.fillColor(t.transparentHeader ? BRAND : 'white').fontSize(size).font('Helvetica-Bold')
+        .text(t.companyName, textX, 78, { width: nameMaxWidth, lineBreak: false, ellipsis: true });
+    }
 
     if (t.logoBase64) {
       try {
         const buf = Buffer.from(t.logoBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
         doc.image(buf, logoX, logoTopY, { height: logoH, fit: logoFit });
       } catch {
-        doc.fillColor(t.transparentHeader ? BRAND : 'white').fontSize(22).font('Helvetica-Bold').text(t.companyName, textX, 65);
-        doc.fillColor(headerSubColour).fontSize(9).font('Helvetica').text(t.tagline, textX, 92);
+        drawCompanyName();
       }
     } else {
-      doc.fillColor(t.transparentHeader ? BRAND : 'white').fontSize(22).font('Helvetica-Bold').text(t.companyName, textX, 65);
-      doc.fillColor(headerSubColour).fontSize(9).font('Helvetica').text(t.tagline, textX, 92);
+      drawCompanyName();
     }
 
-    // Contact details block
-    const contactLines = [t.website, t.email, t.phone, t.location].filter(Boolean);
+    // Contact details block — one free-text field, printed as-is line by
+    // line, so the trading entity can order/format it however they want.
+    const contactLines = (t.contactDetails || '').split('\n').map(l => l.trim()).filter(Boolean);
     doc.fillColor(headerSubColour).fontSize(8).font('Helvetica');
     if (contactOnLeft) {
       contactLines.forEach((line, i) => doc.text(line, 60, 63 + i * 13, { width: W / 2 }));

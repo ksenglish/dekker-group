@@ -4,15 +4,92 @@ const c = require('../controllers/settingsController');
 const { buildPDF } = require('../utils/pdf');
 const { testConnection, getEmailSettings } = require('../utils/email');
 const { getXeroConnection, saveXeroConnection } = require('../utils/xero');
+const { themeRowToJson, getDefaultTheme, getThemeById } = require('../utils/documentThemes');
 const pool = require('../db/pool');
 
 router.get('/', authenticate, c.get);
 router.put('/', authenticate, requireRole('admin', 'office'), c.update);
 
-// Preview PDF using current theme with sample data
+// ── Document Themes ──────────────────────────────────────────────────────
+// Quotes and invoices each pick a theme (logo, trading name, brand colour,
+// free-text contact details) instead of a single global company profile.
+
+router.get('/themes', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM document_themes ORDER BY archived, is_default DESC, name');
+    res.json(rows.map(themeRowToJson));
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/themes', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const { name, companyName, gstNumber, contactDetails, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Theme name is required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO document_themes (name, company_name, gst_number, contact_details, brand_colour, logo_base64, logo_size, logo_position, contact_position, transparent_header, footer_line1, footer_line2)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, brandColour || '#1e40af',
+       logoBase64 || null, logoSize || 'medium', logoPosition || 'left', contactPosition || 'right', !!transparentHeader,
+       footerLine1 || 'Thank you for your business.', footerLine2 || '']
+    );
+    // First theme ever created becomes the default automatically.
+    const { rows: [{ count }] } = await pool.query('SELECT COUNT(*) FROM document_themes');
+    if (Number(count) === 1) {
+      await pool.query('UPDATE document_themes SET is_default=true WHERE id=$1', [rows[0].id]);
+      rows[0].is_default = true;
+    }
+    res.status(201).json(themeRowToJson(rows[0]));
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/themes/:id', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const { name, companyName, gstNumber, contactDetails, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Theme name is required' });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE document_themes SET name=$1, company_name=$2, gst_number=$3, contact_details=$4, brand_colour=$5,
+         logo_base64=$6, logo_size=$7, logo_position=$8, contact_position=$9, transparent_header=$10,
+         footer_line1=$11, footer_line2=$12, updated_at=NOW()
+       WHERE id=$13 RETURNING *`,
+      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, brandColour || '#1e40af',
+       logoBase64 || null, logoSize || 'medium', logoPosition || 'left', contactPosition || 'right', !!transparentHeader,
+       footerLine1 || 'Thank you for your business.', footerLine2 || '', req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Theme not found' });
+    res.json(themeRowToJson(rows[0]));
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/themes/:id/set-default', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  try {
+    await pool.query('UPDATE document_themes SET is_default=false WHERE is_default=true');
+    const { rows } = await pool.query(
+      'UPDATE document_themes SET is_default=true, archived=false, updated_at=NOW() WHERE id=$1 RETURNING *',
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Theme not found' });
+    res.json(themeRowToJson(rows[0]));
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.patch('/themes/:id/archive', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const { archived } = req.body;
+  try {
+    const { rows: [theme] } = await pool.query('SELECT is_default FROM document_themes WHERE id=$1', [req.params.id]);
+    if (!theme) return res.status(404).json({ error: 'Theme not found' });
+    if (theme.is_default && archived) return res.status(400).json({ error: 'Set another theme as default before archiving this one' });
+    const { rows } = await pool.query(
+      'UPDATE document_themes SET archived=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
+      [!!archived, req.params.id]
+    );
+    res.json(themeRowToJson(rows[0]));
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Preview PDF using the default theme with sample data
 router.get('/preview-pdf', authenticate, requireRole('admin', 'office'), async (req, res) => {
   try {
-    const theme = await c.getTheme();
+    const theme = req.query.theme_id ? await getThemeById(req.query.theme_id) : await getDefaultTheme();
     const pdf = await buildPDF({
       type: 'Quote',
       number: 'Q-PREVIEW',
