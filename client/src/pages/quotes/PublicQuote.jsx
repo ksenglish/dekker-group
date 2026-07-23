@@ -4,11 +4,6 @@ import axios from 'axios';
 
 const API = '/api';
 
-const STATUS_COLOURS = {
-  draft: '#6b7280', approved: '#7c3aed', sent: '#0891b2', accepted: '#16a34a',
-  declined: '#dc2626', cancelled: '#6b7280',
-};
-
 function fmt(cents) {
   return (cents / 100).toLocaleString('en-NZ', { style: 'currency', currency: 'NZD' });
 }
@@ -94,29 +89,19 @@ export default function PublicQuote() {
           );
           return (
             <div style={s.header}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', flexWrap: 'wrap', gap: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flex: 1, minWidth: 0, gap: 16, flexWrap: 'wrap' }}>
-                  {companyBlock}
-                  {contactBlock}
-                </div>
-                <div style={{ ...s.quoteRef, flexShrink: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-                    <span style={s.quoteNumber}>{quote.number}</span>
-                    <span style={{ ...s.statusBadge, background: STATUS_COLOURS[quote.status] || '#6b7280' }}>
-                      {quote.status?.toUpperCase()}
-                    </span>
-                  </div>
-                  <div style={s.quoteDate}>{fmtDate(quote.created_at)}</div>
-                  {quote.expires_at && (
-                    <div style={{ fontSize: 12, color: quote.is_expired ? '#dc2626' : '#64748b', marginTop: 4 }}>
-                      Valid until: {fmtDate(quote.expires_at)}
-                    </div>
-                  )}
-                </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', flexWrap: 'wrap', gap: 16 }}>
+                {companyBlock}
+                {contactBlock}
               </div>
             </div>
           );
         })()}
+
+        {/* Title row — quote name + number, its own row above Bill To, matching the PDF */}
+        <div style={s.titleRow}>
+          <div style={s.quoteTitle}>Quote</div>
+          <div style={s.quoteNumber}>{quote.number}</div>
+        </div>
 
         {/* Bill To / Job Details / Quote Details */}
         <div style={s.detailGrid}>
@@ -225,7 +210,7 @@ export default function PublicQuote() {
         {quote.terms && (
           <div style={s.notes}>
             <div style={s.label}>Terms & Conditions</div>
-            <p style={{ fontSize: 13, color: '#64748b', whiteSpace: 'pre-wrap', margin: 0 }}>{quote.terms}</p>
+            <p style={{ fontSize: 13, color: '#0f172a', whiteSpace: 'pre-wrap', margin: 0 }}>{quote.terms}</p>
           </div>
         )}
 
@@ -290,39 +275,38 @@ const s = {
   page: { minHeight: '100vh', background: '#f8fafc', display: 'flex', justifyContent: 'center', padding: '32px 16px', fontFamily: 'system-ui, -apple-system, sans-serif' },
   center: { display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' },
   container: { background: 'white', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', width: '100%', maxWidth: 760, overflow: 'hidden' },
-  header: { background: 'white', color: '#0f172a', padding: '24px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid #e2e8f0' },
+  header: { background: 'white', color: '#0f172a', padding: '24px 32px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
   companyBlock: {},
   logo: { height: 52, maxWidth: 180, objectFit: 'contain', marginBottom: 8, display: 'block' },
   companyName: { fontSize: 20, fontWeight: 700, marginBottom: 4 },
-  companyContact: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  quoteRef: { textAlign: 'right' },
-  quoteNumber: { fontSize: 18, fontWeight: 700, color: '#0f172a' },
-  statusBadge: { fontSize: 10, fontWeight: 700, color: 'white', padding: '3px 8px', borderRadius: 4, letterSpacing: '0.03em' },
-  quoteDate: { fontSize: 12, color: '#64748b', marginTop: 4 },
+  companyContact: { fontSize: 12, color: '#0f172a', marginTop: 2 },
+  titleRow: { padding: '4px 32px 20px', display: 'flex', alignItems: 'baseline', gap: 10, borderBottom: '2px solid #e2e8f0' },
+  quoteTitle: { fontSize: 22, fontWeight: 700, color: '#0f172a', textTransform: 'uppercase' },
+  quoteNumber: { fontSize: 14, fontWeight: 700, color: '#0f172a' },
   detailGrid: { padding: '20px 32px', borderBottom: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20 },
-  label: { fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#64748b', marginBottom: 8 },
-  customerName: { fontSize: 15, fontWeight: 600 },
-  customerDetail: { fontSize: 12, color: '#64748b', marginTop: 3 },
+  label: { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#0f172a', marginBottom: 8 },
+  customerName: { fontSize: 15, fontWeight: 700 },
+  customerDetail: { fontSize: 12, color: '#0f172a', marginTop: 3 },
   detailField: { marginBottom: 8 },
-  detailFieldLabel: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#94a3b8' },
+  detailFieldLabel: { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#0f172a' },
   detailFieldValue: { fontSize: 12, color: '#0f172a', marginTop: 2 },
   table: { width: '100%', borderCollapse: 'collapse' },
   tableHead: { background: '#f8fafc' },
-  th: { padding: '10px 8px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#64748b', borderBottom: '1px solid #e2e8f0', borderTop: '1px solid #e2e8f0' },
-  td: { padding: '12px 8px', fontSize: 13, verticalAlign: 'middle' },
+  th: { padding: '10px 8px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#0f172a', borderBottom: '1px solid #e2e8f0', borderTop: '1px solid #e2e8f0' },
+  td: { padding: '12px 8px', fontSize: 13, verticalAlign: 'middle', color: '#0f172a' },
   rowEven: { background: 'white' },
   rowOdd: { background: '#fafafa' },
   thumb: { width: 40, height: 40, objectFit: 'contain', borderRadius: 4, display: 'block' },
   thumbEmpty: { width: 40, height: 40 },
   totals: { padding: '16px 32px', borderTop: '2px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 6 },
-  totalRow: { display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#475569' },
+  totalRow: { display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#0f172a', fontWeight: 700 },
   totalFinal: { fontSize: 16, fontWeight: 700, color: '#0f172a', borderTop: '1px solid #e2e8f0', paddingTop: 8, marginTop: 4 },
-  notes: { padding: '16px 32px', borderTop: '1px solid #e2e8f0', color: '#475569' },
+  notes: { padding: '16px 32px', borderTop: '1px solid #e2e8f0', color: '#0f172a' },
   acceptSection: { padding: '24px 32px', borderTop: '2px solid #e2e8f0', background: '#fafafa' },
   acceptedBanner: { background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#15803d', padding: '14px 20px', borderRadius: 6, fontSize: 14 },
   acceptForm: {},
-  acceptTitle: { fontSize: 16, fontWeight: 600, marginBottom: 8 },
-  acceptHint: { fontSize: 13, color: '#64748b', margin: '0 0 12px' },
+  acceptTitle: { fontSize: 16, fontWeight: 700, marginBottom: 8 },
+  acceptHint: { fontSize: 13, color: '#0f172a', margin: '0 0 12px' },
   acceptRow: { display: 'flex', gap: 10, flexWrap: 'wrap' },
   acceptInput: { flex: 1, minWidth: 200, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14, fontFamily: 'inherit', outline: 'none' },
   acceptBtn: { padding: '10px 20px', background: '#0f172a', color: 'white', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' },

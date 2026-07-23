@@ -149,14 +149,17 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
     doc.fontSize(26).font('Helvetica-Bold').fillColor(BRAND).text(type.toUpperCase(), 50, docY);
 
     const numText = `#${number}`;
-    doc.fontSize(11).font('Helvetica').fillColor(MID_GREY).text(numText, 50, docY + 34);
+    doc.fontSize(11).font('Helvetica-Bold').fillColor(TEXT).text(numText, 50, docY + 34);
 
-    const statusColour = STATUS_COLOURS[status] || '#6b7280';
-
-    const badgeX = 50 + doc.widthOfString(numText) + 10;
-    doc.roundedRect(badgeX, docY + 30, 62, 18, 4).fill(statusColour);
-    doc.fontSize(9).font('Helvetica-Bold').fillColor('white')
-      .text(status.toUpperCase(), badgeX + 4, docY + 34, { width: 54, align: 'center' });
+    // Status badge — internal-status noise a customer doesn't need to see,
+    // so it's only shown on invoices, not customer-facing quotes.
+    if (!isQuote) {
+      const statusColour = STATUS_COLOURS[status] || '#6b7280';
+      const badgeX = 50 + doc.widthOfString(numText) + 10;
+      doc.roundedRect(badgeX, docY + 30, 62, 18, 4).fill(statusColour);
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('white')
+        .text(status.toUpperCase(), badgeX + 4, docY + 34, { width: 54, align: 'center' });
+    }
 
     if (isQuote) {
       // ══════════════════════════════════════════════════════════
@@ -170,7 +173,7 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       const col1X = 50, col2X = 50 + colW + colGap, col3X = 50 + (colW + colGap) * 2;
       let y = docY + 70;
 
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY);
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT);
       doc.text('BILL TO', col1X, y, { width: colW });
       doc.text('JOB DETAILS', col2X, y, { width: colW });
       doc.text('QUOTE DETAILS', col3X, y, { width: colW });
@@ -190,7 +193,7 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       let c2y = y;
       [['Job Number', jobNumber], ['Job Address', jobAddress]].forEach(([label, value]) => {
         if (!value) return;
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text(label, col2X, c2y, { width: colW });
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text(label, col2X, c2y, { width: colW });
         c2y += 12;
         doc.fontSize(9).font('Helvetica').fillColor(TEXT).text(value, col2X, c2y, { width: colW });
         c2y += doc.heightOfString(value, { width: colW }) + 8;
@@ -198,18 +201,18 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
 
       // Column 3: quote dates + GST number
       let c3y = y;
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('Issue Date', col3X, c3y, { width: colW });
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text('Issue Date', col3X, c3y, { width: colW });
       c3y += 12;
       doc.fontSize(9).font('Helvetica-Bold').fillColor(TEXT).text(formatDate(issuedAt || new Date()), col3X, c3y, { width: colW });
       c3y += 16;
       if (expiresAt) {
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('Expiry Date', col3X, c3y, { width: colW });
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text('Expiry Date', col3X, c3y, { width: colW });
         c3y += 12;
         doc.fontSize(9).font('Helvetica-Bold').fillColor('#dc2626').text(formatDate(expiresAt), col3X, c3y, { width: colW });
         c3y += 16;
       }
       if (t.gstNumber) {
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('GST Number', col3X, c3y, { width: colW });
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text('GST Number', col3X, c3y, { width: colW });
         c3y += 12;
         doc.fontSize(9).font('Helvetica').fillColor(TEXT).text(t.gstNumber, col3X, c3y, { width: colW });
       }
@@ -220,7 +223,7 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       if (notes) {
         const noteH = doc.fontSize(9).font('Helvetica').heightOfString(notes, { width: W });
         y = ensureSpace(y, 14 + noteH + 10);
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('NOTES', 50, y);
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text('NOTES', 50, y);
         doc.fontSize(9).font('Helvetica').fillColor(TEXT).text(notes, 50, y + 14, { width: W });
         y += 14 + noteH + 20;
       }
@@ -271,7 +274,7 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       // ── Totals ───────────────────────────────────────────────────
       y = ensureSpace(y, 60);
       const totX = 380;
-      doc.fontSize(9).font('Helvetica').fillColor(MID_GREY);
+      doc.fontSize(9).font('Helvetica-Bold').fillColor(TEXT);
       doc.text('Subtotal',   totX, y);
       doc.text('GST (15%)',  totX, y + 18);
       doc.fillColor(TEXT).font('Helvetica-Bold').fontSize(11);
@@ -303,8 +306,8 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       if (terms) {
         const termsH = doc.fontSize(8).font('Helvetica').heightOfString(terms, { width: W });
         y = ensureSpace(y, 14 + termsH + 10);
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('TERMS & CONDITIONS', 50, y);
-        doc.fontSize(8).font('Helvetica').fillColor(MID_GREY).text(terms, 50, y + 14, { width: W });
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text('TERMS & CONDITIONS', 50, y);
+        doc.fontSize(8).font('Helvetica').fillColor(TEXT).text(terms, 50, y + 14, { width: W });
         y += 14 + termsH + 20;
       }
 
@@ -312,7 +315,7 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       // page bottom, so it can never land on a page of its own. ────
       y = ensureSpace(y, 30);
       doc.moveTo(50, y).lineTo(50 + W, y).strokeColor(LIGHT_GREY).lineWidth(1).stroke();
-      doc.fontSize(8).font('Helvetica').fillColor(MID_GREY)
+      doc.fontSize(8).font('Helvetica').fillColor(TEXT)
         .text(t.footerLine1, 50, y + 10, { width: W, align: 'center' })
         .text(t.footerLine2, 50, y + 22, { width: W, align: 'center' });
     } else {
