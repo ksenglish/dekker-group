@@ -219,7 +219,7 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       if (expiresAt) {
         doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text('Expiry Date', col3X, c3y, { width: colW });
         c3y += 12;
-        doc.fontSize(9).font('Helvetica-Bold').fillColor('#dc2626').text(formatDate(expiresAt), col3X, c3y, { width: colW });
+        doc.fontSize(9).font('Helvetica-Bold').fillColor(TEXT).text(formatDate(expiresAt), col3X, c3y, { width: colW });
         c3y += 16;
       }
       if (t.gstNumber) {
@@ -310,7 +310,11 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       }
 
       // ── Drawing(s) — each on its own full page, titled "Proposal" ──
-      let drewDrawing = false;
+      // No footer follows: a full-page drawing leaves no room for one, and
+      // forcing a fresh page just to print a footer line left a near-blank
+      // page between the Proposal and the brochures. The quote ends here;
+      // Terms & Conditions still gets its own page, appended after
+      // brochures below.
       for (const dataUrl of appendixImages || []) {
         try {
           const raw = dataUrl.replace(/^data:image\/\w+;base64,/, '');
@@ -319,21 +323,8 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
           doc.fontSize(18).font('Helvetica-Bold').fillColor(BRAND).text('Proposal', MARGIN, MARGIN);
           const imgTop = MARGIN + 18 + 16;
           doc.image(buf, MARGIN, imgTop, { fit: [W, PAGE_H - imgTop - MARGIN], align: 'center', valign: 'center' });
-          drewDrawing = true;
         } catch { /* skip bad drawing */ }
       }
-      // A full-page drawing leaves no room for the footer on the same page —
-      // start a fresh one rather than risk drawing on top of it (the exact
-      // bug this whole ensureSpace approach exists to avoid).
-      if (drewDrawing) { doc.addPage(); y = MARGIN; }
-
-      // ── Footer — flows after content instead of pinning to the
-      // page bottom, so it can never land on a page of its own. ────
-      y = ensureSpace(y, 30);
-      doc.moveTo(50, y).lineTo(50 + W, y).strokeColor(LIGHT_GREY).lineWidth(1).stroke();
-      doc.fontSize(8).font('Helvetica').fillColor(TEXT)
-        .text(t.footerLine1, 50, y + 10, { width: W, align: 'center' })
-        .text(t.footerLine2, 50, y + 22, { width: W, align: 'center' });
     } else {
       // ══════════════════════════════════════════════════════════
       // Invoice layout — unchanged from before.

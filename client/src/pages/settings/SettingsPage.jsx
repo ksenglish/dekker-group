@@ -194,7 +194,6 @@ const EMPTY_DOC_THEME = {
   paymentTerms: '', termsAndConditions: '',
   brandColour: '#1e40af', logoBase64: '', logoSize: 'medium', logoPosition: 'left',
   contactPosition: 'right', transparentHeader: false,
-  footerLine1: 'Thank you for your business.', footerLine2: '',
 };
 
 // Full branding form for one theme — used both to create a new theme and to
@@ -382,17 +381,6 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
                 <input type="checkbox" checked={!!form.transparentHeader} onChange={e => set('transparentHeader', e.target.checked)} />
                 <span>Transparent header</span>
               </label>
-            </div>
-          </div>
-
-          <div className={styles.formGrid}>
-            <div className={styles.field}>
-              <label>Footer Line 1</label>
-              <input value={form.footerLine1 || ''} onChange={e => set('footerLine1', e.target.value)} placeholder="Thank you for your business." />
-            </div>
-            <div className={styles.field}>
-              <label>Footer Line 2</label>
-              <input value={form.footerLine2 || ''} onChange={e => set('footerLine2', e.target.value)} />
             </div>
           </div>
         </div>
