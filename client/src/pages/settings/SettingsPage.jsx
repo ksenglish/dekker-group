@@ -7,7 +7,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Settings.module.css';
 
-const TABS = ['My Account', 'Security', 'Document Themes', 'Terms & Conditions', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
+const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
 
 // ── Sortable job status row (drag to reorder) ─────────────────────────────────
 function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
@@ -37,9 +37,6 @@ export default function SettingsPage() {
   const [searchParams] = useSearchParams();
   // Supports deep-linking to a tab, e.g. /settings?tab=Integrations from the Xero OAuth callback
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'My Account');
-  const [theme, setTheme] = useState(null);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
 
   // Email / SMTP state
   const [email, setEmail] = useState({ provider: 'smtp', host: 'smtp-relay.brevo.com', port: 587, user: '', pass: '', from: '', fromName: 'Dekker Group' });
@@ -50,7 +47,6 @@ export default function SettingsPage() {
   const setEmailField = (k, v) => setEmail(s => ({ ...s, [k]: v }));
 
   useEffect(() => {
-    api.get('/settings').then(r => setTheme(r.data));
     api.get('/settings/email').then(r => setEmail(s => ({ ...s, ...r.data }))).catch(() => {});
   }, []);
 
@@ -72,25 +68,6 @@ export default function SettingsPage() {
     finally { setEmailTesting(false); }
   }
 
-  function set(key, val) {
-    setTheme(t => ({ ...t, [key]: val }));
-    setSaved(false);
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    try {
-      const { data } = await api.put('/settings', theme);
-      setTheme(data);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
-      alert(err.response?.data?.error || `Save failed: ${err.message}`);
-    } finally { setSaving(false); }
-  }
-
-  if (!theme) return <div className={styles.page}><div className={styles.loading}>Loading…</div></div>;
-
   return (
     <div className={styles.page}>
       <div className={styles.pageHeader}>
@@ -98,13 +75,6 @@ export default function SettingsPage() {
           <h1 className={styles.pageTitle}>Settings</h1>
           <p className={styles.pageSubtitle}>Manage your company branding and document templates</p>
         </div>
-        {activeTab === 'Terms & Conditions' && (
-          <div className={styles.headerActions}>
-            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Changes'}
-            </button>
-          </div>
-        )}
       </div>
 
       <div className={styles.layout}>
@@ -202,52 +172,6 @@ export default function SettingsPage() {
             <JobTypesTab />
           )}
 
-          {activeTab === 'Terms & Conditions' && (
-            <div className={styles.section}>
-              <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>Terms &amp; Conditions</h2></div>
-                <div className={styles.cardBody}>
-                  <div className={styles.field}>
-                    <label>Quote Terms & Conditions</label>
-                    <textarea rows={12} value={theme.quoteTerms || ''}
-                      onChange={e => set('quoteTerms', e.target.value)}
-                      placeholder="Enter your standard terms and conditions for quotes…&#10;&#10;e.g. Payment terms, warranty, cancellation policy, etc."
-                      className={styles.termsArea} />
-                    <span className={styles.hint}>These terms will appear on all quote PDFs below the line items.</span>
-                  </div>
-                  <div className={styles.field} style={{ marginTop: 20 }}>
-                    <label>Invoice Terms & Conditions</label>
-                    <textarea rows={12} value={theme.invoiceTerms || ''}
-                      onChange={e => set('invoiceTerms', e.target.value)}
-                      placeholder="Enter your standard terms and conditions for invoices…&#10;&#10;e.g. Payment due date, late payment fees, bank account details, etc."
-                      className={styles.termsArea} />
-                    <span className={styles.hint}>These terms will appear on all invoice PDFs below the line items.</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className={styles.card}>
-                <div className={styles.cardHeader}><h2>Quote Expiry</h2></div>
-                <div className={styles.cardBody}>
-                  <div className={styles.field}>
-                    <label>Default Expiry (days)</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <input type="number" min="0" max="365" step="1"
-                        value={theme.quoteExpiryDays ?? 30}
-                        onChange={e => set('quoteExpiryDays', Math.max(0, parseInt(e.target.value) || 0))}
-                        style={{ width: 90 }} />
-                      <span style={{ fontSize: 13, color: '#64748b' }}>
-                        {(theme.quoteExpiryDays ?? 30) === 0
-                          ? 'No expiry date will be set'
-                          : `Quotes expire ${theme.quoteExpiryDays ?? 30} days after creation`}
-                      </span>
-                    </div>
-                    <span className={styles.hint}>Set to 0 to create quotes with no expiry date. The expiry date is shown on the PDF and the customer's quote link.</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -267,6 +191,7 @@ const THEME_COLOUR_PRESETS = [
 
 const EMPTY_DOC_THEME = {
   name: '', companyName: 'DEKKER GROUP', gstNumber: '', contactDetails: '',
+  paymentTerms: '', termsAndConditions: '',
   brandColour: '#1e40af', logoBase64: '', logoSize: 'medium', logoPosition: 'left',
   contactPosition: 'right', transparentHeader: false,
   footerLine1: 'Thank you for your business.', footerLine2: '',
@@ -363,6 +288,22 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
               placeholder={'Dekker Group Limited\n15 Dekker Road, Omanawa, 3173, New Zealand\nEmail: office@dekkergroup.co.nz\nPhone: 0800 477 123'}
               className={styles.termsArea} style={{ minHeight: 100 }} />
             <span className={styles.hint}>Printed exactly as typed, one line at a time, in the document header</span>
+          </div>
+
+          <div className={styles.field}>
+            <label>Payment Terms</label>
+            <textarea rows={6} value={form.paymentTerms || ''} onChange={e => set('paymentTerms', e.target.value)}
+              placeholder="e.g. Deposit/payment split, bank account details…"
+              className={styles.termsArea} />
+            <span className={styles.hint}>Shown on the quote right after the line items, before the job drawing</span>
+          </div>
+
+          <div className={styles.field}>
+            <label>Terms & Conditions</label>
+            <textarea rows={8} value={form.termsAndConditions || ''} onChange={e => set('termsAndConditions', e.target.value)}
+              placeholder="Enter your standard terms and conditions…"
+              className={styles.termsArea} />
+            <span className={styles.hint}>Shown at the very end of the quote (after brochures) and on invoice PDFs</span>
           </div>
 
           <div className={styles.field}>
@@ -471,6 +412,56 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
   );
 }
 
+// The one quote-wide setting that isn't per-theme — how many days a new
+// quote stays valid for. Self-contained (own fetch/save) since it uses the
+// old global settings blob, unrelated to the document_themes table.
+function QuoteExpiryCard() {
+  const [days, setDays] = useState(30);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings').then(r => setDays(r.data.quoteExpiryDays ?? 30)).finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.put('/settings', { quoteExpiryDays: days });
+      setSaved(true); setTimeout(() => setSaved(false), 3000);
+    } catch { alert('Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return null;
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardHeader}><h2>Quote Expiry</h2></div>
+      <div className={styles.cardBody}>
+        <div className={styles.field}>
+          <label>Default Expiry (days)</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <input type="number" min="0" max="365" step="1" value={days}
+              onChange={e => { setDays(Math.max(0, parseInt(e.target.value) || 0)); setSaved(false); }}
+              style={{ width: 90 }} />
+            <span style={{ fontSize: 13, color: '#64748b' }}>
+              {days === 0 ? 'No expiry date will be set' : `Quotes expire ${days} days after creation`}
+            </span>
+          </div>
+          <span className={styles.hint}>Set to 0 to create quotes with no expiry date. The expiry date is shown on the PDF and the customer's quote link.</span>
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <button className={styles.btnPrimary} onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DocumentThemesTab() {
   const [themes, setThemes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -552,6 +543,9 @@ function DocumentThemesTab() {
           )}
         </div>
       </div>
+
+      <QuoteExpiryCard />
+
       {editing !== null && (
         <ThemeModal theme={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={onSaved} onSilentSave={load} />
       )}

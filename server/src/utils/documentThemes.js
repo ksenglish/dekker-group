@@ -8,6 +8,8 @@ function themeRowToJson(row) {
     companyName: row.company_name,
     gstNumber: row.gst_number,
     contactDetails: row.contact_details,
+    paymentTerms: row.payment_terms,
+    termsAndConditions: row.terms_and_conditions,
     brandColour: row.brand_colour,
     logoBase64: row.logo_base64,
     logoSize: row.logo_size,

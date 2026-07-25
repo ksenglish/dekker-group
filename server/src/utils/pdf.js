@@ -44,7 +44,7 @@ const STATUS_COLOURS = {
   cancelled: '#6b7280', paid: '#16a34a', overdue: '#dc2626',
 };
 
-async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, issuedAt, theme = {}, appendixImages = [] }) {
+async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, paymentTerms, issuedAt, theme = {}, appendixImages = [] }) {
   const t = { ...DEFAULT_THEME, ...theme };
   t.companyName = stripDiacritics(t.companyName);
   t.contactDetails = stripDiacritics(t.contactDetails);
@@ -60,6 +60,7 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
   // and quote notes/terms/line-item descriptions.
   notes = stripDiacritics(notes);
   terms = stripDiacritics(terms);
+  paymentTerms = stripDiacritics(paymentTerms);
   jobNumber = stripDiacritics(jobNumber);
   jobAddress = stripDiacritics(jobAddress);
   customer = {
@@ -297,6 +298,17 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       doc.text(formatNZD(total),    totX, y + 40, { width: W - totX + 50, align: 'right' });
       y += 70;
 
+      // ── Payment Terms — same spot Terms & Conditions used to occupy,
+      // before the drawing. Terms & Conditions itself now lives at the very
+      // end of the document, after the brochures (see below). ───────────
+      if (paymentTerms) {
+        const ptH = doc.fontSize(9).font('Helvetica').heightOfString(paymentTerms, { width: W });
+        y = ensureSpace(y, 14 + ptH + 10);
+        doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text('PAYMENT TERMS', 50, y);
+        doc.fontSize(9).font('Helvetica').fillColor(TEXT).text(paymentTerms, 50, y + 14, { width: W });
+        y += 14 + ptH + 20;
+      }
+
       // ── Drawing(s) — each on its own full page, titled "Proposal" ──
       let drewDrawing = false;
       for (const dataUrl of appendixImages || []) {
@@ -310,16 +322,10 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
           drewDrawing = true;
         } catch { /* skip bad drawing */ }
       }
-      y = drewDrawing ? MARGIN : y;
-
-      // ── Terms & Conditions — after the drawing ────────────────────
-      if (terms) {
-        const termsH = doc.fontSize(8).font('Helvetica').heightOfString(terms, { width: W });
-        y = ensureSpace(y, 14 + termsH + 10);
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text('TERMS & CONDITIONS', 50, y);
-        doc.fontSize(8).font('Helvetica').fillColor(TEXT).text(terms, 50, y + 14, { width: W });
-        y += 14 + termsH + 20;
-      }
+      // A full-page drawing leaves no room for the footer on the same page —
+      // start a fresh one rather than risk drawing on top of it (the exact
+      // bug this whole ensureSpace approach exists to avoid).
+      if (drewDrawing) { doc.addPage(); y = MARGIN; }
 
       // ── Footer — flows after content instead of pinning to the
       // page bottom, so it can never land on a page of its own. ────
@@ -440,10 +446,11 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
     doc.end();
   });
 
-  // ── Appendix (pdf-lib merge): product brochures, directly after
-  // everything above (drawings are now rendered inline via pdfkit) ─
+  // ── Appendix (pdf-lib merge): product brochures, then — for quotes —
+  // Terms & Conditions as the very last page(s) of the document. ─────
   const brochureUrls = (items || []).filter(i => i.brochure_base64).map(i => i.brochure_base64);
-  if (!brochureUrls.length) return mainBuf;
+  const needsTermsPage = isQuote && !!terms;
+  if (!brochureUrls.length && !needsTermsPage) return mainBuf;
 
   const merged = await PdfLib.load(mainBuf);
 
@@ -468,6 +475,28 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
         page.drawImage(img, { x: (595 - width) / 2, y: (842 - height) / 2, width, height });
       }
     } catch { /* skip bad brochure */ }
+  }
+
+  // Terms & Conditions, built as its own small pdfkit document (so its text
+  // wraps and paginates using pdfkit's own layout engine rather than
+  // reimplementing that by hand in pdf-lib), then spliced on as final pages —
+  // always last, after every brochure.
+  if (needsTermsPage) {
+    const TERMS_MARGIN = 50;
+    const termsBuf = await new Promise((resolve, reject) => {
+      const termsDoc = new PDFDocument({ margin: TERMS_MARGIN, size: 'A4' });
+      const termsW = termsDoc.page.width - TERMS_MARGIN * 2;
+      const chunks = [];
+      termsDoc.on('data', c => chunks.push(c));
+      termsDoc.on('end', () => resolve(Buffer.concat(chunks)));
+      termsDoc.on('error', reject);
+      termsDoc.fontSize(16).font('Helvetica-Bold').fillColor(BRAND).text('Terms & Conditions', TERMS_MARGIN, TERMS_MARGIN);
+      termsDoc.fontSize(9).font('Helvetica').fillColor(TEXT).text(terms, TERMS_MARGIN, TERMS_MARGIN + 30, { width: termsW });
+      termsDoc.end();
+    });
+    const termsPdf = await PdfLib.load(termsBuf);
+    const copiedTerms = await merged.copyPages(termsPdf, termsPdf.getPageIndices());
+    copiedTerms.forEach(p => merged.addPage(p));
   }
 
   return Buffer.from(await merged.save());

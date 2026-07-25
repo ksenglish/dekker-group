@@ -194,6 +194,16 @@ export default function PublicQuote() {
           <div style={{ ...s.totalRow, ...s.totalFinal }}><span>Total (incl. GST)</span><span>{fmt(quote.total)}</span></div>
         </div>
 
+        {/* Payment Terms — same spot Terms & Conditions used to occupy,
+        before the drawing. Terms & Conditions itself now lives at the very
+        end, after the brochures. */}
+        {quote.payment_terms && (
+          <div style={s.notes}>
+            <div style={s.label}>Payment Terms</div>
+            <p style={{ fontSize: 14, whiteSpace: 'pre-wrap', margin: 0 }}>{quote.payment_terms}</p>
+          </div>
+        )}
+
         {/* Proposal (job drawing pulled from ArcSite) */}
         {quote.arcsite_drawings?.length > 0 && (
           <div style={s.brochureSection}>
@@ -203,14 +213,6 @@ export default function PublicQuote() {
                 <img src={src} alt="Proposal drawing" style={s.proposalImg} />
               </div>
             ))}
-          </div>
-        )}
-
-        {/* Terms & Conditions — below the drawing */}
-        {quote.terms && (
-          <div style={s.notes}>
-            <div style={s.label}>Terms & Conditions</div>
-            <p style={{ fontSize: 13, color: '#0f172a', whiteSpace: 'pre-wrap', margin: 0 }}>{quote.terms}</p>
           </div>
         )}
 
@@ -263,6 +265,14 @@ export default function PublicQuote() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Terms & Conditions — the very end, after everything including brochures */}
+        {quote.terms && (
+          <div style={s.notes}>
+            <div style={s.label}>Terms & Conditions</div>
+            <p style={{ fontSize: 13, color: '#0f172a', whiteSpace: 'pre-wrap', margin: 0 }}>{quote.terms}</p>
           </div>
         )}
 

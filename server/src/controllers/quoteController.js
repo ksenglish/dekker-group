@@ -243,14 +243,14 @@ async function downloadPdf(req, res) {
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const appendixImages = await getJobDrawingImages(q.job_id);
-    const settings = await getTheme();
     const docTheme = await getThemeById(q.theme_id);
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, terms: settings.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme: docTheme,
+      status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: docTheme.termsAndConditions || '',
+      issuedAt: q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="quote-${q.id.slice(0,8)}.pdf"` });
@@ -308,14 +308,14 @@ async function sendEmail(req, res) {
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const appendixImages = await getJobDrawingImages(q.job_id);
-    const settings = await getTheme();
     const docTheme = await getThemeById(q.theme_id);
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, terms: settings.quoteTerms || '', issuedAt: q.created_at, expiresAt: q.expires_at, theme: docTheme,
+      status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: docTheme.termsAndConditions || '',
+      issuedAt: q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
     });
 
@@ -379,7 +379,6 @@ async function publicGet(req, res) {
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const arcsiteDrawings = await getJobDrawingImages(q.job_id);
-    const settings = await getTheme();
     const docTheme = await getThemeById(q.theme_id);
     res.json({
       id: q.id,
@@ -394,7 +393,8 @@ async function publicGet(req, res) {
       job_external_ref: q.external_ref,
       job_address: formatJobAddress(q),
       notes: q.notes,
-      terms: settings.quoteTerms || '',
+      payment_terms: docTheme.paymentTerms || '',
+      terms: docTheme.termsAndConditions || '',
       subtotal: q.subtotal, gst: q.gst, total: q.total,
       created_at: q.created_at,
       accepted_at: q.accepted_at,
