@@ -401,11 +401,17 @@ async function publicGet(req, res) {
   try {
     const q = await getQuoteFull({ token: req.params.token });
     if (!q) return res.status(404).json({ error: 'Quote not found' });
-    // Mark as viewed if it was only sent/opened before
-    if (q.delivery_status === 'sent' || q.delivery_status === 'opened') {
-      await pool.query('UPDATE quotes SET delivery_status=\'viewed\' WHERE public_token=$1', [req.params.token]);
+    // Staff hitting this from the quote editor's Preview button — show the
+    // quote, but don't count it as the customer having viewed it. The emailed
+    // link and Copy Link both omit the flag, so genuine views still record.
+    const isPreview = req.query.preview === '1';
+    if (!isPreview) {
+      // Mark as viewed if it was only sent/opened before
+      if (q.delivery_status === 'sent' || q.delivery_status === 'opened') {
+        await pool.query('UPDATE quotes SET delivery_status=\'viewed\' WHERE public_token=$1', [req.params.token]);
+      }
+      await logActivity({ type: 'quote_viewed', entity_type: 'quote', entity_id: q.id, message: 'Quote viewed by customer' });
     }
-    await logActivity({ type: 'quote_viewed', entity_type: 'quote', entity_id: q.id, message: 'Quote viewed by customer' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const arcsiteDrawings = await getJobDrawingImages(q.job_id);

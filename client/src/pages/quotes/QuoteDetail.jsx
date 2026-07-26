@@ -155,7 +155,10 @@ export default function QuoteDetail() {
           )}
           <button className={styles.btnSecondary} onClick={handleDownload}>⬇ Download PDF</button>
           {quote.public_token && (
-            <button className={styles.btnSecondary} onClick={() => window.open(`${window.location.origin}/q/${quote.public_token}`, '_blank')}>
+            // ?preview=1 marks this as an internal staff look, so it isn't
+            // recorded as a customer view. Copy Link and the emailed link
+            // both use the clean URL, so real views still register.
+            <button className={styles.btnSecondary} onClick={() => window.open(`${window.location.origin}/q/${quote.public_token}?preview=1`, '_blank')}>
               👁 Preview
             </button>
           )}

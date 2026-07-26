@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 
 const API = '/api';
@@ -20,6 +20,9 @@ function jobNumberDisplay(quote) {
 
 export default function PublicQuote() {
   const { token } = useParams();
+  const [searchParams] = useSearchParams();
+  // Staff previewing from the quote editor — don't record it as a customer view.
+  const isPreview = searchParams.get('preview') === '1';
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
@@ -28,11 +31,11 @@ export default function PublicQuote() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    axios.get(`${API}/quotes/public/${token}`)
+    axios.get(`${API}/quotes/public/${token}`, { params: isPreview ? { preview: '1' } : {} })
       .then(r => setQuote(r.data))
       .catch(() => setError('Quote not found or has expired.'))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, isPreview]);
 
   async function handleAccept(e) {
     e.preventDefault();
