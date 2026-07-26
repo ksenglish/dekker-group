@@ -396,3 +396,18 @@
   .brochureHeader { padding: 10px 12px; }
   .brochureContent { padding: 10px; }
 }
+
+/* Confirmation shown after adding a product, so the presenter can stay open
+   while the rep keeps browsing. Above the product panel (1200) and brochure
+   modal (1300) so it's never hidden behind them. */
+.toast {
+  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+  background: #0f172a; color: #fff; padding: 13px 24px; border-radius: 8px;
+  font-size: 15px; font-weight: 600; z-index: 1400; max-width: 90vw;
+  text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  animation: toastIn 0.18s ease-out;
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translate(-50%, 10px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}

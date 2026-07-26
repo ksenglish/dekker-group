@@ -45,38 +45,24 @@ export default function QuoteList() {
   const [activeTab, setActiveTab] = useState('awaiting_acceptance');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState([]);
-  const [deleting, setDeleting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   // Admins can remove any quote; everyone else only their own.
   const canDelete = q => user?.role === 'admin' || q.created_by === user?.id;
 
-  function toggleSelected(id) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-
-  async function handleBulkDelete() {
-    if (!confirm(`Delete ${selected.length} quote${selected.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
-    setDeleting(true);
+  async function handleDeleteQuote(q) {
+    if (!confirm(`Delete ${fmtQuoteNum(q)}? This cannot be undone.`)) return;
+    setDeletingId(q.id);
     try {
-      const { data } = await api.post('/quotes/bulk-delete', { ids: selected });
-      // Only the ones that actually went are removed from the list, so anything
-      // the server refused stays visible rather than silently reappearing.
-      const { data: fresh } = await api.get('/quotes', {
-        params: activeTab ? { status: activeTab === 'awaiting_acceptance' ? 'sent' : activeTab } : {},
-      });
-      setQuotes(fresh);
-      setSelected([]);
-      if (data.invoiced) {
-        alert(`Deleted ${data.deleted}. ${data.invoiced} could not be deleted because they've been converted to an invoice.`);
-      }
-    } catch { alert('Failed to delete quotes.'); }
-    finally { setDeleting(false); }
+      await api.delete(`/quotes/${q.id}`);
+      setQuotes(qs => qs.filter(x => x.id !== q.id));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete quote.');
+    } finally { setDeletingId(null); }
   }
 
   useEffect(() => {
     setLoading(true);
-    setSelected([]);
     // For awaiting_acceptance tab, fetch 'sent' status from API
     const apiStatus = activeTab === 'awaiting_acceptance' ? 'sent' : activeTab;
     api.get('/quotes', { params: apiStatus ? { status: apiStatus } : {} })
@@ -129,18 +115,12 @@ export default function QuoteList() {
       <div className={styles.toolbar}>
         <input type="search" className={styles.searchInput} placeholder="Search by customer or quote number…"
           value={search} onChange={e => setSearch(e.target.value)} />
-        {selected.length > 0 && (
-          <button className={styles.btnDanger} onClick={handleBulkDelete} disabled={deleting}>
-            {deleting ? 'Deleting…' : `Delete ${selected.length} selected`}
-          </button>
-        )}
       </div>
 
       {loading ? <div className={styles.loading}>Loading…</div> :
        filtered.length === 0 ? <div className={styles.empty}>No quotes found.</div> : (
         <div className={styles.table}>
-          <div className={styles.tableHeader} style={{ gridTemplateColumns: '32px 110px 1fr 120px 100px 80px 110px 100px' }}>
-            <span />
+          <div className={styles.tableHeader} style={{ gridTemplateColumns: '110px 1fr 120px 100px 80px 110px 100px 36px' }}>
             <span>Quote #</span>
             <span>Customer</span>
             <span>Job</span>
@@ -148,17 +128,11 @@ export default function QuoteList() {
             <span>Delivery</span>
             <span>Expiry</span>
             <span style={{ textAlign: 'right' }}>Total</span>
+            <span />
           </div>
           {filtered.map(q => (
             <Link key={q.id} to={`/quotes/${q.id}`} className={styles.tableRow}
-              style={{ gridTemplateColumns: '32px 110px 1fr 120px 100px 80px 110px 100px' }}>
-              <span onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
-                {canDelete(q) && (
-                  <input type="checkbox" checked={selected.includes(q.id)}
-                    onChange={() => toggleSelected(q.id)}
-                    aria-label={`Select ${fmtQuoteNum(q)}`} />
-                )}
-              </span>
+              style={{ gridTemplateColumns: '110px 1fr 120px 100px 80px 110px 100px 36px' }}>
               <span className={styles.docNum}>{fmtQuoteNum(q)}</span>
               <span>{q.customer_name || '—'}</span>
               <span className={styles.muted}>{q.job_number ? formatJobNumber(q) : '—'}</span>
@@ -175,6 +149,17 @@ export default function QuoteList() {
                 {q.expires_at ? new Date(q.expires_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' }) : '—'}
               </span>
               <span className={styles.totalCol}>${(q.total / 100).toFixed(2)}</span>
+              <span style={{ textAlign: 'right' }}>
+                {canDelete(q) && (
+                  <button
+                    onClick={e => { e.preventDefault(); e.stopPropagation(); handleDeleteQuote(q); }}
+                    disabled={deletingId === q.id}
+                    title={`Delete ${fmtQuoteNum(q)}`}
+                    style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 4 }}>
+                    ✕
+                  </button>
+                )}
+              </span>
             </Link>
           ))}
         </div>

@@ -6,6 +6,7 @@ import { formatJobNumber } from '../../lib/formatJobNumber';
 import EmailComposeModal from './EmailComposeModal';
 import RichTextEditor from '../../components/RichTextEditor';
 import LineItemsEditor from '../jobs/LineItemsEditor';
+import SalesPresenter from '../presenter/SalesPresenter';
 import styles from './Quotes.module.css';
 
 const STATUSES = ['draft', 'approved', 'sent', 'accepted', 'declined', 'cancelled'];
@@ -41,6 +42,7 @@ export default function QuoteDetail() {
   const [quoteDate, setQuoteDate] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [activity, setActivity] = useState([]);
+  const [showPresenter, setShowPresenter] = useState(false);
 
   function loadActivity() {
     api.get(`/quotes/${id}/activity`).then(r => setActivity(r.data)).catch(() => {});
@@ -94,6 +96,29 @@ export default function QuoteDetail() {
       loadActivity();
     } catch { flash('error', 'Failed to save quote details'); }
     finally { setSavingDetails(false); }
+  }
+
+  // Products picked in the Sales Presenter get appended to this quote's line
+  // items. Prices here are excl. GST dollars — the same units the line-items
+  // endpoint expects — so no GST conversion happens on this path.
+  async function handlePresenterPick(product) {
+    if (!product) { setShowPresenter(false); return; }
+    const unitPrice = product.unit_price != null ? product.unit_price / 100
+      : product.price_from > 0 ? product.price_from / 100 : 0;
+    const payload = [
+      ...(quote.line_items || []).map(i => ({
+        description: i.description, quantity: i.quantity,
+        unit_price: i.unit_price / 100, product_id: i.product_id,
+      })),
+      {
+        description: product.name,
+        quantity: 1,
+        unit_price: unitPrice,
+        product_id: product.unit_price != null ? product.id : null,
+      },
+    ];
+    const { data } = await api.put(`/quotes/${id}/line-items`, { items: payload });
+    setQuote(q => ({ ...q, line_items: data.line_items, subtotal: data.subtotal, gst: data.gst, total: data.total }));
   }
 
   async function handleSaveLineItems(lineItems) {
@@ -156,9 +181,9 @@ export default function QuoteDetail() {
           <button className={styles.btnSecondary} onClick={() => navigate(quote.job_id ? `/jobs/${quote.job_id}` : '/quotes')}>
             ← Back{quote.job_id ? ' to Job' : ''}
           </button>
-          {quote.job_id && (
-            <button className={styles.btnSecondary} onClick={() => navigate(`/jobs/${quote.job_id}?tab=line_items`)}>
-              ✎ Edit
+          {quote.status !== 'accepted' && (
+            <button className={styles.btnSecondary} onClick={() => setShowPresenter(true)}>
+              🎯 Sales Presenter
             </button>
           )}
           <button className={styles.btnSecondary} onClick={handleDownload}>⬇ Download PDF</button>
@@ -205,6 +230,12 @@ export default function QuoteDetail() {
           onClose={() => setShowEmailModal(false)}
           onSent={handleEmailSent}
         />
+      )}
+
+      {showPresenter && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300 }}>
+          <SalesPresenter jobId={quote.job_id} onPick={handlePresenterPick} />
+        </div>
       )}
 
       <div className={styles.detailLayout}>

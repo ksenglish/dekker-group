@@ -9,7 +9,6 @@ import { isBillable } from '../../lib/billing';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
-import SalesPresenter from '../presenter/SalesPresenter';
 import AssignModal from '../schedule/AssignModal';
 import JobFormsTab from './JobFormsTab';
 import styles from './Jobs.module.css';
@@ -580,30 +579,21 @@ function JobQuotesTab({ job, user }) {
   const [creating, setCreating] = useState(false);
   const [themes, setThemes] = useState([]);
   const [themeId, setThemeId] = useState('');
-  const [selected, setSelected] = useState([]);
-  const [deleting, setDeleting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
   const navigate = useNavigate();
 
   // Admins can remove any quote; everyone else only their own.
   const canDelete = q => user?.role === 'admin' || q.created_by === user?.id;
 
-  function toggleSelected(id) {
-    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-  }
-
-  async function handleBulkDelete() {
-    if (!confirm(`Delete ${selected.length} quote${selected.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
-    setDeleting(true);
+  async function handleDeleteQuote(q) {
+    if (!confirm(`Delete ${fmtQuoteNum(q)}? This cannot be undone.`)) return;
+    setDeletingId(q.id);
     try {
-      const { data } = await api.post('/quotes/bulk-delete', { ids: selected });
-      const { data: fresh } = await api.get('/quotes', { params: { job: job.id } });
-      setQuotes(fresh);
-      setSelected([]);
-      if (data.invoiced) {
-        alert(`Deleted ${data.deleted}. ${data.invoiced} could not be deleted because they've been converted to an invoice.`);
-      }
-    } catch { alert('Failed to delete quotes.'); }
-    finally { setDeleting(false); }
+      await api.delete(`/quotes/${q.id}`);
+      setQuotes(qs => qs.filter(x => x.id !== q.id));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete quote.');
+    } finally { setDeletingId(null); }
   }
 
   useEffect(() => {
@@ -639,35 +629,32 @@ function JobQuotesTab({ job, user }) {
               {themes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           )}
-          {selected.length > 0 && (
-            <button className={styles.btnDanger} onClick={handleBulkDelete} disabled={deleting}>
-              {deleting ? 'Deleting…' : `Delete ${selected.length} selected`}
-            </button>
-          )}
         </div>
       )}
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        quotes.length === 0 ? <div className={styles.emptySmall}>No quotes for this job yet.</div> : (
         quotes.map(q => (
           <Link key={q.id} to={`/quotes/${q.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--color-border)', textDecoration: 'none', color: 'inherit' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
-                {canDelete(q) && (
-                  <input type="checkbox" checked={selected.includes(q.id)}
-                    onChange={() => toggleSelected(q.id)}
-                    aria-label={`Select ${fmtQuoteNum(q)}`} />
-                )}
-              </span>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{fmtQuoteNum(q)}</div>
-                <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{new Date(q.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
-              </div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{fmtQuoteNum(q)}</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{new Date(q.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>${(q.total / 100).toFixed(2)}</div>
-              <span className={styles.statusBadge} style={{ background: (QUOTE_STATUS_COLOURS[q.status] || '#6b7280') + '18', color: QUOTE_STATUS_COLOURS[q.status] || '#6b7280' }}>
-                {q.status}
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>${(q.total / 100).toFixed(2)}</div>
+                <span className={styles.statusBadge} style={{ background: (QUOTE_STATUS_COLOURS[q.status] || '#6b7280') + '18', color: QUOTE_STATUS_COLOURS[q.status] || '#6b7280' }}>
+                  {q.status}
+                </span>
+              </div>
+              {canDelete(q) && (
+                <button
+                  onClick={e => { e.preventDefault(); e.stopPropagation(); handleDeleteQuote(q); }}
+                  disabled={deletingId === q.id}
+                  title={`Delete ${fmtQuoteNum(q)}`}
+                  style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 4 }}>
+                  ✕
+                </button>
+              )}
             </div>
           </Link>
         ))
@@ -734,7 +721,6 @@ export default function JobDetail() {
   // Supports deep-linking to a tab, e.g. /jobs/:id?tab=line_items from the "Edit" button on a quote
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'details');
   const [emailFlash, setEmailFlash] = useState('');
-  const [showPresenter, setShowPresenter] = useState(false);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [syncingArcSite, setSyncingArcSite] = useState(false);
   const [pullingDrawings, setPullingDrawings] = useState(false);
@@ -873,9 +859,6 @@ export default function JobDetail() {
             <div className={styles.headerActions}>
               {canAct(user?.role) && (
                 <button className={styles.btnSecondary} onClick={() => setShowAppointmentModal(true)}>📅 New Appointment</button>
-              )}
-              {user?.role !== 'operations' && (
-                <button className={styles.btnPresenter} onClick={() => setShowPresenter(true)}>🎯 Sales Presenter</button>
               )}
               {user?.role !== 'field_tech' && user?.role !== 'operations' && (
                 <button className={styles.btnSecondary} onClick={handleArcSiteSync} disabled={syncingArcSite}>
@@ -1149,38 +1132,6 @@ export default function JobDetail() {
         />
       )}
 
-      {/* Sales Presenter picker */}
-      {showPresenter && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 300 }}>
-          <SalesPresenter jobId={id} onPick={async (product) => {
-            setShowPresenter(false);
-            if (!product) return;
-            try {
-              const existing = job.line_items || [];
-              // price list products use `unit_price` (cents); presenter products use `price_from`
-              const unitPrice = product.unit_price != null ? product.unit_price / 100
-                : product.price_from > 0 ? product.price_from / 100 : 0;
-              const newItem = {
-                description: product.name,
-                quantity: 1,
-                unit_price: unitPrice,
-                product_id: product.unit_price != null ? product.id : null,
-              };
-              const items = [
-                ...existing.map(i => ({ ...i, unit_price: i.unit_price / 100 })),
-                newItem,
-              ];
-              await api.put(`/jobs/${id}/line-items`, { items });
-              setActiveTab('line_items');
-              setEmailFlash(`${product.name} added to job`);
-              const { data: updated } = await api.get(`/jobs/${id}`);
-              setJob(updated);
-            } catch {
-              setEmailFlash('Failed to add product');
-            }
-          }} />
-        </div>
-      )}
     </div>
   );
 }

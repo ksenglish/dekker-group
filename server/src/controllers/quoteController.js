@@ -256,29 +256,6 @@ async function remove(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-async function bulkRemove(req, res) {
-  const { ids } = req.body || {};
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'No quotes selected' });
-  try {
-    const { rows } = await pool.query(
-      `SELECT q.id, q.created_by, EXISTS(SELECT 1 FROM invoices i WHERE i.quote_id=q.id) AS invoiced
-       FROM quotes q WHERE q.id = ANY($1::uuid[])`,
-      [ids]
-    );
-    const permitted = rows.filter(q => canDeleteQuote(req.user, q));
-    const invoiced = permitted.filter(q => q.invoiced).length;
-    const deletable = permitted.filter(q => !q.invoiced).map(q => q.id);
-    if (deletable.length) {
-      await pool.query('DELETE FROM quotes WHERE id = ANY($1::uuid[])', [deletable]);
-    }
-    res.json({
-      deleted: deletable.length,
-      not_permitted: rows.length - permitted.length,
-      invoiced,
-    });
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
-}
-
 async function convertToInvoice(req, res) {
   const { rows: [quote] } = await pool.query(
     `SELECT q.*, c.name AS customer_name, c.email AS customer_email, c.company AS customer_company, c.phone AS customer_phone
@@ -609,4 +586,4 @@ async function getActivity(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, updateLineItems, remove, bulkRemove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, trackOpen, getActivity };
+module.exports = { list, get, create, update, updateLineItems, remove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, trackOpen, getActivity };

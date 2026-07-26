@@ -455,7 +455,7 @@ function SmartVentLiteCalculator({ onPick }) {
           {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {priceProduct && onPick && (
             <button className={styles.addToJobBtn} onClick={() => onPick(priceProduct)}>
-              + Add {tableMatch.model} to Job
+              + Add {tableMatch.model} to Quote
             </button>
           )}
           {priceProduct && (
@@ -597,7 +597,7 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
           {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {priceProduct && onPick && (
             <button className={styles.addToJobBtn} onClick={() => onPick(priceProduct)}>
-              + Add {tableMatch.model} to Job
+              + Add {tableMatch.model} to Quote
             </button>
           )}
           {priceProduct && (
@@ -711,7 +711,7 @@ function SmartVentBalancedPressureCalculator({ onPick }) {
           {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {priceProduct && onPick && (
             <button className={styles.addToJobBtn} onClick={() => onPick(priceProduct)}>
-              + Add {tableMatch.model} to Job
+              + Add {tableMatch.model} to Quote
             </button>
           )}
           {priceProduct && (
@@ -832,7 +832,7 @@ function BDVAirPositivePressureCalculator({ onPick }) {
           {exGst == null && <div className={styles.calcNote} style={{ marginTop: 10 }}>No price on file for "{tableMatch.model}" — contact the office to price this unit.</div>}
           {priceProduct && onPick && (
             <button className={styles.addToJobBtn} onClick={() => onPick(priceProduct)}>
-              + Add {tableMatch.model} to Job
+              + Add {tableMatch.model} to Quote
             </button>
           )}
           {priceProduct && (
@@ -1189,8 +1189,27 @@ export default function SalesPresenter({ onPick, jobId }) {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedProductFull, setSelectedProductFull] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState(null);
 
   const currentNode = subcatStack[subcatStack.length - 1] || null;
+
+  // Adding a product keeps the presenter open — it just closes the product
+  // panel and flashes a confirmation, so the rep can keep working through the
+  // catalogue and add several products in one sitting. Only Cancel/Exit
+  // (onPick(null)) actually leaves.
+  async function handlePick(product) {
+    if (!product) { onPick(null); return; }
+    try {
+      await onPick(product);
+      setSelectedProduct(null);
+      setSelectedProductFull(null);
+      setToast(`${product.name} added to quote`);
+      setTimeout(() => setToast(null), 2600);
+    } catch {
+      setToast('Could not add that product — please try again.');
+      setTimeout(() => setToast(null), 3200);
+    }
+  }
 
   useEffect(() => {
     api.get('/presenter/sections').then(r => {
@@ -1352,10 +1371,12 @@ export default function SalesPresenter({ onPick, jobId }) {
           product={selectedProductFull || selectedProduct}
           section={activeSection}
           onClose={() => { setSelectedProduct(null); setSelectedProductFull(null); }}
-          onPick={onPick}
+          onPick={onPick ? handlePick : null}
           jobId={jobId}
         />
       )}
+
+      {toast && <div className={styles.toast}>{toast}</div>}
     </div>
   );
 }
