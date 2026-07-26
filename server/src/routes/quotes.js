@@ -13,8 +13,10 @@ router.use(requireRole('admin', 'office'));
 
 router.get('/', c.list);
 router.post('/', c.create);
+router.post('/bulk-delete', c.bulkRemove);
 router.get('/:id', c.get);
 router.put('/:id', c.update);
+router.put('/:id/line-items', c.updateLineItems);
 router.post('/:id/approve', c.approve);
 router.delete('/:id', c.remove);
 router.post('/:id/convert', c.convertToInvoice);

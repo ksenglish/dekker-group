@@ -580,7 +580,31 @@ function JobQuotesTab({ job, user }) {
   const [creating, setCreating] = useState(false);
   const [themes, setThemes] = useState([]);
   const [themeId, setThemeId] = useState('');
+  const [selected, setSelected] = useState([]);
+  const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
+
+  // Admins can remove any quote; everyone else only their own.
+  const canDelete = q => user?.role === 'admin' || q.created_by === user?.id;
+
+  function toggleSelected(id) {
+    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  }
+
+  async function handleBulkDelete() {
+    if (!confirm(`Delete ${selected.length} quote${selected.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      const { data } = await api.post('/quotes/bulk-delete', { ids: selected });
+      const { data: fresh } = await api.get('/quotes', { params: { job: job.id } });
+      setQuotes(fresh);
+      setSelected([]);
+      if (data.invoiced) {
+        alert(`Deleted ${data.deleted}. ${data.invoiced} could not be deleted because they've been converted to an invoice.`);
+      }
+    } catch { alert('Failed to delete quotes.'); }
+    finally { setDeleting(false); }
+  }
 
   useEffect(() => {
     api.get('/quotes', { params: { job: job.id } }).then(r => setQuotes(r.data)).finally(() => setLoading(false));
@@ -615,15 +639,29 @@ function JobQuotesTab({ job, user }) {
               {themes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           )}
+          {selected.length > 0 && (
+            <button className={styles.btnDanger} onClick={handleBulkDelete} disabled={deleting}>
+              {deleting ? 'Deleting…' : `Delete ${selected.length} selected`}
+            </button>
+          )}
         </div>
       )}
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        quotes.length === 0 ? <div className={styles.emptySmall}>No quotes for this job yet.</div> : (
         quotes.map(q => (
           <Link key={q.id} to={`/quotes/${q.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--color-border)', textDecoration: 'none', color: 'inherit' }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{fmtQuoteNum(q)}</div>
-              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{new Date(q.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
+                {canDelete(q) && (
+                  <input type="checkbox" checked={selected.includes(q.id)}
+                    onChange={() => toggleSelected(q.id)}
+                    aria-label={`Select ${fmtQuoteNum(q)}`} />
+                )}
+              </span>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{fmtQuoteNum(q)}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{new Date(q.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+              </div>
             </div>
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>${(q.total / 100).toFixed(2)}</div>

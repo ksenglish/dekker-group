@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import EmailComposeModal from './EmailComposeModal';
 import RichTextEditor from '../../components/RichTextEditor';
+import LineItemsEditor from '../jobs/LineItemsEditor';
 import styles from './Quotes.module.css';
 
 const STATUSES = ['draft', 'approved', 'sent', 'accepted', 'declined', 'cancelled'];
@@ -95,6 +96,13 @@ export default function QuoteDetail() {
     finally { setSavingDetails(false); }
   }
 
+  async function handleSaveLineItems(lineItems) {
+    const { data } = await api.put(`/quotes/${id}/line-items`, { items: lineItems });
+    setQuote(q => ({ ...q, line_items: data.line_items, subtotal: data.subtotal, gst: data.gst, total: data.total }));
+    flash('success', 'Line items saved');
+    loadActivity();
+  }
+
   async function handleDownload() {
     const res = await api.get(`/quotes/${id}/pdf`, { responseType: 'blob' });
     const url = URL.createObjectURL(res.data);
@@ -183,7 +191,7 @@ export default function QuoteDetail() {
               {converting ? 'Converting…' : '→ Convert to Invoice'}
             </button>
           )}
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin' || quote.created_by === user?.id) && (
             <button className={styles.btnDanger} onClick={handleDelete}>Delete</button>
           )}
         </div>
@@ -210,28 +218,6 @@ export default function QuoteDetail() {
                 {s.charAt(0).toUpperCase() + s.slice(1)}
               </button>
             ))}
-          </div>
-
-          {/* Line items */}
-          <div className={styles.card}>
-            <div className={styles.cardHeader}><h2>Line Items</h2></div>
-            <div className={styles.lineHeader}>
-              <span>Description</span><span>Qty</span><span>Unit Price</span><span>Line Total</span>
-            </div>
-            {items.length === 0 && <p className={styles.emptySmall}>No line items. Add them on the job first.</p>}
-            {items.map((item, i) => (
-              <div key={item.id} className={`${styles.lineRow} ${i % 2 === 1 ? styles.lineRowAlt : ''}`}>
-                <span>{item.description}</span>
-                <span>{item.quantity}</span>
-                <span>${(item.unit_price/100).toFixed(2)}</span>
-                <span>${(item.unit_price * item.quantity / 100).toFixed(2)}</span>
-              </div>
-            ))}
-            <div className={styles.totalsBlock}>
-              <div className={styles.totalRow}><span>Subtotal</span><span>${(quote.subtotal/100).toFixed(2)}</span></div>
-              <div className={styles.totalRow}><span>GST (15%)</span><span>${(quote.gst/100).toFixed(2)}</span></div>
-              <div className={`${styles.totalRow} ${styles.totalFinal}`}><span>Total (NZD)</span><span>${(quote.total/100).toFixed(2)}</span></div>
-            </div>
           </div>
 
           {/* Quote Details: theme, dates, description */}
@@ -261,6 +247,22 @@ export default function QuoteDetail() {
               <button className={styles.btnSecondary} onClick={handleSaveDetails} disabled={savingDetails}>
                 {savingDetails ? 'Saving…' : 'Save Quote Details'}
               </button>
+            </div>
+          </div>
+
+          {/* Line items — this quote's own, independent of the job and of any
+              other quote on it. Accepting the quote copies them onto the job. */}
+          <div className={styles.card}>
+            <div className={styles.cardHeader}><h2>Line Items</h2></div>
+            <LineItemsEditor
+              items={items}
+              onSave={handleSaveLineItems}
+              readonly={quote.status === 'accepted'}
+            />
+            <div className={styles.totalsBlock}>
+              <div className={styles.totalRow}><span>Subtotal</span><span>${(quote.subtotal/100).toFixed(2)}</span></div>
+              <div className={styles.totalRow}><span>GST (15%)</span><span>${(quote.gst/100).toFixed(2)}</span></div>
+              <div className={`${styles.totalRow} ${styles.totalFinal}`}><span>Total (NZD)</span><span>${(quote.total/100).toFixed(2)}</span></div>
             </div>
           </div>
 

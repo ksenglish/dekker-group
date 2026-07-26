@@ -55,7 +55,7 @@ async function get(req, res) {
       [req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Invoice not found' });
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [rows[0].job_id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL ORDER BY created_at', [rows[0].job_id]);
     res.json({ ...rows[0], line_items: items.rows });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
@@ -97,7 +97,7 @@ async function downloadPdf(req, res) {
       [req.params.id]
     );
     if (!inv) return res.status(404).json({ error: 'Not found' });
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [inv.job_id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL ORDER BY created_at', [inv.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const docTheme = await getThemeById(inv.theme_id);
     const pdf = await buildPDF({
@@ -121,7 +121,7 @@ async function sendEmail(req, res) {
     );
     if (!inv) return res.status(404).json({ error: 'Not found' });
     if (!inv.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [inv.job_id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL ORDER BY created_at', [inv.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const docTheme = await getThemeById(inv.theme_id);
     const pdf = await buildPDF({

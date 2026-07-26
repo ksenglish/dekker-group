@@ -95,8 +95,8 @@ async function get(req, res) {
       q = { ...q, public_token: updated[0].public_token };
     }
     const items = await pool.query(
-      'SELECT * FROM line_items WHERE job_id = $1 ORDER BY created_at',
-      [q.job_id]
+      'SELECT * FROM line_items WHERE quote_id = $1 ORDER BY created_at',
+      [q.id]
     );
     res.json({ ...q, line_items: items.rows });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
@@ -106,8 +106,8 @@ async function create(req, res) {
   const { job_id, customer_id, notes, theme_id } = req.body;
   if (!job_id) return res.status(400).json({ error: 'job_id is required' });
   try {
-    // Pull line items from the job to calculate totals
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1', [job_id]);
+    // Seed the quote from the job's current line items
+    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL', [job_id]);
     const { subtotal, gst, total } = calcTotals(items.rows);
     const theme = await getTheme();
     const expiryDays = theme.quoteExpiryDays ?? 30;
@@ -117,6 +117,14 @@ async function create(req, res) {
       `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by, theme_id, quote_date)
        VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,CURRENT_DATE) RETURNING *`,
       [job_id, customer_id || null, subtotal, gst, total, sanitizeHtml(notes) || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id, docTheme?.id || null]
+    );
+    // Take a copy of those items for the quote to own, so it can be priced
+    // independently of the job and of any other quote on it.
+    await pool.query(
+      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id)
+       SELECT job_id, $1, description, quantity, unit_price, product_id
+       FROM line_items WHERE job_id=$2 AND quote_id IS NULL ORDER BY created_at`,
+      [rows[0].id, job_id]
     );
     // Move job to quoted status
     await pool.query(
@@ -128,13 +136,37 @@ async function create(req, res) {
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
+// Once a quote is accepted it's the agreed scope of work, so the job's own
+// line items are replaced with that quote's — the job (and the invoice raised
+// from it) then reflects only what the customer actually signed off.
+async function syncJobLineItemsFromQuote(quoteId, jobId) {
+  if (!jobId) return;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM line_items WHERE job_id=$1 AND quote_id IS NULL', [jobId]);
+    await client.query(
+      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id)
+       SELECT $1, NULL, description, quantity, unit_price, product_id
+       FROM line_items WHERE quote_id=$2 ORDER BY created_at`,
+      [jobId, quoteId]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 async function update(req, res) {
   const { status, notes, theme_id, quote_date, expires_at } = req.body;
   try {
-    // Recalculate totals from current job line items
-    const quote = await pool.query('SELECT job_id FROM quotes WHERE id=$1', [req.params.id]);
+    // Totals always come from the quote's own line items
+    const quote = await pool.query('SELECT job_id, status FROM quotes WHERE id=$1', [req.params.id]);
     if (!quote.rows[0]) return res.status(404).json({ error: 'Not found' });
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1', [quote.rows[0].job_id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1', [req.params.id]);
     const { subtotal, gst, total } = calcTotals(items.rows);
     const { rows } = await pool.query(
       `UPDATE quotes SET status=$1, subtotal=$2, gst=$3, total=$4, notes=$5, updated_at=NOW(),
@@ -142,9 +174,43 @@ async function update(req, res) {
        WHERE id=$9 RETURNING *`,
       [status, subtotal, gst, total, notes != null ? sanitizeHtml(notes) : null, theme_id || null, quote_date || null, expires_at || null, req.params.id]
     );
+    if (status === 'accepted' && quote.rows[0].status !== 'accepted') {
+      await syncJobLineItemsFromQuote(req.params.id, quote.rows[0].job_id);
+    }
     await logActivity({ type: 'quote_modified', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id, message: 'Quote modified' });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+async function updateLineItems(req, res) {
+  const { items } = req.body;
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'Items must be an array' });
+  const client = await pool.connect();
+  try {
+    const { rows: [quote] } = await pool.query('SELECT job_id FROM quotes WHERE id=$1', [req.params.id]);
+    if (!quote) return res.status(404).json({ error: 'Quote not found' });
+    await client.query('BEGIN');
+    await client.query('DELETE FROM line_items WHERE quote_id=$1', [req.params.id]);
+    for (const item of items) {
+      if (!item.description) continue;
+      await client.query(
+        'INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id) VALUES ($1,$2,$3,$4,$5,$6)',
+        [quote.job_id, req.params.id, item.description, item.quantity || 1, Math.round((item.unit_price || 0) * 100), item.product_id || null]
+      );
+    }
+    await client.query('COMMIT');
+    const { rows } = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [req.params.id]);
+    const { subtotal, gst, total } = calcTotals(rows);
+    await pool.query('UPDATE quotes SET subtotal=$1, gst=$2, total=$3, updated_at=NOW() WHERE id=$4',
+      [subtotal, gst, total, req.params.id]);
+    await logActivity({ type: 'quote_modified', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id, message: 'Quote line items updated' });
+    res.json({ line_items: rows, subtotal, gst, total });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
+  }
 }
 
 // Internal sales-review step, ahead of actually sending — flips the badge
@@ -163,10 +229,53 @@ async function approve(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+// Admins can delete any quote; everyone else only the ones they raised.
+function canDeleteQuote(user, quote) {
+  return normaliseRole(user.role) === 'admin' || quote.created_by === user.id;
+}
+
+// An invoice keeps a reference to the quote it came from, so deleting that
+// quote would break the paper trail behind a financial record — those are
+// refused rather than cascaded away.
 async function remove(req, res) {
   try {
+    const { rows: [quote] } = await pool.query(
+      `SELECT q.created_by, EXISTS(SELECT 1 FROM invoices i WHERE i.quote_id=q.id) AS invoiced
+       FROM quotes q WHERE q.id=$1`,
+      [req.params.id]
+    );
+    if (!quote) return res.status(404).json({ error: 'Quote not found' });
+    if (!canDeleteQuote(req.user, quote)) {
+      return res.status(403).json({ error: 'You can only delete quotes you created' });
+    }
+    if (quote.invoiced) {
+      return res.status(409).json({ error: 'This quote has been converted to an invoice and can no longer be deleted.' });
+    }
     await pool.query('DELETE FROM quotes WHERE id=$1', [req.params.id]);
     res.json({ message: 'Deleted' });
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+async function bulkRemove(req, res) {
+  const { ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'No quotes selected' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT q.id, q.created_by, EXISTS(SELECT 1 FROM invoices i WHERE i.quote_id=q.id) AS invoiced
+       FROM quotes q WHERE q.id = ANY($1::uuid[])`,
+      [ids]
+    );
+    const permitted = rows.filter(q => canDeleteQuote(req.user, q));
+    const invoiced = permitted.filter(q => q.invoiced).length;
+    const deletable = permitted.filter(q => !q.invoiced).map(q => q.id);
+    if (deletable.length) {
+      await pool.query('DELETE FROM quotes WHERE id = ANY($1::uuid[])', [deletable]);
+    }
+    res.json({
+      deleted: deletable.length,
+      not_permitted: rows.length - permitted.length,
+      invoiced,
+    });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
@@ -255,7 +364,7 @@ async function downloadPdf(req, res) {
   try {
     const q = await getQuoteFull({ id: req.params.id });
     if (!q) return res.status(404).json({ error: 'Not found' });
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const appendixImages = await getJobDrawingImages(q.job_id);
     const docTheme = await getThemeById(q.theme_id);
@@ -321,7 +430,7 @@ async function sendEmail(req, res) {
     const q = await getQuoteFull({ id: req.params.id });
     if (!q) return res.status(404).json({ error: 'Not found' });
     if (!q.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const appendixImages = await getJobDrawingImages(q.job_id);
     const docTheme = await getThemeById(q.theme_id);
@@ -412,7 +521,7 @@ async function publicGet(req, res) {
       }
       await logActivity({ type: 'quote_viewed', entity_type: 'quote', entity_id: q.id, message: 'Quote viewed by customer' });
     }
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const arcsiteDrawings = await getJobDrawingImages(q.job_id);
     const docTheme = await getThemeById(q.theme_id);
@@ -456,10 +565,11 @@ async function publicAccept(req, res) {
       `UPDATE quotes SET status='accepted', accepted_at=NOW(), accepted_name=$1, updated_at=NOW()
        WHERE public_token=$2 AND status IN ('draft','sent')
        AND (expires_at IS NULL OR expires_at >= CURRENT_DATE)
-       RETURNING id, status, accepted_at, accepted_name`,
+       RETURNING id, job_id, status, accepted_at, accepted_name`,
       [name.trim(), req.params.token]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Quote not found or already accepted' });
+    await syncJobLineItemsFromQuote(rows[0].id, rows[0].job_id);
     await logActivity({ type: 'quote_accepted', entity_type: 'quote', entity_id: rows[0].id, user_id: null,
       message: `Quote accepted online by ${name.trim()}` });
     res.json(rows[0]);
@@ -499,4 +609,4 @@ async function getActivity(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, remove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, trackOpen, getActivity };
+module.exports = { list, get, create, update, updateLineItems, remove, bulkRemove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, trackOpen, getActivity };

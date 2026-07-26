@@ -93,7 +93,7 @@ router.post('/:id/push-to-xero', async (req, res) => {
     }
 
     const { rows: [customer] } = await pool.query('SELECT * FROM customers WHERE id=$1', [inv.customer_id]);
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [inv.job_id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL ORDER BY created_at', [inv.job_id]);
 
     let xeroContactId = customer.xero_contact_id;
     if (!xeroContactId) {

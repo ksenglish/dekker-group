@@ -102,7 +102,7 @@ async function get(req, res) {
     );
     if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
 
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id = $1 ORDER BY created_at', [req.params.id]);
+    const items = await pool.query('SELECT * FROM line_items WHERE job_id = $1 AND quote_id IS NULL ORDER BY created_at', [req.params.id]);
     const notes = await pool.query(
       `SELECT n.*, u.name AS author_name FROM job_notes n JOIN users u ON u.id = n.user_id
        WHERE n.job_id = $1 ORDER BY n.created_at DESC`,
@@ -252,7 +252,7 @@ async function updateLineItems(req, res) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM line_items WHERE job_id=$1', [req.params.id]);
+    await client.query('DELETE FROM line_items WHERE job_id=$1 AND quote_id IS NULL', [req.params.id]);
     for (const item of items) {
       if (!item.description) continue;
       await client.query(
@@ -261,7 +261,7 @@ async function updateLineItems(req, res) {
       );
     }
     await client.query('COMMIT');
-    const { rows } = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [req.params.id]);
+    const { rows } = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL ORDER BY created_at', [req.params.id]);
     res.json(rows);
   } catch (err) {
     await client.query('ROLLBACK');
