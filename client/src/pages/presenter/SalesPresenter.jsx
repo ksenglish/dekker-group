@@ -273,22 +273,64 @@ function LinearCalculator({ product }) {
   );
 }
 
-function HeatpumpCalculator({ product }) {
+// ── Rinnai highwall heat pump sizing table ────────────────────────────────────
+// Bands are the heating kW each model covers; the calculator's recommended
+// capacity picks the first band it falls inside.
+const RINNAI_HEATPUMP_TABLE = [
+  { kwMin: 0,    kwMax: 2.8, model: 'HSNRTX25', description: 'Rinnai 2.5COOL/2.8HEAT WIFI' },
+  { kwMin: 2.81, kwMax: 4,   model: 'HSNRTX35', description: 'Rinnai 3.5COOL/4.0HEAT WIFI' },
+  { kwMin: 4.01, kwMax: 5.5, model: 'HSNRTX50', description: 'Rinnai 5.0COOL/5.5HEAT WIFI' },
+  { kwMin: 5.51, kwMax: 6.5, model: 'HSNRTX60', description: 'Rinnai 6.0COOL/6.5HEAT WIFI' },
+  { kwMin: 6.51, kwMax: 7.5, model: 'HSNRTX70', description: 'Rinnai 7.0COOL/7.5HEAT WIFI' },
+  { kwMin: 7.51, kwMax: 8.2, model: 'HSNRTX80', description: 'Rinnai 7.65COOL/8.2HEAT WIFI' },
+  { kwMin: 8.21, kwMax: 9.5, model: 'HSNRTX90', description: 'Rinnai 9.0COOL/9.5HEAT WIFI' },
+];
+const HEATPUMP_MAX_KW = RINNAI_HEATPUMP_TABLE[RINNAI_HEATPUMP_TABLE.length - 1].kwMax;
+
+function HeatpumpCalculator({ onPick }) {
   const [length, setLength] = useState(5);
   const [width, setWidth] = useState(4);
   const [m2, setM2] = useState('20');
   const [ceilingHeight, setCeilingHeight] = useState('2.4');
+  const [customHeight, setCustomHeight] = useState('');
   const [insulation, setInsulation] = useState('average');
-  const basePrice = product.price_from / 100 || 0;
+  const [priceListProducts, setPriceListProducts] = useState([]);
+  const [showBrochure, setShowBrochure] = useState(false);
+  const [fullPriceProduct, setFullPriceProduct] = useState(null);
+
+  useEffect(() => {
+    api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
+  }, []);
 
   function handleLength(v) { setLength(v); setM2((v * width).toFixed(1)); }
   function handleWidth(v)  { setWidth(v);  setM2((length * v).toFixed(1)); }
   function handleM2(v)     { setM2(v); } // manual override — sliders stay where they are
 
   const kwMultiplier = { good: 0.05, average: 0.055, poor: 0.06 }[insulation];
-  const m3 = (parseFloat(m2) || 0) * (parseFloat(ceilingHeight) || 0);
-  const kw = m3 > 0 ? (m3 * kwMultiplier).toFixed(2) : null;
-  const total = basePrice > 0 ? basePrice * (insulation === 'poor' ? 1.1 : insulation === 'good' ? 0.95 : 1) : 0;
+  const effectiveHeight = ceilingHeight === 'other'
+    ? (parseFloat(customHeight) || 0)
+    : (parseFloat(ceilingHeight) || 0);
+  const m3 = (parseFloat(m2) || 0) * effectiveHeight;
+  const kwValue = m3 > 0 ? m3 * kwMultiplier : 0;
+  const kw = kwValue > 0 ? kwValue.toFixed(2) : null;
+
+  const tableMatch = kwValue > 0
+    ? RINNAI_HEATPUMP_TABLE.find(r => kwValue >= r.kwMin && kwValue <= r.kwMax)
+    : null;
+  const overCapacity = kwValue > HEATPUMP_MAX_KW;
+
+  // The price list may carry either the model code or the full description as
+  // the product name, so match on both.
+  const norm = s => (s || '').trim().toLowerCase();
+  const priceProduct = tableMatch
+    ? priceListProducts.find(p => {
+        const fields = [norm(p.name), norm(p.description)];
+        return fields.includes(norm(tableMatch.model)) || fields.includes(norm(tableMatch.description));
+      })
+    : null;
+
+  const exGst  = priceProduct ? priceProduct.unit_price / 100 : null;
+  const incGst = priceProduct ? Math.round((priceProduct.unit_price / 100) * 1.15 * 100) / 100 : null;
 
   return (
     <div className={styles.calc}>
@@ -325,8 +367,17 @@ function HeatpumpCalculator({ product }) {
             <option value="2.7">2.7 m (high stud)</option>
             <option value="3.0">3.0 m</option>
             <option value="3.6">3.6 m (very high)</option>
+            <option value="other">Other — enter below</option>
           </select>
         </div>
+        {ceilingHeight === 'other' && (
+          <div className={styles.calcField}>
+            <label>Custom Ceiling Height (m)</label>
+            <input type="number" min="0" step="0.1" value={customHeight} autoFocus
+              onChange={e => setCustomHeight(e.target.value)}
+              placeholder="e.g. 4.2" />
+          </div>
+        )}
         <div className={styles.calcField} style={{ gridColumn: '1 / -1' }}>
           <label>Insulation Level</label>
           <select value={insulation} onChange={e => setInsulation(e.target.value)}>
@@ -337,15 +388,56 @@ function HeatpumpCalculator({ product }) {
         </div>
       </div>
 
+      {ceilingHeight === 'other' && !(parseFloat(customHeight) > 0) && (
+        <div className={styles.calcNote}>Enter a ceiling height to size the heat pump.</div>
+      )}
+
       {kw && (
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Volume</span><strong>{m3.toFixed(1)} m³</strong></div>
           <div className={styles.calcResultRow}><span>Recommended capacity</span><strong className={styles.calcTotal}>{kw} kW</strong></div>
-          {basePrice > 0 && <>
-            <div className={styles.calcResultRow}><span>Estimated install (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+
+          {overCapacity && (
+            <div className={styles.calcNote} style={{ marginTop: 10 }}>
+              {kw} kW is beyond the largest highwall unit ({HEATPUMP_MAX_KW} kW). This space likely needs multiple units or a ducted system — please contact us for a custom design.
+            </div>
+          )}
+
+          {tableMatch && <>
+            <div className={styles.calcResultRow}><span>Recommended model</span><strong>{tableMatch.model}</strong></div>
+            <div className={styles.calcResultRow}><span>Unit</span><strong>{tableMatch.description}</strong></div>
+            {exGst != null && <>
+              <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+              <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            </>}
+            {!priceProduct && (
+              <div className={styles.calcNote} style={{ marginTop: 10 }}>
+                Add "{tableMatch.model}" to your Price List to enable live pricing and quote line items.
+              </div>
+            )}
+            {priceProduct && onPick && (
+              <button className={styles.addToJobBtn} onClick={() => onPick(priceProduct)}>
+                + Add {tableMatch.model} to Quote
+              </button>
+            )}
+            {priceProduct && (
+              <button className={styles.brochureBtn} onClick={() => {
+                if (fullPriceProduct) { setShowBrochure(true); return; }
+                api.get(`/products/${priceProduct.id}`).then(r => {
+                  setFullPriceProduct(r.data);
+                  if (r.data.brochure_base64) setShowBrochure(true);
+                  else alert('No brochure uploaded for this product.');
+                }).catch(() => {});
+              }}>
+                📄 View Product Brochure
+              </button>
+            )}
           </>}
         </div>
+      )}
+
+      {showBrochure && fullPriceProduct?.brochure_base64 && (
+        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch?.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -856,11 +948,21 @@ function BDVAirPositivePressureCalculator({ onPick }) {
   );
 }
 
+// Calculators that work out which model suits and offer their own "Add to
+// Quote" button — the panel must not add a second, generic one alongside.
+const SELF_PICK_CALCULATORS = new Set([
+  'heatpump',
+  'smartvent_lite',
+  'smartvent_positive_pressure',
+  'smartvent_balanced_pressure',
+  'bdvair_positive_pressure',
+]);
+
 function Calculator({ product, onPick, jobId }) {
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} jobId={jobId} />;
   if (type === 'linear') return <LinearCalculator product={product} />;
-  if (type === 'heatpump') return <HeatpumpCalculator product={product} />;
+  if (type === 'heatpump') return <HeatpumpCalculator onPick={onPick} />;
   if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
   if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} />;
   if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onPick={onPick} />;
@@ -1133,7 +1235,7 @@ function ProductPanel({ product, section, onClose, onPick, jobId }) {
             </div>
           )}
           <Calculator product={product} onPick={onPick} jobId={jobId} />
-          {onPick && product.calculator_type !== 'smartvent_lite' && product.calculator_type !== 'smartvent_positive_pressure' && product.calculator_type !== 'smartvent_balanced_pressure' && (
+          {onPick && !SELF_PICK_CALCULATORS.has(product.calculator_type) && (
             <button className={styles.addToJobBtn} onClick={() => onPick(product.price_list_product || product)}>
               + Add to Quote
             </button>
