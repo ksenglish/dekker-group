@@ -37,6 +37,148 @@ function stripDiacritics(value) {
   return String(value).normalize('NFD').replace(COMBINING_MARKS_RE, '');
 }
 
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ' };
+function decodeEntities(str) {
+  return str.replace(/&(#39|amp|lt|gt|quot|apos|nbsp);/g, (m, e) => ENTITIES[e] || m);
+}
+
+// Bespoke parser for the quote description field — NOT a general HTML
+// parser. It only needs to understand the small, known tag vocabulary the
+// RichTextEditor emits (div/p/br, ul/ol/li, b/strong/i/em/u, and span with a
+// handful of style props), already narrowed by sanitizeHtml.js server-side.
+// Produces paragraphs of styled text runs for renderDescriptionHtml to lay
+// out with pdfkit.
+function parseDescriptionHtml(html) {
+  if (!html) return [];
+  const tokens = html.match(/<[^>]+>|[^<]+/g) || [];
+  const paragraphs = [];
+  let curParagraph = null;
+  const styleStack = [{ bold: false, italic: false, underline: false, color: null, fontSize: null }];
+  const listStack = []; // { type: 'ul' | 'ol', n: number }
+  const currentStyle = () => styleStack[styleStack.length - 1];
+
+  function bulletFor() {
+    if (!listStack.length) return null;
+    const list = listStack[listStack.length - 1];
+    if (list.type !== 'ol') return '•';
+    list.n += 1;
+    return `${list.n}.`;
+  }
+  function startParagraph(align) {
+    curParagraph = { align: align || 'left', bullet: bulletFor(), runs: [] };
+    paragraphs.push(curParagraph);
+  }
+  function pushText(text) {
+    const decoded = decodeEntities(text).replace(/\s+/g, ' ');
+    if (!decoded.trim() && !decoded) return;
+    if (!curParagraph) startParagraph();
+    curParagraph.runs.push({ text: decoded, ...currentStyle() });
+  }
+  function parseStyleAttr(tag) {
+    const st = {};
+    const m = tag.match(/style\s*=\s*"([^"]*)"/i);
+    if (!m) return st;
+    m[1].split(';').forEach(rule => {
+      const idx = rule.indexOf(':');
+      if (idx < 0) return;
+      const k = rule.slice(0, idx).trim().toLowerCase();
+      const v = rule.slice(idx + 1).trim().toLowerCase();
+      if (!k || !v) return;
+      if (k === 'font-weight' && (v === 'bold' || /^[7-9]00$/.test(v))) st.bold = true;
+      if (k === 'font-style' && v === 'italic') st.italic = true;
+      if (k === 'text-decoration' && v.includes('underline')) st.underline = true;
+      if (k === 'color') st.color = v;
+      if (k === 'font-size') { const n = parseFloat(v); if (!Number.isNaN(n)) st.fontSize = n; }
+      if (k === 'text-align' && ['left', 'center', 'right'].includes(v)) st.align = v;
+    });
+    return st;
+  }
+
+  for (const tok of tokens) {
+    if (tok[0] !== '<') { pushText(tok); continue; }
+    const closing = tok[1] === '/';
+    const tagMatch = tok.match(/^<\/?([a-zA-Z0-9]+)/);
+    const tag = tagMatch ? tagMatch[1].toLowerCase() : '';
+    if (!closing) {
+      if (tag === 'br') { curParagraph = null; continue; }
+      if (tag === 'div' || tag === 'p') { const st = parseStyleAttr(tok); startParagraph(st.align); continue; }
+      if (tag === 'ul' || tag === 'ol') { listStack.push({ type: tag, n: 0 }); continue; }
+      if (tag === 'li') { startParagraph(); continue; }
+      const st = { ...currentStyle() };
+      if (tag === 'b' || tag === 'strong') st.bold = true;
+      if (tag === 'i' || tag === 'em') st.italic = true;
+      if (tag === 'u') st.underline = true;
+      if (tag === 'span') Object.assign(st, parseStyleAttr(tok));
+      styleStack.push(st);
+    } else {
+      if (['b', 'strong', 'i', 'em', 'u', 'span'].includes(tag) && styleStack.length > 1) styleStack.pop();
+      if (tag === 'ul' || tag === 'ol') listStack.pop();
+    }
+  }
+  return paragraphs;
+}
+
+// Lays out parsed paragraphs with pdfkit, using its `continued` text-run
+// feature for inline mixed formatting (bold/italic/underline/colour/size)
+// within a wrapped paragraph. Centre/right alignment is approximated by
+// measuring the whole line and shifting the start x — fine for the short,
+// heading-like lines quote descriptions actually use that way; longer
+// wrapped lines fall back to left alignment rather than risk broken layout.
+function renderDescriptionHtml(doc, html, x, y, width, ensureSpace) {
+  const BASE_SIZE = 9;
+  const fontFor = (bold, italic) => {
+    if (bold && italic) return 'Helvetica-BoldOblique';
+    if (bold) return 'Helvetica-Bold';
+    if (italic) return 'Helvetica-Oblique';
+    return 'Helvetica';
+  };
+  const paragraphs = parseDescriptionHtml(html);
+
+  for (const para of paragraphs) {
+    if (!para.runs.length && !para.bullet) { y = ensureSpace(y, BASE_SIZE + 4) + BASE_SIZE + 4; continue; }
+    const indent = para.bullet ? 14 : 0;
+    const runs = para.runs.length ? para.runs : [{ text: '', bold: false, italic: false, underline: false, color: null, fontSize: null }];
+    const plainText = (para.bullet ? para.bullet + ' ' : '') + runs.map(r => r.text).join('');
+    const maxSize = Math.max(BASE_SIZE, ...runs.map(r => (r.fontSize ? r.fontSize * 0.75 : BASE_SIZE)));
+    doc.fontSize(maxSize).font('Helvetica');
+    const estHeight = doc.heightOfString(plainText, { width: width - indent }) + 4;
+    y = ensureSpace(y, estHeight);
+
+    // Measure total width to see if this line fits on one row (needed to
+    // approximate centre/right alignment).
+    let totalW = 0;
+    if (para.bullet) { doc.fontSize(BASE_SIZE).font('Helvetica'); totalW += doc.widthOfString(para.bullet + ' '); }
+    runs.forEach(run => {
+      doc.fontSize(run.fontSize ? run.fontSize * 0.75 : BASE_SIZE).font(fontFor(run.bold, run.italic));
+      totalW += doc.widthOfString(run.text);
+    });
+    let startX = x + indent;
+    const fits = totalW < width - indent;
+    if (fits && para.align === 'center') startX = x + indent + (width - indent - totalW) / 2;
+    else if (fits && para.align === 'right') startX = x + width - totalW;
+
+    if (para.bullet) {
+      doc.fontSize(BASE_SIZE).font('Helvetica').fillColor(TEXT)
+        .text(para.bullet + ' ', startX, y, { continued: true, width: width - indent, lineBreak: !fits });
+    }
+    runs.forEach((run, i) => {
+      const size = run.fontSize ? run.fontSize * 0.75 : BASE_SIZE;
+      const isFirst = i === 0 && !para.bullet;
+      const opts = {
+        continued: i < runs.length - 1,
+        underline: !!run.underline,
+        width: width - indent,
+        lineBreak: !fits,
+      };
+      doc.fontSize(size).font(fontFor(run.bold, run.italic)).fillColor(run.color || TEXT);
+      if (isFirst) doc.text(run.text, startX, y, opts);
+      else doc.text(run.text, opts);
+    });
+    y = doc.y + 4;
+  }
+  return y;
+}
+
 const LOGO_SIZES = { small: 36, medium: 58, large: 78 };
 
 const STATUS_COLOURS = {
@@ -184,12 +326,6 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       const col1X = 50, col2X = 50 + colW + colGap, col3X = 50 + (colW + colGap) * 2;
       let y = docY + 70;
 
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT);
-      doc.text('BILL TO', col1X, y, { width: colW });
-      doc.text('JOB DETAILS', col2X, y, { width: colW });
-      doc.text('QUOTE DETAILS', col3X, y, { width: colW });
-      y += 14;
-
       // Column 1: customer
       let c1y = y;
       doc.fillColor(TEXT).fontSize(11).font('Helvetica-Bold').text(customer.name || '', col1X, c1y, { width: colW });
@@ -230,13 +366,10 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
 
       y = Math.max(c1y, c2y, c3y) + 16;
 
-      // ── Notes — above the line items ──────────────────────────────
+      // ── Description — above the line items ──────────────────────────
       if (notes) {
-        const noteH = doc.fontSize(9).font('Helvetica').heightOfString(notes, { width: W });
-        y = ensureSpace(y, 14 + noteH + 10);
-        doc.fontSize(8).font('Helvetica-Bold').fillColor(TEXT).text('NOTES', 50, y);
-        doc.fontSize(9).font('Helvetica').fillColor(TEXT).text(notes, 50, y + 14, { width: W });
-        y += 14 + noteH + 20;
+        y = renderDescriptionHtml(doc, notes, 50, y, W, ensureSpace);
+        y += 10;
       }
 
       // ── Line items table ─────────────────────────────────────────

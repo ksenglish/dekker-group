@@ -168,6 +168,10 @@
 }
 .notesArea textarea:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light); }
 
+.quoteDetailFields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.quoteDetailFields select, .quoteDetailFields input { width: 100%; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--radius); font-size: 13px; font-family: inherit; }
+.fieldLabel { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); margin-bottom: 4px; }
+
 /* Sidebar summary */
 .summaryList { padding: 4px 0; }
 .summaryRow {

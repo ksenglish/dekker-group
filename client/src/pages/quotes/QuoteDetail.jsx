@@ -4,10 +4,13 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import EmailComposeModal from './EmailComposeModal';
+import RichTextEditor from '../../components/RichTextEditor';
 import styles from './Quotes.module.css';
 
 const STATUSES = ['draft', 'approved', 'sent', 'accepted', 'declined', 'cancelled'];
 const STATUS_COLOURS = { draft:'#6b7280', approved:'#7c3aed', sent:'#0891b2', accepted:'#16a34a', declined:'#dc2626', cancelled:'#6b7280' };
+
+function toDateInput(d) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
 
 export default function QuoteDetail() {
   const { id } = useParams();
@@ -16,13 +19,25 @@ export default function QuoteDetail() {
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingDetails, setSavingDetails] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [converting, setConverting] = useState(false);
   const [msg, setMsg] = useState(null); // { type: 'success'|'error', text }
   const [notes, setNotes] = useState('');
+  const [themes, setThemes] = useState([]);
+  const [themeId, setThemeId] = useState('');
+  const [quoteDate, setQuoteDate] = useState('');
+  const [expiresAt, setExpiresAt] = useState('');
 
   useEffect(() => {
-    api.get(`/quotes/${id}`).then(r => { setQuote(r.data); setNotes(r.data.notes || ''); }).finally(() => setLoading(false));
+    api.get(`/quotes/${id}`).then(r => {
+      setQuote(r.data);
+      setNotes(r.data.notes || '');
+      setThemeId(r.data.theme_id || '');
+      setQuoteDate(toDateInput(r.data.quote_date || r.data.created_at));
+      setExpiresAt(toDateInput(r.data.expires_at));
+    }).finally(() => setLoading(false));
+    api.get('/settings/themes').then(r => setThemes(r.data.filter(t => !t.archived))).catch(() => {});
   }, [id]);
 
   function flash(type, text) { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); }
@@ -47,10 +62,17 @@ export default function QuoteDetail() {
     finally { setSaving(false); }
   }
 
-  async function handleSaveNotes() {
-    const { data } = await api.put(`/quotes/${id}`, { status: quote.status, notes });
-    setQuote(q => ({ ...q, notes: data.notes }));
-    flash('success', 'Notes saved');
+  async function handleSaveDetails() {
+    setSavingDetails(true);
+    try {
+      const { data } = await api.put(`/quotes/${id}`, {
+        status: quote.status, notes, theme_id: themeId || null,
+        quote_date: quoteDate || null, expires_at: expiresAt || null,
+      });
+      setQuote(q => ({ ...q, ...data }));
+      flash('success', 'Quote details saved');
+    } catch { flash('error', 'Failed to save quote details'); }
+    finally { setSavingDetails(false); }
   }
 
   async function handleDownload() {
@@ -188,13 +210,33 @@ export default function QuoteDetail() {
             </div>
           </div>
 
-          {/* Notes */}
+          {/* Quote Details: theme, dates, description */}
           <div className={styles.card}>
-            <div className={styles.cardHeader}><h2>Notes</h2></div>
+            <div className={styles.cardHeader}><h2>Quote Details</h2></div>
             <div className={styles.notesArea}>
-              <textarea rows={4} value={notes} onChange={e => setNotes(e.target.value)}
-                placeholder="Add notes to appear on the quote PDF…" />
-              <button className={styles.btnSecondary} onClick={handleSaveNotes}>Save Notes</button>
+              <div className={styles.quoteDetailFields}>
+                <div>
+                  <label className={styles.fieldLabel}>Document Theme</label>
+                  <select value={themeId} onChange={e => setThemeId(e.target.value)}>
+                    {themes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={styles.fieldLabel}>Quote Date</label>
+                  <input type="date" value={quoteDate} onChange={e => setQuoteDate(e.target.value)} />
+                </div>
+                <div>
+                  <label className={styles.fieldLabel}>Expiry Date</label>
+                  <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
+                </div>
+              </div>
+
+              <label className={styles.fieldLabel}>Description</label>
+              <RichTextEditor value={notes} onChange={setNotes} placeholder="Add a description to appear on the quote PDF…" />
+
+              <button className={styles.btnSecondary} onClick={handleSaveDetails} disabled={savingDetails}>
+                {savingDetails ? 'Saving…' : 'Save Quote Details'}
+              </button>
             </div>
           </div>
         </div>

@@ -106,7 +106,6 @@ export default function PublicQuote() {
         {/* Bill To / Job Details / Quote Details */}
         <div style={s.detailGrid}>
           <div>
-            <div style={s.label}>Bill To</div>
             <div style={s.customerName}>{quote.customer_name}</div>
             {quote.customer_company && <div style={s.customerDetail}>{quote.customer_company}</div>}
             {quote.customer_address && <div style={s.customerDetail}>{quote.customer_address}</div>}
@@ -114,7 +113,6 @@ export default function PublicQuote() {
             {quote.customer_phone && <div style={s.customerDetail}>{quote.customer_phone}</div>}
           </div>
           <div>
-            <div style={s.label}>Job Details</div>
             {jobNumber && (
               <div style={s.detailField}>
                 <div style={s.detailFieldLabel}>Job Number</div>
@@ -129,10 +127,9 @@ export default function PublicQuote() {
             )}
           </div>
           <div>
-            <div style={s.label}>Quote Details</div>
             <div style={s.detailField}>
               <div style={s.detailFieldLabel}>Issue Date</div>
-              <div style={s.detailFieldValue}>{fmtDate(quote.created_at)}</div>
+              <div style={s.detailFieldValue}>{fmtDate(quote.quote_date || quote.created_at)}</div>
             </div>
             {quote.expires_at && (
               <div style={s.detailField}>
@@ -149,11 +146,10 @@ export default function PublicQuote() {
           </div>
         </div>
 
-        {/* Notes — above the line items */}
+        {/* Description — above the line items */}
         {quote.notes && (
           <div style={s.notes}>
-            <div style={s.label}>Notes</div>
-            <p style={{ fontSize: 14, whiteSpace: 'pre-wrap', margin: 0 }}>{quote.notes}</p>
+            <div style={{ fontSize: 14 }} dangerouslySetInnerHTML={{ __html: quote.notes }} />
           </div>
         )}
 

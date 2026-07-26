@@ -5,6 +5,7 @@ const { sendMail } = require('../utils/email');
 const { getTheme } = require('./settingsController');
 const { getThemeById, getDefaultTheme } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
+const { sanitizeHtml } = require('../utils/sanitizeHtml');
 
 function calcTotals(items) {
   const subtotal = items.reduce((s, i) => s + Math.round(i.unit_price * i.quantity), 0);
@@ -103,9 +104,9 @@ async function create(req, res) {
     const expiresAt = expiryDays > 0 ? (() => { const d = new Date(); d.setDate(d.getDate() + expiryDays); return d; })() : null;
     const docTheme = theme_id ? await getThemeById(theme_id) : await getDefaultTheme();
     const { rows } = await pool.query(
-      `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by, theme_id)
-       VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [job_id, customer_id || null, subtotal, gst, total, notes || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id, docTheme?.id || null]
+      `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by, theme_id, quote_date)
+       VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,CURRENT_DATE) RETURNING *`,
+      [job_id, customer_id || null, subtotal, gst, total, sanitizeHtml(notes) || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id, docTheme?.id || null]
     );
     // Move job to quoted status
     await pool.query(
@@ -117,7 +118,7 @@ async function create(req, res) {
 }
 
 async function update(req, res) {
-  const { status, notes } = req.body;
+  const { status, notes, theme_id, quote_date, expires_at } = req.body;
   try {
     // Recalculate totals from current job line items
     const quote = await pool.query('SELECT job_id FROM quotes WHERE id=$1', [req.params.id]);
@@ -125,9 +126,10 @@ async function update(req, res) {
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1', [quote.rows[0].job_id]);
     const { subtotal, gst, total } = calcTotals(items.rows);
     const { rows } = await pool.query(
-      `UPDATE quotes SET status=$1, subtotal=$2, gst=$3, total=$4, notes=$5, updated_at=NOW()
-       WHERE id=$6 RETURNING *`,
-      [status, subtotal, gst, total, notes || null, req.params.id]
+      `UPDATE quotes SET status=$1, subtotal=$2, gst=$3, total=$4, notes=$5, updated_at=NOW(),
+              theme_id=COALESCE($6, theme_id), quote_date=COALESCE($7, quote_date), expires_at=COALESCE($8, expires_at)
+       WHERE id=$9 RETURNING *`,
+      [status, subtotal, gst, total, notes != null ? sanitizeHtml(notes) : null, theme_id || null, quote_date || null, expires_at || null, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
@@ -250,7 +252,7 @@ async function downloadPdf(req, res) {
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: docTheme.termsAndConditions || '',
-      issuedAt: q.created_at, expiresAt: q.expires_at, theme: docTheme,
+      issuedAt: q.quote_date || q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="quote-${q.id.slice(0,8)}.pdf"` });
@@ -315,7 +317,7 @@ async function sendEmail(req, res) {
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
       status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: docTheme.termsAndConditions || '',
-      issuedAt: q.created_at, expiresAt: q.expires_at, theme: docTheme,
+      issuedAt: q.quote_date || q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
     });
 
@@ -397,6 +399,7 @@ async function publicGet(req, res) {
       terms: docTheme.termsAndConditions || '',
       subtotal: q.subtotal, gst: q.gst, total: q.total,
       created_at: q.created_at,
+      quote_date: q.quote_date,
       accepted_at: q.accepted_at,
       accepted_name: q.accepted_name,
       expires_at: q.expires_at,
