@@ -340,13 +340,13 @@ function HeatpumpCalculator({ onPick }) {
       <div className={styles.sliderSection}>
         <div className={styles.sliderRow}>
           <span className={styles.sliderLabel}>Length</span>
-          <input type="range" min="0" max="30" step="0.5" value={length}
+          <input type="range" min="0" max="15" step="0.1" value={length}
             onChange={e => handleLength(parseFloat(e.target.value))} className={styles.slider} />
           <span className={styles.sliderVal}>{length} m</span>
         </div>
         <div className={styles.sliderRow}>
           <span className={styles.sliderLabel}>Width</span>
-          <input type="range" min="0" max="20" step="0.5" value={width}
+          <input type="range" min="0" max="10" step="0.1" value={width}
             onChange={e => handleWidth(parseFloat(e.target.value))} className={styles.slider} />
           <span className={styles.sliderVal}>{width} m</span>
         </div>

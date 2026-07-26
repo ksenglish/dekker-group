@@ -121,8 +121,8 @@ async function create(req, res) {
     // Take a copy of those items for the quote to own, so it can be priced
     // independently of the job and of any other quote on it.
     await pool.query(
-      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id)
-       SELECT job_id, $1, description, quantity, unit_price, product_id
+      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name)
+       SELECT job_id, $1, description, quantity, unit_price, product_id, product_name
        FROM line_items WHERE job_id=$2 AND quote_id IS NULL ORDER BY created_at`,
       [rows[0].id, job_id]
     );
@@ -146,8 +146,8 @@ async function syncJobLineItemsFromQuote(quoteId, jobId) {
     await client.query('BEGIN');
     await client.query('DELETE FROM line_items WHERE job_id=$1 AND quote_id IS NULL', [jobId]);
     await client.query(
-      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id)
-       SELECT $1, NULL, description, quantity, unit_price, product_id
+      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name)
+       SELECT $1, NULL, description, quantity, unit_price, product_id, product_name
        FROM line_items WHERE quote_id=$2 ORDER BY created_at`,
       [jobId, quoteId]
     );
@@ -194,8 +194,8 @@ async function updateLineItems(req, res) {
     for (const item of items) {
       if (!item.description) continue;
       await client.query(
-        'INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id) VALUES ($1,$2,$3,$4,$5,$6)',
-        [quote.job_id, req.params.id, item.description, item.quantity || 1, Math.round((item.unit_price || 0) * 100), item.product_id || null]
+        'INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [quote.job_id, req.params.id, item.description, item.quantity || 1, Math.round((item.unit_price || 0) * 100), item.product_id || null, item.product_name || null]
       );
     }
     await client.query('COMMIT');
@@ -524,7 +524,9 @@ async function publicGet(req, res) {
       accepted_name: q.accepted_name,
       expires_at: q.expires_at,
       is_expired: q.expires_at ? new Date(q.expires_at) < new Date() : false,
-      line_items: enrichedItems,
+      // product_name is the internal ordering code — strip it so it never
+      // reaches the customer-facing quote page.
+      line_items: enrichedItems.map(({ product_name, ...item }) => item),
       arcsite_drawings: arcsiteDrawings,
       company: { name: docTheme.companyName, contactDetails: docTheme.contactDetails, logo: docTheme.logoBase64,
         logoSize: docTheme.logoSize, logoPosition: docTheme.logoPosition, contactPosition: docTheme.contactPosition,

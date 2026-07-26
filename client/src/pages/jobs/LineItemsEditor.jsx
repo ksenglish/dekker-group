@@ -20,7 +20,7 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
   }, [initialItems]);
 
   function addRow() {
-    setItems(i => [...i, { description: '', quantity: 1, unit_price: '0.00', product_id: null }]);
+    setItems(i => [...i, { description: '', quantity: 1, unit_price: '0.00', product_id: null, product_name: '' }]);
     setDirty(true);
   }
 
@@ -42,6 +42,7 @@ async function handleSave() {
       // Convert the incl.-GST figure the team edits back to excl. GST for storage.
       unit_price: (parseFloat(i.unit_price) || 0) / (1 + GST_RATE),
       product_id: i.product_id || null,
+      product_name: i.product_name || null,
     })));
     setDirty(false);
     setSaving(false);
@@ -51,6 +52,7 @@ async function handleSave() {
     <div>
       <div className={styles.lineItemsHeader}>
         <div>Description</div>
+        <div title="Supplier code for ordering — not shown on the customer's quote">Product Name</div>
         <div>Qty</div>
         <div>Unit Price (NZD, incl. GST)</div>
         <div>Line Total</div>
@@ -66,6 +68,7 @@ async function handleSave() {
           {readonly ? (
             <>
               <span>{item.description}</span>
+              <span className={styles.productCode}>{item.product_name || '—'}</span>
               <span>{item.quantity}</span>
               <span>${parseFloat(item.unit_price).toFixed(2)}</span>
               <span>${(parseFloat(item.unit_price) * parseFloat(item.quantity)).toFixed(2)}</span>
@@ -74,16 +77,25 @@ async function handleSave() {
             <>
               <ProductSearch
                 value={item.description}
-                onChange={({ description, unit_price, unit, product_id }) => {
+                onChange={({ description, unit_price, unit, product_id, product_name }) => {
                   setItems(its => its.map((row, j) => j !== idx ? row : {
                     ...row,
                     description,
                     // unit_price from ProductSearch is the product's excl.-GST price
                     ...(unit_price !== null ? { unit_price: (unit_price * (1 + GST_RATE)).toFixed(2) } : {}),
                     product_id: product_id ?? row.product_id,
+                    // Only overwrite the code when a product was actually
+                    // picked — free-typing the description shouldn't wipe it.
+                    ...(product_name !== null ? { product_name } : {}),
                   }));
                   setDirty(true);
                 }}
+              />
+              <input
+                value={item.product_name || ''}
+                onChange={e => update(idx, 'product_name', e.target.value)}
+                placeholder="Code"
+                title="Supplier code for ordering — not shown on the customer's quote"
               />
               <input
                 type="number" min="0.01" step="0.01"

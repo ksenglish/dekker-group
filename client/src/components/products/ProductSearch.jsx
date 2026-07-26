@@ -20,7 +20,7 @@ export default function ProductSearch({ value, onChange, placeholder }) {
   function handleChange(e) {
     const q = e.target.value;
     setQuery(q);
-    onChange({ description: q, unit_price: null, unit: null, product_id: null });
+    onChange({ description: q, unit_price: null, unit: null, product_id: null, product_name: null });
     if (timer) clearTimeout(timer);
     if (q.length < 1) { setResults([]); setOpen(false); return; }
     setTimer(setTimeout(async () => {
@@ -31,9 +31,12 @@ export default function ProductSearch({ value, onChange, placeholder }) {
   }
 
   function select(p) {
-    setQuery(p.name);
+    // The customer reads the product's description; the name is the supplier's
+    // ordering code, kept alongside it for the job/quote editors only.
+    const customerText = (p.description || '').trim() || p.name;
+    setQuery(customerText);
     setOpen(false);
-    onChange({ description: p.name, unit_price: p.unit_price / 100, unit: p.unit, product_id: p.id });
+    onChange({ description: customerText, unit_price: p.unit_price / 100, unit: p.unit, product_id: p.id, product_name: p.name });
   }
 
   return (

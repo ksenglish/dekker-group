@@ -109,12 +109,16 @@ export default function QuoteDetail() {
       ...(quote.line_items || []).map(i => ({
         description: i.description, quantity: i.quantity,
         unit_price: i.unit_price / 100, product_id: i.product_id,
+        product_name: i.product_name,
       })),
       {
-        description: product.name,
+        // The customer reads the product's description; its name is the
+        // supplier code, kept alongside for ordering.
+        description: (product.description || '').trim() || product.name,
         quantity: 1,
         unit_price: unitPrice,
         product_id: product.unit_price != null ? product.id : null,
+        product_name: product.name,
       },
     ];
     const { data } = await api.put(`/quotes/${id}/line-items`, { items: payload });
