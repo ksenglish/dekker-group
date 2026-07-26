@@ -23,6 +23,7 @@ const scanRoutes = require('./routes/scan');
 const presenterRoutes = require('./routes/presenter');
 const leadRoutes = require('./routes/leads');
 const emailTemplateRoutes = require('./routes/emailTemplates');
+const hubRoutes = require('./routes/hub');
 const xeroRoutes = require('./routes/xero');
 const xeroWebhookRoutes = require('./routes/xero-webhook');
 
@@ -84,6 +85,7 @@ app.use('/api/scan', scanRoutes);
 app.use('/api/presenter', presenterRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);
+app.use('/api/hub', hubRoutes);
 app.use('/api/xero', xeroRoutes);
 
 app.get('/api/health', async (req, res) => {

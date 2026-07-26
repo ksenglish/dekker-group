@@ -20,6 +20,7 @@ import ReportsPage from '../../pages/reports/ReportsPage';
 import MapPage from '../../pages/map/MapPage';
 import SalesPresenter from '../../pages/presenter/SalesPresenter';
 import PresenterAdmin from '../../pages/presenter/PresenterAdmin';
+import DekkerHub from '../../pages/hub/DekkerHub';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { to: '/timesheets', label: 'Timesheets', icon: '⏱' },
   { to: '/reports', label: 'Reports', icon: '📊' },
   { to: '/presenter', label: 'Sales Presenter', icon: '🎯', hideForOperations: true },
+  { to: '/hub', label: 'Dekker Hub', icon: '🏢' },
 ];
 
 function visibleNavItems(items, role) {
@@ -152,6 +154,7 @@ export default function AppShell() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/presenter" element={<SalesPresenter />} />
           <Route path="/presenter/admin" element={<PresenterAdmin />} />
+          <Route path="/hub" element={<DekkerHub />} />
           <Route path="/users/*" element={<ComingSoon title="Users" />} />
         </Routes>
       </main>
