@@ -12,6 +12,17 @@ const STATUS_COLOURS = { draft:'#6b7280', approved:'#7c3aed', sent:'#0891b2', ac
 
 function toDateInput(d) { return d ? new Date(d).toISOString().slice(0, 10) : ''; }
 
+const ACTIVITY_LABELS = {
+  quote_created: 'Quote created',
+  quote_modified: 'Quote modified',
+  quote_approved: 'Quote approved',
+  quote_sent: 'Quote email sent',
+  quote_email_opened: 'Quote email opened',
+  quote_viewed: 'Quote viewed',
+  quote_accepted: 'Quote accepted',
+};
+function activityLabel(type) { return ACTIVITY_LABELS[type] || type; }
+
 export default function QuoteDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -28,6 +39,11 @@ export default function QuoteDetail() {
   const [themeId, setThemeId] = useState('');
   const [quoteDate, setQuoteDate] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
+  const [activity, setActivity] = useState([]);
+
+  function loadActivity() {
+    api.get(`/quotes/${id}/activity`).then(r => setActivity(r.data)).catch(() => {});
+  }
 
   useEffect(() => {
     api.get(`/quotes/${id}`).then(r => {
@@ -38,6 +54,7 @@ export default function QuoteDetail() {
       setExpiresAt(toDateInput(r.data.expires_at));
     }).finally(() => setLoading(false));
     api.get('/settings/themes').then(r => setThemes(r.data.filter(t => !t.archived))).catch(() => {});
+    loadActivity();
   }, [id]);
 
   function flash(type, text) { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); }
@@ -48,6 +65,7 @@ export default function QuoteDetail() {
       const { data } = await api.put(`/quotes/${id}`, { status, notes });
       setQuote(q => ({ ...q, ...data }));
       flash('success', `Quote marked as ${status}`);
+      loadActivity();
     } catch { flash('error', 'Failed to update status'); }
     finally { setSaving(false); }
   }
@@ -58,6 +76,7 @@ export default function QuoteDetail() {
       const { data } = await api.post(`/quotes/${id}/approve`);
       setQuote(q => ({ ...q, ...data }));
       flash('success', 'Quote approved');
+      loadActivity();
     } catch (err) { flash('error', err.response?.data?.error || 'Failed to approve quote'); }
     finally { setSaving(false); }
   }
@@ -71,6 +90,7 @@ export default function QuoteDetail() {
       });
       setQuote(q => ({ ...q, ...data }));
       flash('success', 'Quote details saved');
+      loadActivity();
     } catch { flash('error', 'Failed to save quote details'); }
     finally { setSavingDetails(false); }
   }
@@ -86,6 +106,7 @@ export default function QuoteDetail() {
     setShowEmailModal(false);
     setQuote(q => ({ ...q, status: 'sent' }));
     flash('success', `Quote emailed to ${customerEmail}`);
+    loadActivity();
   }
 
   async function handleDelete() {
@@ -238,6 +259,27 @@ export default function QuoteDetail() {
                 {savingDetails ? 'Saving…' : 'Save Quote Details'}
               </button>
             </div>
+          </div>
+
+          {/* Activity Log */}
+          <div className={styles.card}>
+            <div className={styles.cardHeader}><h2>Activity Log</h2></div>
+            {activity.length === 0 ? (
+              <p className={styles.emptySmall}>No activity yet.</p>
+            ) : (
+              <div className={styles.activityTable}>
+                <div className={styles.activityHeaderRow}>
+                  <span>Event</span><span>Date</span><span>User</span>
+                </div>
+                {activity.map(a => (
+                  <div key={a.id} className={styles.activityDataRow}>
+                    <span>{activityLabel(a.type)}</span>
+                    <span>{new Date(a.created_at).toLocaleString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                    <span>{a.user_name || 'Customer'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

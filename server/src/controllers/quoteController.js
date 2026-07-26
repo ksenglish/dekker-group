@@ -18,15 +18,25 @@ function resolveTemplateText(text, ctx) {
   return text.replace(/\{\{\s*([\w]+)\s*\}\}/g, (m, key) => (key in ctx ? ctx[key] : m));
 }
 
-async function buildQuoteEmailContext(q, theme, senderName) {
+// The JWT payload (req.user) only carries id/name/email/role — mobile isn't
+// on it, so it needs its own lookup for the {{sender_mobile}} placeholder.
+async function getSenderInfo(userId) {
+  if (!userId) return { name: '', mobile: '' };
+  const { rows } = await pool.query('SELECT name, mobile FROM users WHERE id=$1', [userId]);
+  return { name: rows[0]?.name || '', mobile: rows[0]?.mobile || '' };
+}
+
+async function buildQuoteEmailContext(q, theme, sender) {
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
   return {
     customer_name: q.customer_name || '',
     customer_first_name: (q.customer_name || '').split(' ')[0] || '',
     customer_company: q.customer_company || '',
     company_name: theme.companyName,
-    sender_name: senderName || theme.companyName,
+    company_logo: theme.logoBase64 ? `<img src="${theme.logoBase64}" alt="${theme.companyName}" style="max-height:48px;max-width:220px;">` : '',
+    sender_name: sender?.name || theme.companyName,
     sender_email: theme.email || '',
+    sender_mobile: sender?.mobile || '',
     quote_number: q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : `Q-${q.id.slice(0, 8).toUpperCase()}`,
     quote_total: `$${(q.total / 100).toFixed(2)}`,
     job_number: q.external_ref || (q.job_number ? `JB${String(q.job_number).padStart(5, '0')}` : ''),
@@ -113,6 +123,7 @@ async function create(req, res) {
       `UPDATE jobs SET status='quoted', updated_at=NOW() WHERE id=$1 AND status NOT IN ('cancelled','complete')`,
       [job_id]
     );
+    await logActivity({ type: 'quote_created', entity_type: 'quote', entity_id: rows[0].id, user_id: req.user.id, message: 'Quote created' });
     res.status(201).json(rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
@@ -131,6 +142,7 @@ async function update(req, res) {
        WHERE id=$9 RETURNING *`,
       [status, subtotal, gst, total, notes != null ? sanitizeHtml(notes) : null, theme_id || null, quote_date || null, expires_at || null, req.params.id]
     );
+    await logActivity({ type: 'quote_modified', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id, message: 'Quote modified' });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
@@ -146,6 +158,7 @@ async function approve(req, res) {
       [req.user.id, req.params.id]
     );
     if (!rows[0]) return res.status(400).json({ error: 'Only draft quotes can be approved' });
+    await logActivity({ type: 'quote_approved', entity_type: 'quote', entity_id: req.params.id, user_id: req.user.id, message: 'Quote approved' });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
@@ -279,7 +292,8 @@ async function emailPreview(req, res) {
     const q = await getQuoteForEmail(req.params.id);
     if (!q) return res.status(404).json({ error: 'Not found' });
     const docTheme = await getThemeById(q.theme_id);
-    const ctx = await buildQuoteEmailContext(q, docTheme, req.user?.name);
+    const sender = await getSenderInfo(req.user?.id);
+    const ctx = await buildQuoteEmailContext(q, docTheme, sender);
 
     let template;
     if (req.query.templateId) {
@@ -325,7 +339,8 @@ async function sendEmail(req, res) {
     // category's default template so the endpoint still works if called directly.
     let { subject, body } = req.body || {};
     if (!subject || !body) {
-      const ctx = await buildQuoteEmailContext(q, docTheme, req.user?.name);
+      const sender = await getSenderInfo(req.user?.id);
+      const ctx = await buildQuoteEmailContext(q, docTheme, sender);
       const { rows } = await pool.query(
         `SELECT * FROM email_templates WHERE category='quote' ORDER BY is_default DESC, name LIMIT 1`
       );
@@ -333,7 +348,19 @@ async function sendEmail(req, res) {
       subject = subject || (template ? resolveTemplateText(template.subject, ctx) : `Quote from ${docTheme.companyName} — ${ctx.quote_total}`);
       body = body || (template ? resolveTemplateText(template.body, ctx) : `Hi ${ctx.customer_first_name},\n\nPlease find your quote attached.`);
     }
-    const htmlBody = body.split('\n').map(line => `<p>${line || '&nbsp;'}</p>`).join('\n');
+    let htmlBody = body.split('\n').map(line => `<p>${line || '&nbsp;'}</p>`).join('\n');
+
+    // The plain-text body (shown/edited in the compose modal) keeps the raw
+    // accept link as visible text; the HTML version sent to the customer
+    // gets that same URL swapped for a styled "View Quote" button instead.
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+    const acceptUrl = `${clientUrl}/q/${q.public_token}`;
+    const buttonHtml = `<a href="${acceptUrl}" style="display:inline-block;background:${docTheme.brandColour || '#1e40af'};color:#ffffff;padding:12px 26px;border-radius:6px;text-decoration:none;font-weight:600;font-family:Arial,Helvetica,sans-serif;">View Quote</a>`;
+    htmlBody = htmlBody.split(acceptUrl).join(buttonHtml);
+
+    // Open-tracking pixel — 1x1 gif, HTML only (plain-text fallback has no
+    // concept of it, which is normal/expected for text emails).
+    htmlBody += `<img src="${clientUrl}/api/quotes/public/${q.public_token}/pixel.gif" width="1" height="1" alt="" style="display:none;">`;
 
     const attachments = [{ filename: `quote-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }];
     const { attachment_ids } = req.body || {};
@@ -374,10 +401,11 @@ async function publicGet(req, res) {
   try {
     const q = await getQuoteFull({ token: req.params.token });
     if (!q) return res.status(404).json({ error: 'Quote not found' });
-    // Mark as viewed if it was only sent before
-    if (q.delivery_status === 'sent') {
+    // Mark as viewed if it was only sent/opened before
+    if (q.delivery_status === 'sent' || q.delivery_status === 'opened') {
       await pool.query('UPDATE quotes SET delivery_status=\'viewed\' WHERE public_token=$1', [req.params.token]);
     }
+    await logActivity({ type: 'quote_viewed', entity_type: 'quote', entity_id: q.id, message: 'Quote viewed by customer' });
     const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 ORDER BY created_at', [q.job_id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const arcsiteDrawings = await getJobDrawingImages(q.job_id);
@@ -432,4 +460,37 @@ async function publicAccept(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, remove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept };
+// 1x1 transparent gif embedded in the sent HTML email to detect opens.
+const TRACKING_PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64');
+
+// Public: email open-tracking pixel (no auth). Only ever advances
+// delivery_status forward (sent -> opened) — never overwrites a later
+// 'viewed' status or a quote that's already been acted on.
+async function trackOpen(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE quotes SET delivery_status='opened' WHERE public_token=$1 AND delivery_status='sent' RETURNING id`,
+      [req.params.token]
+    );
+    if (rows[0]) {
+      await logActivity({ type: 'quote_email_opened', entity_type: 'quote', entity_id: rows[0].id, message: 'Quote email opened by customer' });
+    }
+  } catch { /* tracking is best-effort — never fail the pixel request */ }
+  res.set({ 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' });
+  res.send(TRACKING_PIXEL);
+}
+
+async function getActivity(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.*, u.name AS user_name FROM activity_log a
+       LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.entity_type='quote' AND a.entity_id=$1
+       ORDER BY a.created_at DESC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+module.exports = { list, get, create, update, remove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, trackOpen, getActivity };

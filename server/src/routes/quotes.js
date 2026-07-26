@@ -6,6 +6,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 // Public routes — no auth required
 router.get('/public/:token', c.publicGet);
 router.post('/public/:token/accept', c.publicAccept);
+router.get('/public/:token/pixel.gif', c.trackOpen);
 
 router.use(authenticate);
 router.use(requireRole('admin', 'office'));
@@ -20,5 +21,6 @@ router.post('/:id/convert', c.convertToInvoice);
 router.get('/:id/pdf', c.downloadPdf);
 router.get('/:id/email-preview', c.emailPreview);
 router.post('/:id/email', c.sendEmail);
+router.get('/:id/activity', c.getActivity);
 
 module.exports = router;

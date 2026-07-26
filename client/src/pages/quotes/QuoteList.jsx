@@ -30,6 +30,7 @@ function statusColour(q) {
 function deliveryLabel(q) {
   if (!q.delivery_status || q.delivery_status === 'unsent') return 'Unsent';
   if (q.delivery_status === 'viewed') return 'Viewed';
+  if (q.delivery_status === 'opened') return 'Opened';
   return 'Sent';
 }
 function fmtQuoteNum(q) {
