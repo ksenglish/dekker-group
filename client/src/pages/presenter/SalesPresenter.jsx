@@ -288,9 +288,9 @@ const RINNAI_HEATPUMP_TABLE = [
 const HEATPUMP_MAX_KW = RINNAI_HEATPUMP_TABLE[RINNAI_HEATPUMP_TABLE.length - 1].kwMax;
 
 function HeatpumpCalculator({ onPick }) {
-  const [length, setLength] = useState(5);
-  const [width, setWidth] = useState(4);
-  const [m2, setM2] = useState('20');
+  const [length, setLength] = useState(0);
+  const [width, setWidth] = useState(0);
+  const [m2, setM2] = useState('0');
   const [ceilingHeight, setCeilingHeight] = useState('2.4');
   const [customHeight, setCustomHeight] = useState('');
   const [insulation, setInsulation] = useState('average');
@@ -340,13 +340,13 @@ function HeatpumpCalculator({ onPick }) {
       <div className={styles.sliderSection}>
         <div className={styles.sliderRow}>
           <span className={styles.sliderLabel}>Length</span>
-          <input type="range" min="1" max="30" step="0.5" value={length}
+          <input type="range" min="0" max="30" step="0.5" value={length}
             onChange={e => handleLength(parseFloat(e.target.value))} className={styles.slider} />
           <span className={styles.sliderVal}>{length} m</span>
         </div>
         <div className={styles.sliderRow}>
           <span className={styles.sliderLabel}>Width</span>
-          <input type="range" min="1" max="20" step="0.5" value={width}
+          <input type="range" min="0" max="20" step="0.5" value={width}
             onChange={e => handleWidth(parseFloat(e.target.value))} className={styles.slider} />
           <span className={styles.sliderVal}>{width} m</span>
         </div>
@@ -948,6 +948,13 @@ function BDVAirPositivePressureCalculator({ onPick }) {
   );
 }
 
+// The heat pump's price comes from whichever model the sizing calculator
+// lands on, so a fixed "From" figure alongside it would just contradict the
+// real one.
+function showsFromPrice(product) {
+  return product.calculator_type !== 'heatpump' && product.price_from > 0;
+}
+
 // Calculators that work out which model suits and offer their own "Add to
 // Quote" button — the panel must not add a second, generic one alongside.
 const SELF_PICK_CALCULATORS = new Set([
@@ -1229,7 +1236,7 @@ function ProductPanel({ product, section, onClose, onPick, jobId }) {
               {product.features.map((f, i) => <li key={i}>✓ {f}</li>)}
             </ul>
           )}
-          {product.price_from > 0 && (
+          {showsFromPrice(product) && (
             <div className={styles.panelPriceFrom}>
               From <strong>${(product.price_from / 100).toLocaleString('en-NZ')}</strong> <span>+ GST</span>
             </div>
@@ -1453,7 +1460,7 @@ export default function SalesPresenter({ onPick, jobId }) {
             <div className={styles.productInfo}>
               <h3 className={styles.productName}>{p.name}</h3>
               {p.description && <p className={styles.productDesc}>{p.description}</p>}
-              {p.price_from > 0 && (
+              {showsFromPrice(p) && (
                 <div className={styles.productPrice} style={{ color: activeSection?.color }}>
                   From ${(p.price_from / 100).toLocaleString('en-NZ')} + GST
                 </div>
