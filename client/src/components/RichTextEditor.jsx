@@ -13,11 +13,19 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
   const editorRef = useRef(null);
   const lastValue = useRef(value);
 
+  // Sync against what's actually in the box rather than against a ref that
+  // starts out equal to `value` — the editor mounts after the record has
+  // loaded, so comparing refs meant the saved content was never written in
+  // and the field looked empty. Skipped while the user is typing so their
+  // caret isn't thrown to the start on every keystroke.
   useEffect(() => {
-    if (editorRef.current && value !== lastValue.current && document.activeElement !== editorRef.current) {
-      editorRef.current.innerHTML = value || '';
-      lastValue.current = value;
-    }
+    const el = editorRef.current;
+    if (!el) return;
+    if (document.activeElement === el) return;
+    const next = value || '';
+    if (el.innerHTML === next) return;
+    el.innerHTML = next;
+    lastValue.current = value;
   }, [value]);
 
   function focusEditor() {

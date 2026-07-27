@@ -98,7 +98,7 @@ async function get(req, res) {
       'SELECT * FROM line_items WHERE quote_id = $1 ORDER BY created_at',
       [q.id]
     );
-    res.json({ ...q, line_items: items.rows });
+    res.json({ ...q, line_items: items.rows, attachment_ids: await getQuoteAttachmentIds(q.id) });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
@@ -161,7 +161,7 @@ async function syncJobLineItemsFromQuote(quoteId, jobId) {
 }
 
 async function update(req, res) {
-  const { status, notes, theme_id, quote_date, expires_at } = req.body;
+  const { status, notes, theme_id, quote_date, expires_at, attachment_ids } = req.body;
   try {
     // Totals always come from the quote's own line items
     const quote = await pool.query('SELECT job_id, status FROM quotes WHERE id=$1', [req.params.id]);
@@ -174,11 +174,25 @@ async function update(req, res) {
        WHERE id=$9 RETURNING *`,
       [status, subtotal, gst, total, notes != null ? sanitizeHtml(notes) : null, theme_id || null, quote_date || null, expires_at || null, req.params.id]
     );
+    // Sent as the full selection, so replace rather than merge. Restricted to
+    // attachments actually on this quote's job.
+    if (Array.isArray(attachment_ids)) {
+      await pool.query('DELETE FROM quote_attachments WHERE quote_id=$1', [req.params.id]);
+      if (attachment_ids.length) {
+        await pool.query(
+          `INSERT INTO quote_attachments (quote_id, attachment_id)
+           SELECT $1, a.id FROM job_attachments a
+           WHERE a.id = ANY($2::uuid[]) AND a.job_id = $3
+           ON CONFLICT DO NOTHING`,
+          [req.params.id, attachment_ids, quote.rows[0].job_id]
+        );
+      }
+    }
     if (status === 'accepted' && quote.rows[0].status !== 'accepted') {
       await syncJobLineItemsFromQuote(req.params.id, quote.rows[0].job_id);
     }
     await logActivity({ type: 'quote_modified', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id, message: 'Quote modified' });
-    res.json(rows[0]);
+    res.json({ ...rows[0], attachment_ids: await getQuoteAttachmentIds(req.params.id) });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
@@ -317,12 +331,23 @@ function formatJobNumberDisplay(q) {
   return '';
 }
 
-async function getJobDrawingImages(jobId) {
+// Only what this quote has explicitly selected — never everything sitting on
+// the job, or a drawing pulled later would appear on quotes already sent.
+async function getQuoteAttachmentImages(quoteId) {
   const { rows } = await pool.query(
-    `SELECT data_base64 FROM job_attachments WHERE job_id=$1 AND arcsite_drawing_id IS NOT NULL ORDER BY created_at`,
-    [jobId]
+    `SELECT a.data_base64
+     FROM quote_attachments qa
+     JOIN job_attachments a ON a.id = qa.attachment_id
+     WHERE qa.quote_id = $1
+     ORDER BY a.arcsite_drawing_id IS NULL, a.created_at`,
+    [quoteId]
   );
   return rows.map(r => r.data_base64);
+}
+
+async function getQuoteAttachmentIds(quoteId) {
+  const { rows } = await pool.query('SELECT attachment_id FROM quote_attachments WHERE quote_id=$1', [quoteId]);
+  return rows.map(r => r.attachment_id);
 }
 
 async function enrichItemsWithImages(items) {
@@ -343,7 +368,7 @@ async function downloadPdf(req, res) {
     if (!q) return res.status(404).json({ error: 'Not found' });
     const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
-    const appendixImages = await getJobDrawingImages(q.job_id);
+    const appendixImages = await getQuoteAttachmentImages(q.id);
     const docTheme = await getThemeById(q.theme_id);
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
@@ -409,7 +434,7 @@ async function sendEmail(req, res) {
     if (!q.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
     const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
-    const appendixImages = await getJobDrawingImages(q.job_id);
+    const appendixImages = await getQuoteAttachmentImages(q.id);
     const docTheme = await getThemeById(q.theme_id);
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
@@ -500,7 +525,7 @@ async function publicGet(req, res) {
     }
     const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
-    const arcsiteDrawings = await getJobDrawingImages(q.job_id);
+    const arcsiteDrawings = await getQuoteAttachmentImages(q.id);
     const docTheme = await getThemeById(q.theme_id);
     res.json({
       id: q.id,

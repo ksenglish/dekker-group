@@ -43,6 +43,9 @@ export default function QuoteDetail() {
   const [expiresAt, setExpiresAt] = useState('');
   const [activity, setActivity] = useState([]);
   const [showPresenter, setShowPresenter] = useState(false);
+  const [jobAttachments, setJobAttachments] = useState([]);
+  const [attachmentIds, setAttachmentIds] = useState([]);
+  const [thumbs, setThumbs] = useState({});
 
   function loadActivity() {
     api.get(`/quotes/${id}/activity`).then(r => setActivity(r.data)).catch(() => {});
@@ -55,10 +58,36 @@ export default function QuoteDetail() {
       setThemeId(r.data.theme_id || '');
       setQuoteDate(toDateInput(r.data.quote_date || r.data.created_at));
       setExpiresAt(toDateInput(r.data.expires_at));
+      setAttachmentIds(r.data.attachment_ids || []);
+      if (r.data.job_id) {
+        api.get(`/jobs/${r.data.job_id}/attachments`)
+          .then(a => setJobAttachments(a.data.filter(x => (x.mime_type || '').startsWith('image/'))))
+          .catch(() => {});
+      }
     }).finally(() => setLoading(false));
     api.get('/settings/themes').then(r => setThemes(r.data.filter(t => !t.archived))).catch(() => {});
     loadActivity();
   }, [id]);
+
+  // Thumbnails come through the authenticated API, so they're fetched as
+  // blobs rather than pointed at with a plain <img src>.
+  useEffect(() => {
+    if (!quote?.job_id || !jobAttachments.length) return;
+    let cancelled = false;
+    const urls = [];
+    (async () => {
+      for (const a of jobAttachments) {
+        try {
+          const res = await api.get(`/jobs/${quote.job_id}/attachments/${a.id}/data`, { responseType: 'blob' });
+          if (cancelled) return;
+          const url = URL.createObjectURL(res.data);
+          urls.push(url);
+          setThumbs(t => ({ ...t, [a.id]: url }));
+        } catch { /* leave the placeholder in place */ }
+      }
+    })();
+    return () => { cancelled = true; urls.forEach(URL.revokeObjectURL); };
+  }, [quote?.job_id, jobAttachments]);
 
   function flash(type, text) { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); }
 
@@ -90,6 +119,7 @@ export default function QuoteDetail() {
       const { data } = await api.put(`/quotes/${id}`, {
         status: quote.status, notes, theme_id: themeId || null,
         quote_date: quoteDate || null, expires_at: expiresAt || null,
+        attachment_ids: attachmentIds,
       });
       setQuote(q => ({ ...q, ...data }));
       flash('success', 'Quote details saved');
@@ -205,11 +235,6 @@ export default function QuoteDetail() {
               navigator.clipboard.writeText(url).then(() => flash('success', 'Acceptance link copied to clipboard'));
             }}>🔗 Copy Link</button>
           )}
-          {quote.status === 'draft' && (
-            <button className={styles.btnPrimary} onClick={handleApprove} disabled={saving}>
-              {saving ? 'Approving…' : '✓ Approve Quote'}
-            </button>
-          )}
           {quote.customer_email && (
             <button className={styles.btnSecondary} onClick={() => setShowEmailModal(true)}>
               ✉ Email to Customer
@@ -278,12 +303,40 @@ export default function QuoteDetail() {
 
               <label className={styles.fieldLabel}>Description</label>
               <RichTextEditor value={notes} onChange={setNotes} placeholder="Add a description to appear on the quote PDF…" />
-
-              <button className={styles.btnSecondary} onClick={handleSaveDetails} disabled={savingDetails}>
-                {savingDetails ? 'Saving…' : 'Save Quote Details'}
-              </button>
             </div>
           </div>
+
+          {/* Drawings & photos — chosen per quote. Nothing is attached unless
+              it's ticked here, so pulling a new plan later can't change a
+              quote that's already gone out. */}
+          {jobAttachments.length > 0 && (
+            <div className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h2>Drawings &amp; Photos</h2>
+                <span className={styles.attachCount}>
+                  {attachmentIds.length} of {jobAttachments.length} selected
+                </span>
+              </div>
+              <div className={styles.attachGrid}>
+                {jobAttachments.map(a => {
+                  const picked = attachmentIds.includes(a.id);
+                  return (
+                    <label key={a.id} className={`${styles.attachItem} ${picked ? styles.attachItemPicked : ''}`}>
+                      <input type="checkbox" checked={picked}
+                        onChange={() => setAttachmentIds(ids =>
+                          ids.includes(a.id) ? ids.filter(x => x !== a.id) : [...ids, a.id])} />
+                      {thumbs[a.id]
+                        ? <img src={thumbs[a.id]} alt={a.filename} />
+                        : <div className={styles.attachPlaceholder}>{a.arcsite_drawing_id ? '📐' : '🖼'}</div>}
+                      <span className={styles.attachName}>
+                        {a.arcsite_drawing_id ? '📐 ' : '🖼 '}{a.filename}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Line items — this quote's own, independent of the job and of any
               other quote on it. Accepting the quote copies them onto the job. */}
@@ -359,6 +412,26 @@ export default function QuoteDetail() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Pinned action bar — stays put while scrolling a long quote, so Save
+          and Approve are always reachable. */}
+      <div className={styles.actionBar}>
+        <div className={styles.actionBarInner}>
+          <span className={styles.actionBarHint}>
+            {savingDetails ? 'Saving…' : 'Changes to details, description and attachments save together'}
+          </span>
+          <div className={styles.actionBarButtons}>
+            <button className={styles.btnSecondary} onClick={handleSaveDetails} disabled={savingDetails}>
+              {savingDetails ? 'Saving…' : 'Save Quote Details'}
+            </button>
+            {quote.status === 'draft' && (
+              <button className={styles.btnPrimary} onClick={handleApprove} disabled={saving}>
+                {saving ? 'Approving…' : '✓ Approve Quote'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
