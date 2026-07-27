@@ -6,6 +6,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 // Public routes — no auth required
 router.get('/public/:token', c.publicGet);
 router.post('/public/:token/accept', c.publicAccept);
+router.post('/public/:token/decline', c.publicDecline);
 router.get('/public/:token/pixel.gif', c.trackOpen);
 
 router.use(authenticate);

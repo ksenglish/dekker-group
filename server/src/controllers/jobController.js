@@ -3,6 +3,7 @@ const { normaliseRole } = require('../middleware/auth');
 const { getTheme } = require('./settingsController');
 const { buildElectricalCocPDF } = require('../utils/electricalCocPdf');
 const { sendMail } = require('../utils/email');
+const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
 
 async function list(req, res) {
   const { search = '', status, tech, customer, from, to, sort, page = 1, limit = 100 } = req.query;
@@ -339,7 +340,6 @@ async function saveOpForm(req, res) {
   }
 }
 
-const OFFICE_RECORDS_EMAIL = 'office@dekkergroup.co.nz';
 
 function cocJobNumber(job) {
   if (job.external_ref) return job.external_ref;

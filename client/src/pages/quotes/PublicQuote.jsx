@@ -28,6 +28,10 @@ export default function PublicQuote() {
   const [name, setName] = useState('');
   const [accepting, setAccepting] = useState(false);
   const [accepted, setAccepted] = useState(false);
+  const [declining, setDeclining] = useState(false);
+  const [declined, setDeclined] = useState(false);
+  const [showDecline, setShowDecline] = useState(false);
+  const [declineReason, setDeclineReason] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -50,10 +54,24 @@ export default function PublicQuote() {
     } finally { setAccepting(false); }
   }
 
+  async function handleDecline(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setDeclining(true); setError('');
+    try {
+      await axios.post(`${API}/quotes/public/${token}/decline`, { name, reason: declineReason });
+      setDeclined(true);
+      setQuote(q => ({ ...q, status: 'declined' }));
+    } catch (e) {
+      setError(e.response?.data?.error || 'Something went wrong. Please try again.');
+    } finally { setDeclining(false); }
+  }
+
   if (loading) return <div style={s.center}><p>Loading quote…</p></div>;
   if (error && !quote) return <div style={s.center}><p style={{ color: '#dc2626' }}>{error}</p></div>;
 
   const alreadyAccepted = quote.status === 'accepted';
+  const alreadyDeclined = quote.status === 'declined';
   const isExpired = quote.is_expired;
   const hasThumb = quote.line_items?.some(i => i.media_base64);
   const jobNumber = jobNumberDisplay(quote);
@@ -226,23 +244,59 @@ export default function PublicQuote() {
               ✓ This quote was accepted{quote.accepted_name ? ` by ${quote.accepted_name}` : ''}
               {quote.accepted_at ? ` on ${fmtDate(quote.accepted_at)}` : ''}.
             </div>
+          ) : alreadyDeclined ? (
+            <div style={s.declinedBanner}>
+              This quote was declined{quote.declined_name ? ` by ${quote.declined_name}` : ''}
+              {quote.declined_at ? ` on ${fmtDate(quote.declined_at)}` : ''}.
+            </div>
           ) : accepted ? (
             <div style={s.acceptedBanner}>
               ✓ Thank you, {name}! Your acceptance has been recorded. We'll be in touch shortly.
             </div>
+          ) : declined ? (
+            <div style={s.declinedBanner}>
+              Thank you, {name}. We've recorded that you've declined this quote and someone will be in touch.
+            </div>
           ) : (
-            <form onSubmit={handleAccept} style={s.acceptForm}>
-              <div style={s.acceptTitle}>Accept this quote</div>
-              <p style={s.acceptHint}>By entering your name and clicking Accept, you agree to proceed with the work described above.</p>
-              {error && <p style={{ color: '#dc2626', fontSize: 13 }}>{error}</p>}
-              <div style={s.acceptRow}>
-                <input value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Your full name" required style={s.acceptInput} />
-                <button type="submit" disabled={accepting || !name.trim()} style={s.acceptBtn}>
-                  {accepting ? 'Accepting…' : 'Accept Quote'}
+            <>
+              <form onSubmit={handleAccept} style={s.acceptForm}>
+                <div style={s.acceptTitle}>Accept this quote</div>
+                <p style={s.acceptHint}>
+                  {quote.acceptance_declaration
+                    || 'By entering my name and clicking Accept, I agree to proceed with the work described above and accept the Terms & Conditions of Sale set out in this quote.'}
+                </p>
+                {error && <p style={{ color: '#dc2626', fontSize: 13 }}>{error}</p>}
+                <div style={s.acceptRow}>
+                  <input value={name} onChange={e => setName(e.target.value)}
+                    placeholder="Your full name" required style={s.acceptInput} />
+                  <button type="submit" disabled={accepting || !name.trim()} style={s.acceptBtn}>
+                    {accepting ? 'Accepting…' : 'Accept Quote'}
+                  </button>
+                </div>
+              </form>
+
+              {!showDecline ? (
+                <button type="button" onClick={() => setShowDecline(true)} style={s.declineLink}>
+                  Not proceeding? Decline this quote
                 </button>
-              </div>
-            </form>
+              ) : (
+                <form onSubmit={handleDecline} style={s.declineForm}>
+                  <div style={s.declineTitle}>Decline this quote</div>
+                  <p style={s.acceptHint}>Let us know why if you'd like — it's optional, and it helps us improve.</p>
+                  <textarea value={declineReason} onChange={e => setDeclineReason(e.target.value)}
+                    placeholder="Reason (optional)" rows={2} style={s.declineTextarea} />
+                  <div style={s.acceptRow}>
+                    <button type="submit" disabled={declining || !name.trim()} style={s.declineBtn}>
+                      {declining ? 'Declining…' : 'Decline Quote'}
+                    </button>
+                    <button type="button" onClick={() => setShowDecline(false)} style={s.cancelDeclineBtn}>
+                      Cancel
+                    </button>
+                  </div>
+                  {!name.trim() && <p style={s.acceptHint}>Please enter your name above first.</p>}
+                </form>
+              )}
+            </>
           )}
         </div>
 
@@ -319,6 +373,13 @@ const s = {
   acceptRow: { display: 'flex', gap: 10, flexWrap: 'wrap' },
   acceptInput: { flex: 1, minWidth: 200, padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14, fontFamily: 'inherit', outline: 'none' },
   acceptBtn: { padding: '10px 20px', background: '#0f172a', color: 'white', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  declinedBanner: { background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '14px 20px', borderRadius: 6, fontSize: 14 },
+  declineLink: { marginTop: 14, background: 'none', border: 'none', padding: 0, color: '#64748b', fontSize: 13, textDecoration: 'underline', cursor: 'pointer', fontFamily: 'inherit' },
+  declineForm: { marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' },
+  declineTitle: { fontSize: 15, fontWeight: 700, marginBottom: 6 },
+  declineTextarea: { width: '100%', padding: '10px 14px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14, fontFamily: 'inherit', outline: 'none', resize: 'vertical', marginBottom: 10, boxSizing: 'border-box' },
+  declineBtn: { padding: '10px 20px', background: '#b91c1c', color: 'white', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' },
+  cancelDeclineBtn: { padding: '10px 20px', background: 'white', color: '#0f172a', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' },
   brochureSection: { padding: '24px 32px', borderTop: '2px solid #e2e8f0' },
   brochureBlock: { marginTop: 20 },
   brochureTitle: { fontSize: 13, fontWeight: 600, color: '#0f172a', marginBottom: 10 },

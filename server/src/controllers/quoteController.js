@@ -6,6 +6,18 @@ const { getTheme } = require('./settingsController');
 const { getThemeById, getDefaultTheme } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
+const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
+
+// The wording the customer confirms when they accept. Served to the public
+// quote page as well, so what they read and what the notification records are
+// always the same text.
+const ACCEPTANCE_DECLARATION =
+  'By entering my name and clicking Accept, I agree to proceed with the work described above and accept the Terms & Conditions of Sale set out in this quote.';
+
+// A statuses a customer is still able to act on. 'approved' is included so a
+// quote shared by link — rather than emailed — can still be accepted.
+const OPEN_FOR_CUSTOMER = "('draft','approved','sent')";
+
 
 function calcTotals(items) {
   const subtotal = items.reduce((s, i) => s + Math.round(i.unit_price * i.quantity), 0);
@@ -549,6 +561,11 @@ async function publicGet(req, res) {
       accepted_name: q.accepted_name,
       expires_at: q.expires_at,
       is_expired: q.expires_at ? new Date(q.expires_at) < new Date() : false,
+      declined_at: q.declined_at,
+      declined_name: q.declined_name,
+      // Served rather than duplicated in the client, so the wording the
+      // customer agrees to is the same wording recorded in the notification.
+      acceptance_declaration: ACCEPTANCE_DECLARATION,
       // product_name is the internal ordering code — strip it so it never
       // reaches the customer-facing quote page.
       line_items: enrichedItems.map(({ product_name, ...item }) => item),
@@ -561,23 +578,116 @@ async function publicGet(req, res) {
 }
 
 // Public: accept quote by token (no auth)
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, ch =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+// Reproduces the "Accept this quote" panel as it appeared to the customer,
+// with the name they typed, so the notification carries a record of exactly
+// what was agreed and by whom.
+function acceptanceRecordHtml({ heading, declaration, name, when, reason }) {
+  const stamp = new Date(when || Date.now()).toLocaleString('en-NZ', {
+    day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+  return `<div style="border:1px solid #e2e8f0;border-radius:8px;padding:20px;background:#fafafa;font-family:Arial,Helvetica,sans-serif;max-width:560px;">
+  <div style="font-size:16px;font-weight:700;color:#0f172a;margin-bottom:6px;">${escapeHtml(heading)}</div>
+  <div style="font-size:13px;color:#0f172a;margin-bottom:14px;">${escapeHtml(declaration)}</div>
+  <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:6px;padding:12px 14px;font-size:15px;font-weight:600;color:#0f172a;">${escapeHtml(name)}</div>
+  ${reason ? `<div style="margin-top:12px;font-size:13px;color:#0f172a;"><strong>Reason given:</strong> ${escapeHtml(reason)}</div>` : ''}
+  <div style="margin-top:12px;font-size:12px;color:#64748b;">Submitted ${escapeHtml(stamp)}</div>
+</div>`;
+}
+
+// Tells whoever sent the quote, and the office, that the customer has acted.
+// Best effort — a mail failure must never undo the customer's decision.
+async function notifyQuoteDecision({ quoteId, decision, name, reason, when }) {
+  try {
+    const { rows: [q] } = await pool.query(
+      `SELECT q.quote_number, q.id, q.total, q.accepted_terms,
+              c.name AS customer_name, u.email AS sender_email,
+              j.job_number, j.external_ref
+       FROM quotes q
+       LEFT JOIN customers c ON c.id = q.customer_id
+       LEFT JOIN users u ON u.id = q.created_by
+       LEFT JOIN jobs j ON j.id = q.job_id
+       WHERE q.id = $1`,
+      [quoteId]
+    );
+    if (!q) return;
+    const to = [...new Set([q.sender_email, OFFICE_RECORDS_EMAIL].filter(Boolean).map(e => e.toLowerCase()))];
+    if (!to.length) return;
+
+    const quoteNo = q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : `Q-${q.id.slice(0, 8).toUpperCase()}`;
+    const jobNo = q.external_ref || (q.job_number != null ? `JB${String(q.job_number).padStart(5, '0')}` : '');
+    const accepted = decision === 'accepted';
+
+    await sendMail({
+      to: to.join(', '),
+      subject: `Quote ${quoteNo} ${accepted ? 'accepted' : 'declined'} by ${name}`,
+      html: `<p>${escapeHtml(q.customer_name || 'The customer')} has <strong>${accepted ? 'accepted' : 'declined'}</strong> quote <strong>${escapeHtml(quoteNo)}</strong>${jobNo ? ` (job ${escapeHtml(jobNo)})` : ''} online.</p>
+<p>Quote total: <strong>$${(q.total / 100).toFixed(2)}</strong> incl. GST</p>
+${acceptanceRecordHtml({
+  heading: accepted ? 'Accept this quote' : 'Decline this quote',
+  declaration: accepted ? ACCEPTANCE_DECLARATION : 'The customer declined this quote online.',
+  name, when, reason,
+})}
+${accepted && q.accepted_terms ? `<p style="margin-top:18px;font-size:12px;color:#64748b;">Terms &amp; Conditions agreed to at the time of acceptance are recorded against this quote.</p>` : ''}`,
+    });
+  } catch (err) {
+    console.error('[quote] decision notification failed:', err.message);
+  }
+}
+
 async function publicAccept(req, res) {
   const { name } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Name is required to accept this quote' });
   try {
+    // Snapshot the terms in force right now, so a later edit to the theme
+    // can't rewrite what the customer appears to have agreed to.
+    const { rows: [current] } = await pool.query('SELECT theme_id FROM quotes WHERE public_token=$1', [req.params.token]);
+    const docTheme = current ? await getThemeById(current.theme_id) : null;
+
     const { rows } = await pool.query(
-      `UPDATE quotes SET status='accepted', accepted_at=NOW(), accepted_name=$1, updated_at=NOW()
-       WHERE public_token=$2 AND status IN ('draft','sent')
+      `UPDATE quotes SET status='accepted', accepted_at=NOW(), accepted_name=$1,
+              accepted_terms=$2, updated_at=NOW()
+       WHERE public_token=$3 AND status IN ${OPEN_FOR_CUSTOMER}
        AND (expires_at IS NULL OR expires_at >= CURRENT_DATE)
        RETURNING id, job_id, status, accepted_at, accepted_name`,
-      [name.trim(), req.params.token]
+      [name.trim(), docTheme?.termsAndConditions || null, req.params.token]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Quote not found or already accepted' });
+    if (!rows[0]) return res.status(404).json({ error: 'Quote not found, expired, or already actioned' });
     await syncJobLineItemsFromQuote(rows[0].id, rows[0].job_id);
     await logActivity({ type: 'quote_accepted', entity_type: 'quote', entity_id: rows[0].id, user_id: null,
       message: `Quote accepted online by ${name.trim()}` });
+    await notifyQuoteDecision({
+      quoteId: rows[0].id, decision: 'accepted', name: name.trim(), when: rows[0].accepted_at,
+    });
     res.json(rows[0]);
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { console.error('[quote]', err.message); res.status(500).json({ error: 'Server error' }); }
+}
+
+async function publicDecline(req, res) {
+  const { name, reason } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'Name is required to decline this quote' });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE quotes SET status='declined', declined_at=NOW(), declined_name=$1,
+              decline_reason=$2, updated_at=NOW()
+       WHERE public_token=$3 AND status IN ${OPEN_FOR_CUSTOMER}
+       RETURNING id, status, declined_at, declined_name, decline_reason`,
+      [name.trim(), (reason || '').trim() || null, req.params.token]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Quote not found or already actioned' });
+    await logActivity({ type: 'quote_declined', entity_type: 'quote', entity_id: rows[0].id, user_id: null,
+      message: `Quote declined online by ${name.trim()}${rows[0].decline_reason ? ` — ${rows[0].decline_reason}` : ''}` });
+    await notifyQuoteDecision({
+      quoteId: rows[0].id, decision: 'declined', name: name.trim(),
+      reason: rows[0].decline_reason, when: rows[0].declined_at,
+    });
+    res.json(rows[0]);
+  } catch (err) { console.error('[quote]', err.message); res.status(500).json({ error: 'Server error' }); }
 }
 
 // 1x1 transparent gif embedded in the sent HTML email to detect opens.
@@ -613,4 +723,4 @@ async function getActivity(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, updateLineItems, remove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, trackOpen, getActivity };
+module.exports = { list, get, create, update, updateLineItems, remove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, getActivity };
