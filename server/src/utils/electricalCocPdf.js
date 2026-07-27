@@ -35,7 +35,7 @@ const PARTS_SCOPE_LABEL = { all: 'All', parts: 'Parts' };
 // Certificate PDF from a submitted job_electrical_coc row. Deliberately not a
 // pixel-for-pixel replica of the original AS/NZS layout — it's a clean,
 // letterhead-branded digital re-typesetting covering every field on it.
-async function buildElectricalCocPDF({ job, form, theme = {} }) {
+async function buildElectricalCocPDF({ job, form, theme = {}, photos = [] }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: MARGIN, size: 'A4' });
     const chunks = [];
@@ -209,6 +209,36 @@ async function buildElectricalCocPDF({ job, form, theme = {} }) {
       { label: 'Fault Loop Impedance (Ohms)', value: form.test_fault_loop_impedance },
       { label: 'Other', value: form.test_other },
     ]);
+
+    // ── Site photos — before the sign-off, so the certifier is signing
+    // off on everything above including the evidence. ──────────────
+    if (photos.length) {
+      sectionHeader('Photos');
+      const GAP = 12;
+      const COLS = 2;
+      const cellW = (CONTENT_W - GAP * (COLS - 1)) / COLS;
+      const cellH = Math.round(cellW * 0.75);
+
+      for (let i = 0; i < photos.length; i += COLS) {
+        const row = photos.slice(i, i + COLS);
+        const captions = row.map(p => (p.caption || '').trim());
+        const capH = captions.some(Boolean) ? 12 : 0;
+        ensureSpace(cellH + capH + GAP);
+        const rowTop = y;
+        row.forEach((p, col) => {
+          const x = MARGIN + col * (cellW + GAP);
+          try {
+            const buf = Buffer.from(String(p.data_base64).replace(/^data:[^;]+;base64,/, ''), 'base64');
+            doc.image(buf, x, rowTop, { fit: [cellW, cellH], align: 'center', valign: 'center' });
+          } catch { /* skip an unreadable photo rather than fail the whole certificate */ }
+          if (captions[col]) {
+            doc.fontSize(7).font('Helvetica').fillColor(MID_GREY)
+              .text(stripDiacritics(captions[col]), x, rowTop + cellH + 2, { width: cellW, align: 'center', lineBreak: false, ellipsis: true });
+          }
+        });
+        y = rowTop + cellH + capH + GAP;
+      }
+    }
 
     divider();
     ensureSpace(30);

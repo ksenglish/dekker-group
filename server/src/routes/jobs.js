@@ -83,6 +83,7 @@ router.get('/:id/electrical-coc', c.getElectricalCoc);
 router.put('/:id/electrical-coc', c.saveElectricalCoc);
 router.delete('/:id/electrical-coc', requireRole('admin'), c.deleteElectricalCoc);
 router.get('/:id/electrical-coc/pdf', c.downloadElectricalCocPdf);
+router.post('/:id/electrical-coc/email', c.emailElectricalCoc);
 
 // Email customer from job
 router.post('/:id/email', requireRole('admin', 'office'), async (req, res) => {

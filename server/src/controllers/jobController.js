@@ -2,6 +2,7 @@ const pool = require('../db/pool');
 const { normaliseRole } = require('../middleware/auth');
 const { getTheme } = require('./settingsController');
 const { buildElectricalCocPDF } = require('../utils/electricalCocPdf');
+const { sendMail } = require('../utils/email');
 
 async function list(req, res) {
   const { search = '', status, tech, customer, from, to, sort, page = 1, limit = 100 } = req.query;
@@ -338,6 +339,53 @@ async function saveOpForm(req, res) {
   }
 }
 
+const OFFICE_RECORDS_EMAIL = 'office@dekkergroup.co.nz';
+
+function cocJobNumber(job) {
+  if (job.external_ref) return job.external_ref;
+  if (job.job_number != null) return 'JB' + String(job.job_number).padStart(5, '0');
+  return job.id.slice(0, 8).toUpperCase();
+}
+
+// "<Reference / Certificate ID No.> - <Site Address>.pdf", with anything a
+// filesystem would object to flattened out.
+function cocFileName(job, form) {
+  const reference = (form.reference_no || '').trim() || cocJobNumber(job);
+  const site = (form.location_details || job.site_address || '').trim().replace(/\s*\n\s*/g, ', ');
+  const raw = site ? `${reference} - ${site}` : reference;
+  const safe = raw.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, ' ').trim().slice(0, 180);
+  return `${safe || 'Electrical COC'}.pdf`;
+}
+
+async function getCocPhotos(jobId) {
+  const { rows } = await pool.query(
+    'SELECT id, data_base64, mime_type, caption, sort_order FROM job_coc_photos WHERE job_id=$1 ORDER BY sort_order, created_at',
+    [jobId]
+  );
+  return rows;
+}
+
+// Files the signed certificate with the electrician and the office. Best
+// effort — a mail failure must never lose the saved form.
+async function emailCocForRecords({ job, form, photos, theme, recipientEmail }) {
+  const to = [recipientEmail, OFFICE_RECORDS_EMAIL].filter(Boolean);
+  const unique = [...new Set(to.map(e => e.toLowerCase()))];
+  if (!unique.length) return false;
+  const pdf = await buildElectricalCocPDF({ job, form, theme, photos });
+  const jobNo = cocJobNumber(job);
+  await sendMail({
+    to: unique.join(', '),
+    subject: `Electrical COC - ${jobNo}`,
+    html: `<p>Electrical Certificate of Compliance for job <strong>${jobNo}</strong> is attached.</p>
+<p>Certificate reference: ${form.reference_no || '—'}<br>
+Site: ${(form.location_details || job.site_address || '—').replace(/\n/g, ', ')}<br>
+Certified by: ${form.coc_certifier_signature || '—'}</p>
+<p>Retain this document for a minimum of 7 years.</p>`,
+    attachments: [{ filename: cocFileName(job, form), content: pdf, contentType: 'application/pdf' }],
+  });
+  return true;
+}
+
 async function getElectricalCoc(req, res) {
   try {
     const { rows } = await pool.query(
@@ -346,7 +394,8 @@ async function getElectricalCoc(req, res) {
        WHERE c.job_id=$1`,
       [req.params.id]
     );
-    res.json(rows[0] || null);
+    if (!rows[0]) return res.json(null);
+    res.json({ ...rows[0], photos: await getCocPhotos(req.params.id) });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -414,10 +463,70 @@ async function saveElectricalCoc(req, res) {
         req.user.id,
       ]
     );
-    res.json(rows[0]);
+
+    // Photos are sent as the full set each save, so replace rather than merge.
+    if (Array.isArray(f.photos)) {
+      await pool.query('DELETE FROM job_coc_photos WHERE job_id=$1', [req.params.id]);
+      for (const [i, p] of f.photos.entries()) {
+        if (!p?.data_base64) continue;
+        await pool.query(
+          'INSERT INTO job_coc_photos (job_id, data_base64, mime_type, caption, sort_order) VALUES ($1,$2,$3,$4,$5)',
+          [req.params.id, p.data_base64, p.mime_type || null, (p.caption || '').slice(0, 255) || null, i]
+        );
+      }
+    }
+
+    const saved = rows[0];
+    const photos = await getCocPhotos(req.params.id);
+
+    // File it away the first time it's signed. Later edits don't resend.
+    let emailed = false;
+    if (saved.coc_certifier_signature && !saved.emailed_at) {
+      try {
+        const { rows: [job] } = await pool.query(
+          `SELECT j.*, c.name AS customer_name FROM jobs j LEFT JOIN customers c ON c.id=j.customer_id WHERE j.id=$1`,
+          [req.params.id]
+        );
+        const theme = await getTheme();
+        emailed = await emailCocForRecords({
+          job, form: saved, photos, theme, recipientEmail: req.user.email,
+        });
+        if (emailed) {
+          await pool.query('UPDATE job_electrical_coc SET emailed_at=NOW() WHERE job_id=$1', [req.params.id]);
+          saved.emailed_at = new Date().toISOString();
+        }
+      } catch (mailErr) {
+        // The certificate is saved either way — surface it without failing.
+        console.error('[coc] record-keeping email failed:', mailErr.message);
+      }
+    }
+
+    res.json({ ...saved, photos, emailed });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// Manual resend, for when the automatic one failed or a fresh copy is wanted.
+async function emailElectricalCoc(req, res) {
+  try {
+    const { rows: [job] } = await pool.query(
+      `SELECT j.*, c.name AS customer_name FROM jobs j LEFT JOIN customers c ON c.id=j.customer_id WHERE j.id=$1`,
+      [req.params.id]
+    );
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    const { rows: [form] } = await pool.query('SELECT * FROM job_electrical_coc WHERE job_id=$1', [req.params.id]);
+    if (!form) return res.status(404).json({ error: 'Form has not been completed yet' });
+    const theme = await getTheme();
+    await emailCocForRecords({
+      job, form, photos: await getCocPhotos(req.params.id), theme, recipientEmail: req.user.email,
+    });
+    await pool.query('UPDATE job_electrical_coc SET emailed_at=NOW() WHERE job_id=$1', [req.params.id]);
+    res.json({ message: `Sent to ${req.user.email} and ${OFFICE_RECORDS_EMAIL}` });
+  } catch (err) {
+    console.error('[coc]', err.message);
+    res.status(500).json({ error: err.message || 'Failed to send certificate' });
   }
 }
 
@@ -431,8 +540,12 @@ async function downloadElectricalCocPdf(req, res) {
     const { rows: [form] } = await pool.query('SELECT * FROM job_electrical_coc WHERE job_id=$1', [req.params.id]);
     if (!form) return res.status(404).json({ error: 'Form has not been completed yet' });
     const theme = await getTheme();
-    const pdf = await buildElectricalCocPDF({ job, form, theme });
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="electrical-coc-${job.id.slice(0, 8)}.pdf"` });
+    const photos = await getCocPhotos(req.params.id);
+    const pdf = await buildElectricalCocPDF({ job, form, theme, photos });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${cocFileName(job, form).replace(/"/g, '')}"`,
+    });
     res.send(pdf);
   } catch (err) {
     console.error(err);
@@ -451,5 +564,5 @@ async function deleteElectricalCoc(req, res) {
 
 module.exports = {
   list, get, create, update, updateStatus, remove, updateLineItems, listNotes, createNote, deleteNote,
-  getOpForm, saveOpForm, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf, deleteElectricalCoc,
+  getOpForm, saveOpForm, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf, emailElectricalCoc, deleteElectricalCoc,
 };

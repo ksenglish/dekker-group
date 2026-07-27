@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import { toLocalDateStr } from '../../lib/date';
 import { isAdmin } from '../../lib/permissions';
@@ -52,7 +52,32 @@ function emptyDraft(job, user) {
     esc_certifier_signature: user?.name || '',
     esc_issue_date: today,
     esc_connection_date: '',
+    photos: [],
   };
+}
+
+// Phone cameras produce multi-megabyte images; several of them would blow past
+// the server's request limit. Scale down and re-encode as JPEG before upload.
+const MAX_PHOTO_EDGE = 1400;
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = ev => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const scale = Math.min(1, MAX_PHOTO_EDGE / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // Normalise DATE columns (returned as full timestamps) down to yyyy-mm-dd for <input type="date">
@@ -62,6 +87,7 @@ function normaliseForDraft(row) {
     coc_signed_date: row.coc_signed_date ? String(row.coc_signed_date).slice(0, 10) : '',
     esc_issue_date: row.esc_issue_date ? String(row.esc_issue_date).slice(0, 10) : '',
     esc_connection_date: row.esc_connection_date ? String(row.esc_connection_date).slice(0, 10) : '',
+    photos: row.photos || [],
   };
 }
 
@@ -103,6 +129,11 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [addingPhotos, setAddingPhotos] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const [emailing, setEmailing] = useState(false);
+  const [flash, setFlash] = useState('');
+  const photoRef = useRef();
 
   useEffect(() => {
     api.get(`/jobs/${jobId}/electrical-coc`).then(r => {
@@ -118,6 +149,43 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
   }, [jobId]);
 
   function set(k, v) { setDraft(d => ({ ...d, [k]: v })); }
+
+  async function handleAddPhotos(e) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+    setAddingPhotos(true); setPhotoError('');
+    try {
+      const added = [];
+      for (const file of files) {
+        if (!file.type.startsWith('image/')) continue;
+        added.push({ data_base64: await compressImage(file), mime_type: 'image/jpeg', caption: '' });
+      }
+      if (!added.length) setPhotoError('Those files were not images.');
+      setDraft(d => ({ ...d, photos: [...(d.photos || []), ...added] }));
+    } catch {
+      setPhotoError('Could not read one of those photos.');
+    } finally { setAddingPhotos(false); }
+  }
+
+  function setPhotoCaption(idx, caption) {
+    setDraft(d => ({ ...d, photos: d.photos.map((p, i) => i === idx ? { ...p, caption } : p) }));
+  }
+  function removePhoto(idx) {
+    setDraft(d => ({ ...d, photos: d.photos.filter((_, i) => i !== idx) }));
+  }
+
+  async function handleEmail() {
+    setEmailing(true); setFlash('');
+    try {
+      const { data } = await api.post(`/jobs/${jobId}/electrical-coc/email`);
+      setFlash(data.message || 'Certificate emailed.');
+      setTimeout(() => setFlash(''), 5000);
+    } catch (err) {
+      setFlash(err.response?.data?.error || 'Failed to send certificate.');
+      setTimeout(() => setFlash(''), 6000);
+    } finally { setEmailing(false); }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -137,9 +205,14 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
     setDownloading(true);
     try {
       const res = await api.get(`/jobs/${jobId}/electrical-coc/pdf`, { responseType: 'blob' });
+      // Use the "<reference> - <site address>.pdf" name the server sets.
+      const disposition = res.headers['content-disposition'] || '';
+      const named = disposition.match(/filename="?([^"]+)"?/);
       const url = URL.createObjectURL(res.data);
       const a = document.createElement('a');
-      a.href = url; a.download = `electrical-coc-${jobId.slice(0, 8)}.pdf`; a.click();
+      a.href = url;
+      a.download = named ? named[1] : `electrical-coc-${jobId.slice(0, 8)}.pdf`;
+      a.click();
       URL.revokeObjectURL(url);
     } finally {
       setDownloading(false);
@@ -177,6 +250,12 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
             {downloading ? 'Preparing…' : '⬇ Download PDF'}
           </button>
         )}
+        {form && !editing && (
+          <button type="button" className={styles.btnSecondary} onClick={handleEmail} disabled={emailing}
+            title="Send a copy to you and office@dekkergroup.co.nz">
+            {emailing ? 'Sending…' : '✉ Email COC'}
+          </button>
+        )}
         {form && !editing && canEdit && (
           <button type="button" className={styles.btnSecondary} onClick={() => setEditing(true)}>Edit</button>
         )}
@@ -193,6 +272,7 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
     return (
       <div className={styles.card}>
         {header}
+        {flash && <div className={formStyles.flash}>{flash}</div>}
         <div className={formStyles.section}>
           <div className={styles.detailGrid}>
             <div className={styles.detailItem}><span>Reference / Certificate ID No.</span><strong>{form.reference_no || '—'}</strong></div>
@@ -237,6 +317,20 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
             <div className={styles.detailItem}><span>Other</span><strong>{form.test_other || '—'}</strong></div>
           </div>
         </div>
+
+        {form.photos?.length > 0 && (
+          <div className={formStyles.section}>
+            <h4 className={formStyles.sectionTitle}>Photos</h4>
+            <div className={formStyles.photoGrid}>
+              {form.photos.map((p, i) => (
+                <div key={p.id || i} className={formStyles.photoItem}>
+                  <img src={p.data_base64} alt={p.caption || `Photo ${i + 1}`} />
+                  {p.caption && <span className={formStyles.photoCaption}>{p.caption}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className={formStyles.section}>
           <h4 className={formStyles.sectionTitle}>Sign-Off</h4>
@@ -419,6 +513,30 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
             <div className={styles.field}><label>Fault Loop Impedance (Ohms)</label><input value={draft.test_fault_loop_impedance} onChange={e => set('test_fault_loop_impedance', e.target.value)} /></div>
             <div className={styles.field}><label>Other (Specify)</label><input value={draft.test_other} onChange={e => set('test_other', e.target.value)} /></div>
           </div>
+        </div>
+
+        <div className={formStyles.section}>
+          <h4 className={formStyles.sectionTitle}>Photos</h4>
+          <p className={formStyles.hint}>Attached to the certificate PDF, ahead of the sign-off.</p>
+          <input ref={photoRef} type="file" accept="image/*" capture="environment" multiple
+            style={{ display: 'none' }} onChange={handleAddPhotos} />
+          <button type="button" className={styles.btnSecondary} onClick={() => photoRef.current?.click()} disabled={addingPhotos}>
+            {addingPhotos ? 'Adding…' : '+ Add Photos'}
+          </button>
+          {photoError && <p className={formStyles.hint} style={{ color: '#dc2626' }}>{photoError}</p>}
+          {draft.photos?.length > 0 && (
+            <div className={formStyles.photoGrid}>
+              {draft.photos.map((p, i) => (
+                <div key={i} className={formStyles.photoItem}>
+                  <img src={p.data_base64} alt={p.caption || `Photo ${i + 1}`} />
+                  <input value={p.caption || ''} placeholder="Caption (optional)"
+                    onChange={e => setPhotoCaption(i, e.target.value)} />
+                  <button type="button" className={formStyles.photoRemove}
+                    onClick={() => removePhoto(i)} title="Remove photo">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className={formStyles.section}>
