@@ -81,7 +81,7 @@ router.put('/:id/op-form', c.saveOpForm);
 // Admin only.
 router.get('/:id/electrical-coc', c.getElectricalCoc);
 router.put('/:id/electrical-coc', c.saveElectricalCoc);
-router.delete('/:id/electrical-coc', requireRole('admin'), c.deleteElectricalCoc);
+router.delete('/:id/electrical-coc', c.deleteElectricalCoc);
 router.get('/:id/electrical-coc/pdf', c.downloadElectricalCocPdf);
 router.post('/:id/electrical-coc/email', c.emailElectricalCoc);
 

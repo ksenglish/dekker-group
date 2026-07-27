@@ -14,11 +14,21 @@
 .checkRow { display: flex; flex-wrap: wrap; gap: 20px; }
 .hint { font-size: 12px; color: var(--color-text-muted); margin: -6px 0 0; }
 
+.headerActions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
 @media (max-width: 700px) {
   .row2 { grid-template-columns: 1fr; }
+
+  /* Four actions squeezed onto one row pushed Delete off the edge of the
+     screen. Stack the header and let the buttons wrap and share the width. */
+  .formHeader { flex-direction: column; align-items: stretch; gap: 12px; }
+  .headerActions { justify-content: stretch; }
+  .headerActions button { flex: 1 1 140px; white-space: nowrap; }
 }
 
 /* Site photos attached to the certificate */
+.photoButtons { display: flex; gap: 8px; flex-wrap: wrap; }
+.photoButtons button { flex: 0 1 auto; }
 .photoGrid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px; margin-top: 12px;

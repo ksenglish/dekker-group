@@ -553,9 +553,17 @@ async function downloadElectricalCocPdf(req, res) {
   }
 }
 
+// Admin, or the person who completed it — a signed certificate has already
+// been emailed to them and the office, so the record survives the delete.
 async function deleteElectricalCoc(req, res) {
   try {
+    const { rows: [form] } = await pool.query('SELECT completed_by FROM job_electrical_coc WHERE job_id=$1', [req.params.id]);
+    if (!form) return res.status(404).json({ error: 'Form not found' });
+    if (normaliseRole(req.user.role) !== 'admin' && form.completed_by !== req.user.id) {
+      return res.status(403).json({ error: 'Only Admin or the person who completed this form can delete it' });
+    }
     await pool.query('DELETE FROM job_electrical_coc WHERE job_id=$1', [req.params.id]);
+    await pool.query('DELETE FROM job_coc_photos WHERE job_id=$1', [req.params.id]);
     res.json({ message: 'Deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

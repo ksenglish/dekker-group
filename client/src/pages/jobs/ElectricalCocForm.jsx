@@ -133,7 +133,8 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
   const [photoError, setPhotoError] = useState('');
   const [emailing, setEmailing] = useState(false);
   const [flash, setFlash] = useState('');
-  const photoRef = useRef();
+  const cameraRef = useRef();
+  const galleryRef = useRef();
 
   useEffect(() => {
     api.get(`/jobs/${jobId}/electrical-coc`).then(r => {
@@ -238,13 +239,15 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
   // Admin can delete it.
   const admin = isAdmin(user?.role);
   const canEdit = !form || admin || form.completed_by === user?.id;
-  const canDelete = admin && !!form;
+  // The signed certificate is emailed to the certifier and the office, so the
+  // record survives even if they remove it here.
+  const canDelete = !!form && (admin || form.completed_by === user?.id);
 
   const header = (
     <div className={formStyles.formHeader}>
       <button type="button" className={formStyles.backLink} onClick={onBack}>← Back to Forms</button>
       <h3 className={formStyles.title}>Electrical COC</h3>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div className={formStyles.headerActions}>
         {form && !editing && (
           <button type="button" className={styles.btnSecondary} onClick={handleDownloadPdf} disabled={downloading}>
             {downloading ? 'Preparing…' : '⬇ Download PDF'}
@@ -518,11 +521,20 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
         <div className={formStyles.section}>
           <h4 className={formStyles.sectionTitle}>Photos</h4>
           <p className={formStyles.hint}>Attached to the certificate PDF, ahead of the sign-off.</p>
-          <input ref={photoRef} type="file" accept="image/*" capture="environment" multiple
+          {/* Two inputs rather than one: `capture` opens the camera straight
+              away, and without it the picker offers the gallery instead. */}
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" multiple
             style={{ display: 'none' }} onChange={handleAddPhotos} />
-          <button type="button" className={styles.btnSecondary} onClick={() => photoRef.current?.click()} disabled={addingPhotos}>
-            {addingPhotos ? 'Adding…' : '+ Add Photos'}
-          </button>
+          <input ref={galleryRef} type="file" accept="image/*" multiple
+            style={{ display: 'none' }} onChange={handleAddPhotos} />
+          <div className={formStyles.photoButtons}>
+            <button type="button" className={styles.btnSecondary} onClick={() => cameraRef.current?.click()} disabled={addingPhotos}>
+              {addingPhotos ? 'Adding…' : '📷 Take Photo'}
+            </button>
+            <button type="button" className={styles.btnSecondary} onClick={() => galleryRef.current?.click()} disabled={addingPhotos}>
+              {addingPhotos ? 'Adding…' : '🖼 Choose from Gallery'}
+            </button>
+          </div>
           {photoError && <p className={formStyles.hint} style={{ color: '#dc2626' }}>{photoError}</p>}
           {draft.photos?.length > 0 && (
             <div className={formStyles.photoGrid}>
