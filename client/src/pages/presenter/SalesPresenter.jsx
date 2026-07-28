@@ -11,12 +11,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.vers
 
 // ── Calculators ───────────────────────────────────────────────────────────────
 
-function AreaCalculator({ product, jobId }) {
-  const cfg = product.calculator_config || {};
-  const [length, setLength] = useState('');
-  const [width, setWidth] = useState('');
-  const [scannedArea, setScannedArea] = useState(null); // m² from AI scan
-  const [qty, setQty] = useState(1);
+// Shared "Scan Plan" panel — upload/photograph/pick-from-job an image, send it
+// to the AI scanner, show the result. `mode` decides what's being measured:
+// 'area' returns m² for decks and floors, 'linear' returns metres of run for
+// fences. The measurement is handed back through onResult.
+function PlanScanner({ jobId, mode = 'area', hint, onResult }) {
   const [scanMode, setScanMode] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
@@ -27,21 +26,16 @@ function AreaCalculator({ product, jobId }) {
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [thumbUrls, setThumbUrls] = useState({});
   const fileRef = useRef();
-  const pricePerM2 = (product.price_from / 100) || cfg.price_per_m2 || 0;
 
-  // Area: use scanned if available, else length × width
-  const manualArea = (parseFloat(length) || 0) * (parseFloat(width) || 0);
-  const area = scannedArea != null ? scannedArea : manualArea;
-  const total = area * pricePerM2 * qty;
+  const isLinear = mode === 'linear';
+  const resultKey = isLinear ? 'length_m' : 'area_m2';
+  const unit = isLinear ? 'm' : 'm²';
 
   function handleFileChange(e) {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => {
-      setPreviewUrl(ev.target.result);
-      setScanResult(null); setScanError('');
-    };
+    reader.onload = ev => { setPreviewUrl(ev.target.result); setScanResult(null); setScanError(''); };
     reader.readAsDataURL(file);
   }
 
@@ -51,18 +45,19 @@ function AreaCalculator({ product, jobId }) {
     try {
       const mimeMatch = previewUrl.match(/^data:([^;]+);base64,/);
       const mime_type = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-      const { data } = await api.post('/scan/plan', { data_base64: previewUrl, mime_type });
+      const { data } = await api.post('/scan/plan', { data_base64: previewUrl, mime_type, mode });
       setScanResult(data);
-      setScannedArea(data.area_m2);
       setScanMode(false);
       setPreviewUrl('');
+      onResult(data[resultKey]);
     } catch (err) {
       setScanError(err.response?.data?.error || 'Scan failed — please try a clearer image');
     } finally { setScanning(false); }
   }
 
-  function handleClearScan() {
-    setScannedArea(null); setScanResult(null); setScanError(''); setPreviewUrl('');
+  function handleClear() {
+    setScanResult(null); setScanError(''); setPreviewUrl('');
+    onResult(null);
   }
 
   async function openJobPicker() {
@@ -70,10 +65,9 @@ function AreaCalculator({ product, jobId }) {
     setLoadingAttachments(true);
     try {
       const { data } = await api.get(`/jobs/${jobId}/attachments`);
-      const images = data
+      setJobAttachments(data
         .filter(a => (a.mime_type || '').startsWith('image/'))
-        .sort((a, b) => (b.arcsite_drawing_id ? 1 : 0) - (a.arcsite_drawing_id ? 1 : 0));
-      setJobAttachments(images);
+        .sort((a, b) => (b.arcsite_drawing_id ? 1 : 0) - (a.arcsite_drawing_id ? 1 : 0)));
     } catch {
       setJobAttachments([]);
     } finally { setLoadingAttachments(false); }
@@ -98,10 +92,7 @@ function AreaCalculator({ product, jobId }) {
     try {
       const res = await api.get(`/jobs/${jobId}/attachments/${a.id}/data`, { responseType: 'blob' });
       const reader = new FileReader();
-      reader.onload = ev => {
-        setPreviewUrl(ev.target.result);
-        setScanResult(null); setScanError('');
-      };
+      reader.onload = ev => { setPreviewUrl(ev.target.result); setScanResult(null); setScanError(''); };
       reader.readAsDataURL(res.data);
       setShowJobPicker(false);
     } catch {
@@ -111,18 +102,16 @@ function AreaCalculator({ product, jobId }) {
   }
 
   return (
-    <div className={styles.calc}>
-      <h3 className={styles.calcTitle}>Area Calculator</h3>
+    <>
       {!scanMode && !scanResult && (
         <button className={styles.scanPlanBtn} onClick={() => { setScanMode(true); setScanError(''); }}>
           📐 Scan Plan
         </button>
       )}
 
-      {/* Scan Plan panel */}
       {scanMode && (
         <div className={styles.scanPanel}>
-          <p className={styles.scanHint}>Upload or photograph a floor plan with dimensions marked — AI will calculate the m².</p>
+          <p className={styles.scanHint}>{hint}</p>
           <div className={styles.scanUploadRow}>
             <button className={styles.scanUploadBtn} onClick={() => { fileRef.current.removeAttribute('capture'); fileRef.current.click(); }}>
               📁 Upload Image
@@ -131,9 +120,7 @@ function AreaCalculator({ product, jobId }) {
               📷 Take Photo
             </button>
             {jobId && (
-              <button className={styles.scanUploadBtn} onClick={openJobPicker}>
-                📥 From Job
-              </button>
+              <button className={styles.scanUploadBtn} onClick={openJobPicker}>📥 From Job</button>
             )}
             <button className={styles.scanCancelBtn} onClick={() => { setScanMode(false); setPreviewUrl(''); setScanError(''); }}>
               Cancel
@@ -153,7 +140,6 @@ function AreaCalculator({ product, jobId }) {
         </div>
       )}
 
-      {/* Job attachment picker */}
       {showJobPicker && (
         <div className={styles.jobPickerOverlay} onClick={e => e.target === e.currentTarget && setShowJobPicker(false)}>
           <div className={styles.jobPickerModal}>
@@ -169,11 +155,8 @@ function AreaCalculator({ product, jobId }) {
               <div className={styles.jobPickerGrid}>
                 {jobAttachments.map(a => (
                   <button key={a.id} className={styles.jobPickerItem} onClick={() => selectJobAttachment(a)}>
-                    {thumbUrls[a.id] ? (
-                      <img src={thumbUrls[a.id]} alt={a.filename} />
-                    ) : (
-                      <div className={styles.jobPickerLoading}>…</div>
-                    )}
+                    {thumbUrls[a.id] ? <img src={thumbUrls[a.id]} alt={a.filename} />
+                      : <div className={styles.jobPickerLoading}>…</div>}
                     <span className={styles.jobPickerName}>
                       {a.arcsite_drawing_id && <span className={styles.jobPickerBadge}>ArcSite</span>}
                       {a.filename}
@@ -186,11 +169,10 @@ function AreaCalculator({ product, jobId }) {
         </div>
       )}
 
-      {/* Scanned result banner */}
       {scanResult && (
         <div className={styles.scanResultBanner}>
           <div className={styles.scanResultTop}>
-            <span>📐 AI Scan Result: <strong>{scanResult.area_m2} m²</strong></span>
+            <span>📐 AI Scan Result: <strong>{scanResult[resultKey]} {unit}</strong></span>
             <span className={styles.scanConfidence} data-level={scanResult.confidence}>
               {scanResult.confidence === 'high' ? '✓ High confidence' : scanResult.confidence === 'medium' ? '~ Medium confidence' : '⚠ Low confidence'}
             </span>
@@ -199,9 +181,36 @@ function AreaCalculator({ product, jobId }) {
           {scanResult.dimensions_found?.length > 0 && (
             <p className={styles.scanDims}>Dimensions found: {scanResult.dimensions_found.join(', ')}</p>
           )}
-          <button className={styles.scanClearBtn} onClick={handleClearScan}>✕ Clear scan — enter manually</button>
+          <button className={styles.scanClearBtn} onClick={handleClear}>✕ Clear scan — enter manually</button>
         </div>
       )}
+    </>
+  );
+}
+
+function AreaCalculator({ product, jobId }) {
+  const cfg = product.calculator_config || {};
+  const [length, setLength] = useState('');
+  const [width, setWidth] = useState('');
+  const [scannedArea, setScannedArea] = useState(null); // m² from AI scan
+  const [qty, setQty] = useState(1);
+  const pricePerM2 = (product.price_from / 100) || cfg.price_per_m2 || 0;
+
+  // Area: use scanned if available, else length × width
+  const manualArea = (parseFloat(length) || 0) * (parseFloat(width) || 0);
+  const area = scannedArea != null ? scannedArea : manualArea;
+  const total = area * pricePerM2 * qty;
+
+  return (
+    <div className={styles.calc}>
+      <h3 className={styles.calcTitle}>Area Calculator</h3>
+
+      <PlanScanner
+        jobId={jobId}
+        mode="area"
+        hint="Upload or photograph a floor plan with dimensions marked — AI will calculate the m²."
+        onResult={setScannedArea}
+      />
 
       {/* Manual entry (shown when no scan active) */}
       {scannedArea == null && (
@@ -234,6 +243,136 @@ function AreaCalculator({ product, jobId }) {
           {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Estimate (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
           {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Timber paling fence pricing ───────────────────────────────────────────────
+// Priced by the metre run. Heights and top-cap options come straight from the
+// supplied table; `fallbackPerM` is only used when the matching product isn't
+// in the Price List yet.
+const FENCE_HEIGHTS = [
+  { key: '1.8m', label: '1.8m High' },
+  { key: '1.5m', label: '1.5m High' },
+  { key: '1.2m', label: '1.2m High' },
+];
+const FENCE_TOPS = [
+  { key: 'standard', label: 'Standard' },
+  { key: '65x35',    label: '65 x 35mm Top Cap' },
+  { key: '100x50',   label: '100 x 50mm Top Cap' },
+];
+const PALING_FENCE_TABLE = [
+  { height: '1.8m', top: 'standard', name: 'Paling Fence - 1.8m High - Standard',             fallbackPerM: 195 },
+  { height: '1.8m', top: '65x35',    name: 'Paling Fence - 1.8m High - 65 x 35mm Top Cap',    fallbackPerM: 205 },
+  { height: '1.8m', top: '100x50',   name: 'Paling Fence - 1.8m High - 100 x 50mm Top Cap',   fallbackPerM: 205 },
+  { height: '1.5m', top: 'standard', name: 'Paling Fence - 1.5m High - Standard',             fallbackPerM: 175 },
+  { height: '1.5m', top: '65x35',    name: 'Paling Fence - 1.5m High - 65 x 35mm Top Cap',    fallbackPerM: 185 },
+  { height: '1.5m', top: '100x50',   name: 'Paling Fence - 1.5m High - 100 x 50mm Top Cap',   fallbackPerM: 185 },
+  { height: '1.2m', top: 'standard', name: 'Paling Fence - 1.2m High - Standard',             fallbackPerM: 170 },
+  { height: '1.2m', top: '65x35',    name: 'Paling Fence - 1.2m High - 65 x 35mm Top Cap',    fallbackPerM: 180 },
+  { height: '1.2m', top: '100x50',   name: 'Paling Fence - 1.2m High - 100 x 50mm Top Cap',   fallbackPerM: 180 },
+];
+
+function PalingFenceCalculator({ onPick, jobId }) {
+  const [height, setHeight] = useState('1.8m');
+  const [top, setTop] = useState('standard');
+  const [metres, setMetres] = useState('');
+  const [scannedLength, setScannedLength] = useState(null);
+  const [priceListProducts, setPriceListProducts] = useState([]);
+  const [showBrochure, setShowBrochure] = useState(false);
+  const [fullPriceProduct, setFullPriceProduct] = useState(null);
+
+  useEffect(() => {
+    api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
+  }, []);
+
+  const tableMatch = PALING_FENCE_TABLE.find(r => r.height === height && r.top === top);
+
+  const norm = s => (s || '').trim().toLowerCase();
+  const priceProduct = tableMatch
+    ? priceListProducts.find(p => [norm(p.name), norm(p.description)].includes(norm(tableMatch.name)))
+    : null;
+
+  // Live Price List price wins; the table price is only a stand-in until the
+  // product is loaded into the Price List.
+  const perMetre = priceProduct ? priceProduct.unit_price / 100 : (tableMatch?.fallbackPerM ?? 0);
+  const runLength = scannedLength != null ? scannedLength : (parseFloat(metres) || 0);
+  const total = runLength * perMetre;
+
+  return (
+    <div className={styles.calc}>
+      <h3 className={styles.calcTitle}>Paling Fence Calculator</h3>
+
+      <PlanScanner
+        jobId={jobId}
+        mode="linear"
+        hint="Upload or photograph a site or boundary plan with dimensions marked — AI will add up the fence run in metres."
+        onResult={setScannedLength}
+      />
+
+      <div className={styles.calcGrid}>
+        <div className={styles.calcField}>
+          <label>Fence Height</label>
+          <select value={height} onChange={e => setHeight(e.target.value)}>
+            {FENCE_HEIGHTS.map(h => <option key={h.key} value={h.key}>{h.label}</option>)}
+          </select>
+        </div>
+        <div className={styles.calcField}>
+          <label>Top Cap</label>
+          <select value={top} onChange={e => setTop(e.target.value)}>
+            {FENCE_TOPS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+          </select>
+        </div>
+        {scannedLength == null && (
+          <div className={styles.calcField}>
+            <label>Fence Length (m)</label>
+            <input type="number" min="0" step="0.1" value={metres}
+              onChange={e => setMetres(e.target.value)} placeholder="e.g. 24.5" />
+          </div>
+        )}
+        <div className={styles.calcField}>
+          <label>Price per metre (ex GST)</label>
+          <input type="number" value={perMetre} readOnly style={{ background: '#f8fafc' }} />
+        </div>
+      </div>
+
+      {runLength > 0 && tableMatch && (
+        <div className={styles.calcResult}>
+          <div className={styles.calcResultRow}><span>Fence</span><strong>{tableMatch.name}</strong></div>
+          <div className={styles.calcResultRow}><span>Run length</span><strong>{runLength.toFixed(2)} m</strong></div>
+          <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+
+          {!priceProduct && (
+            <div className={styles.calcNote} style={{ marginTop: 10 }}>
+              Add "{tableMatch.name}" to your Price List to enable live pricing and quote line items.
+              Showing the table rate of ${tableMatch.fallbackPerM}/m in the meantime.
+            </div>
+          )}
+          {priceProduct && onPick && (
+            <button className={styles.addToJobBtn}
+              onClick={() => onPick({ ...priceProduct, quantity: Math.round(runLength * 100) / 100 })}>
+              + Add {runLength.toFixed(2)}m to Quote
+            </button>
+          )}
+          {priceProduct && (
+            <button className={styles.brochureBtn} onClick={() => {
+              if (fullPriceProduct) { setShowBrochure(true); return; }
+              api.get(`/products/${priceProduct.id}`).then(r => {
+                setFullPriceProduct(r.data);
+                if (r.data.brochure_base64) setShowBrochure(true);
+                else alert('No brochure uploaded for this product.');
+              }).catch(() => {});
+            }}>
+              📄 View Product Brochure
+            </button>
+          )}
+        </div>
+      )}
+
+      {showBrochure && fullPriceProduct?.brochure_base64 && (
+        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch?.name} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -959,6 +1098,7 @@ function showsFromPrice(product) {
 // Quote" button — the panel must not add a second, generic one alongside.
 const SELF_PICK_CALCULATORS = new Set([
   'heatpump',
+  'paling_fence',
   'smartvent_lite',
   'smartvent_positive_pressure',
   'smartvent_balanced_pressure',
@@ -970,6 +1110,7 @@ function Calculator({ product, onPick, jobId }) {
   if (type === 'area') return <AreaCalculator product={product} jobId={jobId} />;
   if (type === 'linear') return <LinearCalculator product={product} />;
   if (type === 'heatpump') return <HeatpumpCalculator onPick={onPick} />;
+  if (type === 'paling_fence') return <PalingFenceCalculator onPick={onPick} jobId={jobId} />;
   if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
   if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} />;
   if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onPick={onPick} />;

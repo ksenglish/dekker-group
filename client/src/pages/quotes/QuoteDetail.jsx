@@ -145,7 +145,9 @@ export default function QuoteDetail() {
         // The customer reads the product's description; its name is the
         // supplier code, kept alongside for ordering.
         description: (product.description || '').trim() || product.name,
-        quantity: 1,
+        // Measured products (the fence calculator) hand back their own
+        // quantity — metres of run — rather than a single unit.
+        quantity: product.quantity > 0 ? product.quantity : 1,
         unit_price: unitPrice,
         product_id: product.unit_price != null ? product.id : null,
         product_name: product.name,
