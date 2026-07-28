@@ -274,9 +274,36 @@ const PALING_FENCE_TABLE = [
   { height: '1.2m', top: '100x50',   name: 'Paling Fence - 1.2m High - 100 x 50mm Top Cap',   fallbackPerM: 180 },
 ];
 
-function PalingFenceCalculator({ onPick, jobId }) {
-  const [height, setHeight] = useState('1.8m');
-  const [top, setTop] = useState('standard');
+// Product names come from a mix of the spreadsheet (ASCII "100 x 50mm") and
+// whatever's typed into the Price List or Presenter (often "100 × 50mm" with a
+// real multiplication sign). Fold them together so matching doesn't silently
+// miss and fall back to the table rate.
+function normFenceName(s) {
+  return (s || '')
+    .replace(/[×✕✖]/g, 'x')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// Work out which height/top-cap the product being viewed represents, so the
+// dropdowns open on the variant the customer is actually looking at.
+function parseFenceVariant(productName) {
+  const n = normFenceName(productName);
+  const row = PALING_FENCE_TABLE.find(r => normFenceName(r.name) === n);
+  if (row) return { height: row.height, top: row.top };
+  // Fall back to reading the parts out, so a slightly differently worded
+  // product still opens on the right options.
+  const height = FENCE_HEIGHTS.find(h => n.includes(normFenceName(h.label)))?.key;
+  const top = n.includes('100 x 50') ? '100x50' : n.includes('65 x 35') ? '65x35' : height ? 'standard' : undefined;
+  return { height: height || '1.8m', top: top || 'standard' };
+}
+
+function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant }) {
+  // Initial-only, so switching variant doesn't fight the user's own choice.
+  const initial = useState(() => parseFenceVariant(product?.name))[0];
+  const [height, setHeight] = useState(initial.height);
+  const [top, setTop] = useState(initial.top);
   const [metres, setMetres] = useState('');
   const [scannedLength, setScannedLength] = useState(null);
   const [priceListProducts, setPriceListProducts] = useState([]);
@@ -289,10 +316,19 @@ function PalingFenceCalculator({ onPick, jobId }) {
 
   const tableMatch = PALING_FENCE_TABLE.find(r => r.height === height && r.top === top);
 
-  const norm = s => (s || '').trim().toLowerCase();
   const priceProduct = tableMatch
-    ? priceListProducts.find(p => [norm(p.name), norm(p.description)].includes(norm(tableMatch.name)))
+    ? priceListProducts.find(p =>
+        [normFenceName(p.name), normFenceName(p.description)].includes(normFenceName(tableMatch.name)))
     : null;
+
+  // Swapping a dropdown swaps the product shown at the top of the panel — name,
+  // image and price — so the customer sees the option being discussed.
+  function chooseVariant(nextHeight, nextTop) {
+    setHeight(nextHeight);
+    setTop(nextTop);
+    const row = PALING_FENCE_TABLE.find(r => r.height === nextHeight && r.top === nextTop);
+    if (row) onSelectVariant?.(row.name);
+  }
 
   // Live Price List price wins; the table price is only a stand-in until the
   // product is loaded into the Price List.
@@ -314,13 +350,13 @@ function PalingFenceCalculator({ onPick, jobId }) {
       <div className={styles.calcGrid}>
         <div className={styles.calcField}>
           <label>Fence Height</label>
-          <select value={height} onChange={e => setHeight(e.target.value)}>
+          <select value={height} onChange={e => chooseVariant(e.target.value, top)}>
             {FENCE_HEIGHTS.map(h => <option key={h.key} value={h.key}>{h.label}</option>)}
           </select>
         </div>
         <div className={styles.calcField}>
           <label>Top Cap</label>
-          <select value={top} onChange={e => setTop(e.target.value)}>
+          <select value={top} onChange={e => chooseVariant(height, e.target.value)}>
             {FENCE_TOPS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
         </div>
@@ -1105,12 +1141,12 @@ const SELF_PICK_CALCULATORS = new Set([
   'bdvair_positive_pressure',
 ]);
 
-function Calculator({ product, onPick, jobId }) {
+function Calculator({ product, onPick, jobId, onSelectVariant }) {
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} jobId={jobId} />;
   if (type === 'linear') return <LinearCalculator product={product} />;
   if (type === 'heatpump') return <HeatpumpCalculator onPick={onPick} />;
-  if (type === 'paling_fence') return <PalingFenceCalculator onPick={onPick} jobId={jobId} />;
+  if (type === 'paling_fence') return <PalingFenceCalculator onPick={onPick} jobId={jobId} product={product} onSelectVariant={onSelectVariant} />;
   if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
   if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} />;
   if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onPick={onPick} />;
@@ -1355,7 +1391,7 @@ function BrochureModal({ src, name, onClose }) {
   );
 }
 
-function ProductPanel({ product, section, onClose, onPick, jobId }) {
+function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVariant }) {
   const [showBrochure, setShowBrochure] = useState(false);
   return (
     <div className={styles.panelOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
@@ -1382,7 +1418,7 @@ function ProductPanel({ product, section, onClose, onPick, jobId }) {
               From <strong>${(product.price_from / 100).toLocaleString('en-NZ')}</strong> <span>+ GST</span>
             </div>
           )}
-          <Calculator product={product} onPick={onPick} jobId={jobId} />
+          <Calculator product={product} onPick={onPick} jobId={jobId} onSelectVariant={onSelectVariant} />
           {onPick && !SELF_PICK_CALCULATORS.has(product.calculator_type) && (
             <button className={styles.addToJobBtn} onClick={() => onPick(product.price_list_product || product)}>
               + Add to Quote
@@ -1442,6 +1478,19 @@ export default function SalesPresenter({ onPick, jobId }) {
   const [toast, setToast] = useState(null);
 
   const currentNode = subcatStack[subcatStack.length - 1] || null;
+
+  // A calculator can swap the panel to a sibling product — the fence one does
+  // this when the height or top cap changes, so the image, name and price at
+  // the top follow the option being discussed. Falls back silently if that
+  // variant hasn't been set up as its own presenter product.
+  function selectVariantByName(name) {
+    const target = normFenceName(name);
+    const match = products.find(p => normFenceName(p.name) === target);
+    if (!match || match.id === selectedProduct?.id) return;
+    setSelectedProduct(match);
+    setSelectedProductFull(null);
+    api.get(`/presenter/products/${match.id}`).then(r => setSelectedProductFull(r.data)).catch(() => {});
+  }
 
   // Adding a product keeps the presenter open — it just closes the product
   // panel and flashes a confirmation, so the rep can keep working through the
@@ -1623,6 +1672,7 @@ export default function SalesPresenter({ onPick, jobId }) {
           onClose={() => { setSelectedProduct(null); setSelectedProductFull(null); }}
           onPick={onPick ? handlePick : null}
           jobId={jobId}
+          onSelectVariant={selectVariantByName}
         />
       )}
 
