@@ -17,6 +17,7 @@ const CALC_TYPES = [
   { value: 'smartvent_positive_pressure', label: 'SmartVent Positive Pressure (all 3 systems)' },
   { value: 'smartvent_balanced_pressure', label: 'SmartVent Balanced Pressure (Synergy 3 / Balance)' },
   { value: 'bdvair_positive_pressure', label: 'BDVAir Positive Pressure (lookup table)' },
+  { value: 'paling_fence', label: 'Paling Fence (per metre, scan plan)' },
 ];
 
 function ImgUpload({ value, onChange, label = '📷 Upload Image', maxMb = 3 }) {
