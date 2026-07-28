@@ -21,7 +21,23 @@ const TAB_LABELS = {
 };
 
 // ── Live Timer ────────────────────────────────────────────────────────────────
-function JobTimer({ jobId, onTimeSaved, user }) {
+function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusChange }) {
+  const [askComplete, setAskComplete] = useState(false);
+
+  // Only ever moves a job forward. The configured status list is ordered, so
+  // a job already at (or past) In Progress — invoiced, paid, complete — isn't
+  // dragged back just because someone started a timer on it.
+  function shouldAdvanceToInProgress() {
+    if (!jobStatus || jobStatus === 'in_progress') return false;
+    const order = (jobStatuses || []).map(s => s.key);
+    const target = order.indexOf('in_progress');
+    const current = order.indexOf(jobStatus);
+    if (target === -1) return false;              // status not configured
+    if (jobStatus === 'cancelled') return false;
+    if (current === -1) return true;              // unknown/custom — treat as earlier
+    return current < target;
+  }
+
   const STORAGE_KEY = `timer_${jobId}`;
   const RATE_STORAGE_KEY = `timer_rate_${jobId}`;
   const [startTs, setStartTs] = useState(() => {
@@ -62,6 +78,7 @@ function JobTimer({ jobId, onTimeSaved, user }) {
     setStartTs(ts);
     setEndTs(null);
     setShowSave(false);
+    if (shouldAdvanceToInProgress()) onStatusChange?.('in_progress');
   }
 
   function stop() {
@@ -73,6 +90,7 @@ function JobTimer({ jobId, onTimeSaved, user }) {
     setStartTs(null);
     localStorage.removeItem(STORAGE_KEY);
     setShowSave(true);
+    if (jobStatus !== 'complete') setAskComplete(true);
   }
 
   function discard() {
@@ -114,8 +132,22 @@ function JobTimer({ jobId, onTimeSaved, user }) {
 
   const isRunning = !!startTs;
 
+  const completeLabel = (jobStatuses || []).find(s => s.key === 'complete')?.label || 'Job Complete';
+
   return (
     <div className={styles.timerBar}>
+      {askComplete && (
+        <div className={styles.completePrompt}>
+          <span className={styles.completePromptText}>Has this job been completed?</span>
+          <button className={styles.timerBtnBig}
+            onClick={() => { setAskComplete(false); onStatusChange?.('complete'); }}>
+            Yes — mark {completeLabel}
+          </button>
+          <button className={styles.completePromptNo} onClick={() => setAskComplete(false)}>
+            Not yet
+          </button>
+        </div>
+      )}
       {!startTs && !showSave && (
         <>
           {billingRates.length > 0 && (
@@ -756,6 +788,19 @@ export default function JobDetail() {
     }
   }
 
+  // Status moves driven by the timer rather than the pipeline buttons. Kept
+  // separate from handleStatusChange so completing a job this way doesn't
+  // also fire the "create a quote from this job?" prompt mid-timer.
+  async function handleTimerStatusChange(status) {
+    try {
+      const { data } = await api.patch(`/jobs/${id}/status`, { status });
+      setJob(j => ({ ...j, status: data.status }));
+      setEmailFlash(`Job moved to ${statusLabel(data.status)}`);
+    } catch {
+      setEmailFlash('Could not update the job status');
+    }
+  }
+
   async function handleAddNote() {
     if (!noteText.trim()) return;
     const { data } = await api.post(`/jobs/${id}/notes`, { content: noteText });
@@ -920,7 +965,14 @@ export default function JobDetail() {
 
           {/* Timer bar */}
           {job.status !== 'cancelled' && job.status !== 'complete' && (
-            <JobTimer jobId={id} user={user} onTimeSaved={() => setEmailFlash('Time entry saved!')} />
+            <JobTimer
+              jobId={id}
+              user={user}
+              onTimeSaved={() => setEmailFlash('Time entry saved!')}
+              jobStatus={job.status}
+              jobStatuses={jobStatuses}
+              onStatusChange={handleTimerStatusChange}
+            />
           )}
           {emailFlash && (
             <div className={styles.flashBanner} onAnimationEnd={() => setEmailFlash('')}>{emailFlash}</div>
