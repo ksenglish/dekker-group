@@ -225,13 +225,22 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
 
 // Attachments (photos from site)
 const pool = require('../db/pool');
+// ?category=pre_install|post_install narrows to one tab's photos. Omitted
+// returns everything, which is what the quote attachment picker wants.
 router.get('/:id/attachments', async (req, res) => {
+  const { category } = req.query;
+  const params = [req.params.id];
+  let filter = '';
+  if (category === 'pre_install' || category === 'post_install') {
+    params.push(category);
+    filter = ' AND a.category = $2';
+  }
   try {
     const { rows } = await pool.query(
-      `SELECT a.id, a.filename, a.mime_type, a.created_at, a.arcsite_drawing_id, u.name AS uploader_name
+      `SELECT a.id, a.filename, a.mime_type, a.created_at, a.arcsite_drawing_id, a.category, u.name AS uploader_name
        FROM job_attachments a LEFT JOIN users u ON u.id = a.uploaded_by
-       WHERE a.job_id=$1 ORDER BY a.created_at DESC`,
-      [req.params.id]
+       WHERE a.job_id=$1${filter} ORDER BY a.created_at DESC`,
+      params
     );
     res.json(rows);
   } catch { res.status(500).json({ error: 'Server error' }); }
@@ -247,13 +256,14 @@ router.get('/:id/attachments/:attId/data', async (req, res) => {
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 router.post('/:id/attachments', async (req, res) => {
-  const { filename, mime_type, data_base64 } = req.body;
+  const { filename, mime_type, data_base64, category } = req.body;
   if (!data_base64 || !filename) return res.status(400).json({ error: 'filename and data_base64 required' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO job_attachments (job_id, uploaded_by, filename, mime_type, data_base64)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id, filename, mime_type, created_at`,
-      [req.params.id, req.user.id, filename, mime_type || 'image/jpeg', data_base64]
+      `INSERT INTO job_attachments (job_id, uploaded_by, filename, mime_type, data_base64, category)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, filename, mime_type, created_at, category`,
+      [req.params.id, req.user.id, filename, mime_type || 'image/jpeg', data_base64,
+       category === 'post_install' ? 'post_install' : 'pre_install']
     );
     res.status(201).json(rows[0]);
   } catch { res.status(500).json({ error: 'Server error' }); }

@@ -47,6 +47,7 @@ async function buildQuoteEmailContext(q, theme, sender) {
     company_name: theme.companyName,
     company_logo: theme.logoBase64 ? `<img src="${theme.logoBase64}" alt="${theme.companyName}" style="max-height:48px;max-width:220px;">` : '',
     sender_name: sender?.name || theme.companyName,
+    sender_first_name: (sender?.name || '').trim().split(/\s+/)[0] || '',
     sender_email: theme.email || '',
     sender_mobile: sender?.mobile || '',
     quote_number: q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : `Q-${q.id.slice(0, 8).toUpperCase()}`,

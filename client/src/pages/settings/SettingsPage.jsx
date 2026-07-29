@@ -973,6 +973,7 @@ const EMAIL_PLACEHOLDERS = [
   ['{{company_name}}', 'Your company name'],
   ['{{company_logo}}', 'Your company logo'],
   ['{{sender_name}}', 'The staff member sending it'],
+  ['{{sender_first_name}}', 'Their first name only'],
   ['{{sender_mobile}}', 'The staff member’s mobile number'],
   ['{{quote_number}}', 'e.g. QT-0033'],
   ['{{quote_total}}', 'e.g. $1,234.56'],

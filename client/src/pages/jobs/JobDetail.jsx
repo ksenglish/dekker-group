@@ -188,18 +188,19 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
   );
 }
 
-function JobAttachments({ jobId, user }) {
+function JobAttachments({ jobId, user, category = 'pre_install' }) {
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [fileUrls, setFileUrls] = useState({}); // attachment id -> blob object URL
+  const [uploadProgress, setUploadProgress] = useState(null); // { done, total }
 
   useEffect(() => {
-    api.get(`/jobs/${jobId}/attachments`)
+    api.get(`/jobs/${jobId}/attachments`, { params: { category } })
       .then(r => setAttachments(r.data))
       .finally(() => setLoading(false));
-  }, [jobId]);
+  }, [jobId, category]);
 
   // The /data endpoint requires a Bearer token, which a plain <img src> or
   // window.open() can't supply — fetch each file through the authenticated
@@ -217,22 +218,46 @@ function JobAttachments({ jobId, user }) {
     return () => { urls.forEach(u => URL.revokeObjectURL(u)); };
   }, [attachments, jobId]);
 
-  function handleFile(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) return alert('Image must be under 5MB');
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      setUploading(true);
-      try {
-        const { data } = await api.post(`/jobs/${jobId}/attachments`, {
-          filename: file.name, mime_type: file.type, data_base64: ev.target.result,
-        });
-        setAttachments(a => [data, ...a]);
-      } finally { setUploading(false); }
-    };
-    reader.readAsDataURL(file);
+  // Uploads run one at a time rather than all at once — a handful of phone
+  // photos in parallel would blow past the server's request limit.
+  async function handleFile(e) {
+    const files = [...(e.target.files || [])];
     e.target.value = '';
+    if (!files.length) return;
+
+    const tooBig = files.filter(f => f.size > 5 * 1024 * 1024).map(f => f.name);
+    const usable = files.filter(f => f.size <= 5 * 1024 * 1024);
+    if (tooBig.length) {
+      alert(`Skipped ${tooBig.length} file${tooBig.length === 1 ? '' : 's'} over 5MB:\n${tooBig.join('\n')}`);
+    }
+    if (!usable.length) return;
+
+    setUploading(true);
+    setUploadProgress({ done: 0, total: usable.length });
+    const failed = [];
+    try {
+      for (const [i, file] of usable.entries()) {
+        try {
+          const data_base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = ev => resolve(ev.target.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+          const { data } = await api.post(`/jobs/${jobId}/attachments`, {
+            filename: file.name, mime_type: file.type, data_base64, category,
+          });
+          setAttachments(a => [data, ...a]);
+        } catch {
+          failed.push(file.name);
+        }
+        setUploadProgress({ done: i + 1, total: usable.length });
+      }
+    } finally {
+      setUploading(false);
+      setUploadProgress(null);
+    }
+    if (failed.length) alert(`Failed to upload:\n${failed.join('\n')}`);
   }
 
   async function del(id) {
@@ -245,10 +270,12 @@ function JobAttachments({ jobId, user }) {
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
         <label style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
           padding: '7px 14px', background: 'var(--color-primary)', color: 'white', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500 }}>
-          {uploading ? 'Uploading…' : '📷 Upload Photo'}
-          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} disabled={uploading} />
+          {uploading
+            ? (uploadProgress ? `Uploading ${uploadProgress.done + 1} of ${uploadProgress.total}…` : 'Uploading…')
+            : '📷 Upload Photos'}
+          <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFile} disabled={uploading} />
         </label>
-        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>JPG, PNG or WebP · max 5MB</span>
+        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>JPG, PNG or WebP · max 5MB each · select several at once</span>
       </div>
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        attachments.length === 0 ? <div className={styles.emptySmall}>No photos uploaded yet.</div> : (
@@ -1095,7 +1122,14 @@ export default function JobDetail() {
 
           {activeTab === 'timesheets' && <JobTimesheets jobId={id} user={user} />}
           {activeTab === 'photos' && <JobAttachments key={attachmentsRefreshKey} jobId={id} user={user} />}
-          {activeTab === 'forms' && <JobFormsTab jobId={id} job={job} user={user} />}
+          {activeTab === 'forms' && (
+            <>
+              <JobFormsTab jobId={id} job={job} user={user} />
+              <div style={{ marginTop: 16 }}>
+                <JobAttachments jobId={id} user={user} category="post_install" />
+              </div>
+            </>
+          )}
           {activeTab === 'schedule' && <JobScheduleTab jobId={id} job={job} user={user} />}
           {activeTab === 'quotes' && <JobQuotesTab job={job} user={user} />}
           {activeTab === 'invoices' && <JobInvoicesTab jobId={id} />}
@@ -1141,15 +1175,15 @@ export default function JobDetail() {
                 <span>Total Revenue (incl. GST)</span><strong>${(total / 100).toFixed(2)}</strong>
               </div>
               <div className={styles.summaryItem}>
-                <span>Photos</span>
+                <span>Pre-Install Forms</span>
                 <strong style={{ color: hasPhotos ? '#16a34a' : '#dc2626' }}>
-                  {hasPhotos ? 'Photos Attached' : 'No Photos Attached'}
+                  {hasPhotos ? 'Forms Attached' : 'Forms Not Completed'}
                 </strong>
               </div>
               <div className={styles.summaryItem}>
-                <span>Op Forms</span>
+                <span>Post-Install Forms</span>
                 <strong style={{ color: hasOpForm ? '#16a34a' : '#dc2626' }}>
-                  {hasOpForm ? 'Op Forms Completed' : 'Op Forms Not Completed'}
+                  {hasOpForm ? 'Forms Attached' : 'Forms Not Completed'}
                 </strong>
               </div>
             </div>
