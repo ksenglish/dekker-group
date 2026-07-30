@@ -851,6 +851,17 @@ export default function JobDetail() {
   const [pullingDrawings, setPullingDrawings] = useState(false);
   const [attachmentsRefreshKey, setAttachmentsRefreshKey] = useState(0);
   const [jobStatuses, setJobStatuses] = useState([]);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const statusMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!statusMenuOpen) return;
+    function onDown(e) {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target)) setStatusMenuOpen(false);
+    }
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [statusMenuOpen]);
 
   useEffect(() => {
     if (isNew) return;
@@ -863,7 +874,6 @@ export default function JobDetail() {
 
   // Admin-configurable, ordered — excludes 'cancelled', which gets its own
   // separate trailing button and banner treatment below.
-  const pipelineStatuses = jobStatuses.filter(s => s.key !== 'cancelled');
   const statusColor = key => jobStatuses.find(s => s.key === key)?.color || '#6b7280';
   const statusLabel = key => jobStatuses.find(s => s.key === key)?.label || key.replace('_', ' ');
 
@@ -1017,44 +1027,9 @@ export default function JobDetail() {
             </div>
           </div>
 
-          {/* Status pipeline */}
-          {job.status !== 'cancelled' ? (
-            <div className={styles.pipeline}>
-              {pipelineStatuses.map((s, i) => {
-                const idx = pipelineStatuses.findIndex(p => p.key === job.status);
-                const done = i < idx;
-                const active = i === idx;
-                return (
-                  <button
-                    key={s.key}
-                    className={`${styles.pipelineStep} ${done ? styles.pipelineDone : ''} ${active ? styles.pipelineActive : ''}`}
-                    onClick={() => canAct(user?.role) && handleStatusChange(s.key)}
-                    style={active ? { borderColor: s.color, color: s.color } : {}}
-                    title={`Move to ${s.label}`}
-                  >
-                    <span className={styles.pipelineDot} style={active ? { background: s.color } : done ? { background: '#16a34a' } : {}} />
-                    {s.label}
-                  </button>
-                );
-              })}
-              {isAdmin(user?.role) && (
-                <button
-                  className={`${styles.pipelineStep} ${job.status === 'cancelled' ? styles.pipelineActive : ''}`}
-                  onClick={() => handleStatusChange('cancelled')}
-                  style={{ marginLeft: 'auto', color: '#6b7280' }}
-                >
-                  Cancel job
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className={styles.cancelledBanner}>
-              This job is cancelled.
-              {canAct(user?.role) && (
-                <button onClick={() => handleStatusChange('new')} className={styles.reopenBtn}>Reopen as New</button>
-              )}
-            </div>
-          )}
+          {/* Status is driven by the workflow now — quoting, the timer, and
+              invoicing move it. It's shown in the Job Summary, where an admin
+              can override it if something needs correcting. */}
 
           {/* Timer bar */}
           {job.status !== 'cancelled' && job.status !== 'complete' && (
@@ -1233,9 +1208,36 @@ export default function JobDetail() {
               </div>
               <div className={styles.summaryItem}>
                 <span>Status</span>
-                <span className={styles.statusBadge} style={{ background: statusColor(job.status) + '18', color: statusColor(job.status) }}>
-                  {statusLabel(job.status)}
-                </span>
+                {isAdmin(user?.role) ? (
+                  <div className={styles.statusPicker} ref={statusMenuRef}>
+                    <button
+                      className={styles.statusBadgeBtn}
+                      style={{ background: statusColor(job.status) + '18', color: statusColor(job.status) }}
+                      onClick={() => setStatusMenuOpen(o => !o)}
+                      title="Change job status"
+                    >
+                      {statusLabel(job.status)} <span className={styles.statusCaret}>▾</span>
+                    </button>
+                    {statusMenuOpen && (
+                      <div className={styles.statusMenu}>
+                        {jobStatuses.map(s => (
+                          <button
+                            key={s.key}
+                            className={`${styles.statusMenuItem} ${s.key === job.status ? styles.statusMenuItemActive : ''}`}
+                            onClick={() => { setStatusMenuOpen(false); if (s.key !== job.status) handleStatusChange(s.key); }}
+                          >
+                            <span className={styles.statusMenuDot} style={{ background: s.color || '#6b7280' }} />
+                            {s.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span className={styles.statusBadge} style={{ background: statusColor(job.status) + '18', color: statusColor(job.status) }}>
+                    {statusLabel(job.status)}
+                  </span>
+                )}
               </div>
               <div className={styles.summaryItem}>
                 <span>Total Revenue (incl. GST)</span><strong>${(total / 100).toFixed(2)}</strong>
