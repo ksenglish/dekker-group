@@ -7,6 +7,7 @@ const { getThemeById, getDefaultTheme } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
+const { advanceJobStatus } = require('../utils/jobStatusFlow');
 
 // The wording the customer confirms when they accept. Served to the public
 // quote page as well, so what they read and what the notification records are
@@ -139,11 +140,9 @@ async function create(req, res) {
        FROM line_items WHERE job_id=$2 AND quote_id IS NULL ORDER BY created_at`,
       [rows[0].id, job_id]
     );
-    // Move job to quoted status
-    await pool.query(
-      `UPDATE jobs SET status='quoted', updated_at=NOW() WHERE id=$1 AND status NOT IN ('cancelled','complete')`,
-      [job_id]
-    );
+    // Deliberately does NOT move the job to Quoted. A draft that never leaves
+    // the office isn't a quote as far as the customer is concerned — the job
+    // advances when the quote is actually emailed (see sendEmail).
     await logActivity({ type: 'quote_created', entity_type: 'quote', entity_id: rows[0].id, user_id: req.user.id, message: 'Quote created' });
     res.status(201).json(rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
@@ -516,6 +515,9 @@ async function sendEmail(req, res) {
       `INSERT INTO email_log (job_id, customer_id, type, recipient, status) VALUES ($1,$2,'quote',$3,'sent')`,
       [q.job_id, q.customer_id, q.customer_email]
     );
+    // The quote has actually reached the customer now, so the job can move to
+    // Quoted — only forwards, so a job already further along stays put.
+    await advanceJobStatus(q.job_id, 'quoted');
     res.json({ message: 'Quote sent' });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message || 'Email failed' }); }
 }

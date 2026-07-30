@@ -21,39 +21,37 @@ const TAB_LABELS = {
 };
 
 // ── Live Timer ────────────────────────────────────────────────────────────────
+// Statuses are site-configurable, so these are matched on their labels rather
+// than fixed keys — 'complete' for instance is relabelled "Paid" here, and the
+// two "Scheduled" steps mean very different things to the workflow.
+function findStatus(jobStatuses, test) {
+  return (jobStatuses || []).find(s => test((s.label || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim()));
+}
+const isSiteVisit       = l => l.includes('site visit');
+const isScheduledInstall = l => l.includes('scheduled') && l.includes('install');
+const isAwaitingQuote   = l => l.includes('awaiting') && l.includes('quote');
+
 function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusChange }) {
-  const [askComplete, setAskComplete] = useState(false);
+  const [prompt, setPrompt] = useState(null); // 'complete' | 'quote-sent' | null
+  const [checkingQuote, setCheckingQuote] = useState(false);
+  const [quoteWarning, setQuoteWarning] = useState('');
 
   // Cancelled sits outside the pipeline, so it's never a step to advance into.
   const pipeline = (jobStatuses || []).filter(s => s.key !== 'cancelled');
   const inProgressIdx = pipeline.findIndex(s => s.key === 'in_progress');
 
-  // Whatever the site has configured as the step straight after In Progress.
-  // Not the protected 'complete' key — that's relabelable, and here it's been
-  // renamed "Paid" and sits two steps further on, so targeting it by key
-  // jumped the job to the wrong end of the pipeline.
+  const siteVisitStatus = findStatus(pipeline, isSiteVisit);
+  const scheduledInstallStatus = findStatus(pipeline, isScheduledInstall);
+  const awaitingQuoteStatus = findStatus(pipeline, isAwaitingQuote);
+  const quotedStatus = pipeline.find(s => s.key === 'quoted');
+
+  // The step straight after In Progress — "Job Complete" here. Not the
+  // protected 'complete' key, which is relabelable and sits further on.
   const completionStatus = inProgressIdx >= 0 ? pipeline[inProgressIdx + 1] : null;
 
-  // Only ever moves a job forward. The configured status list is ordered, so
-  // a job already at (or past) In Progress — invoiced, paid, complete — isn't
-  // dragged back just because someone started a timer on it.
-  function shouldAdvanceToInProgress() {
-    if (!jobStatus || jobStatus === 'in_progress') return false;
-    if (jobStatus === 'cancelled') return false;
-    if (inProgressIdx === -1) return false;       // status not configured
-    const current = pipeline.findIndex(s => s.key === jobStatus);
-    if (current === -1) return true;              // unknown/custom — treat as earlier
-    return current < inProgressIdx;
-  }
-
-  // Don't offer completion on a job that's already there or past it.
-  function canOfferCompletion() {
-    if (!completionStatus || jobStatus === completionStatus.key) return false;
-    if (jobStatus === 'cancelled') return false;
-    const current = pipeline.findIndex(s => s.key === jobStatus);
-    if (current === -1) return true;
-    return current <= inProgressIdx;
-  }
+  const onSiteVisit = !!siteVisitStatus && jobStatus === siteVisitStatus.key;
+  const onScheduledInstall = !!scheduledInstallStatus && jobStatus === scheduledInstallStatus.key;
+  const onInProgress = jobStatus === 'in_progress';
 
   const STORAGE_KEY = `timer_${jobId}`;
   const RATE_STORAGE_KEY = `timer_rate_${jobId}`;
@@ -95,7 +93,10 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
     setStartTs(ts);
     setEndTs(null);
     setShowSave(false);
-    if (shouldAdvanceToInProgress()) onStatusChange?.('in_progress');
+    // Only a job sitting on Scheduled - Installation starts running. Timers get
+    // used on site visits, callbacks and warranty work too, and none of those
+    // should quietly reclassify the job.
+    if (onScheduledInstall) onStatusChange?.('in_progress');
   }
 
   function stop() {
@@ -107,7 +108,37 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
     setStartTs(null);
     localStorage.removeItem(STORAGE_KEY);
     setShowSave(true);
-    if (canOfferCompletion()) setAskComplete(true);
+    setQuoteWarning('');
+    // Each stop prompt belongs to exactly one stage of the job.
+    if (onInProgress && completionStatus) setPrompt('complete');
+    else if (onSiteVisit && awaitingQuoteStatus) setPrompt('quote-sent');
+    else setPrompt(null);
+  }
+
+  // "Yes, I sent a quote" is taken on trust only as far as the record allows —
+  // if nothing was actually emailed the job still goes to Awaiting Quote, and
+  // the rep is told why.
+  async function confirmQuoteSent() {
+    setCheckingQuote(true);
+    try {
+      const { data } = await api.get(`/jobs/${jobId}/quote-delivery`);
+      if (data.delivered) {
+        setPrompt(null);
+        onStatusChange?.(quotedStatus?.key || 'quoted');
+      } else {
+        setPrompt(null);
+        setQuoteWarning(
+          data.quote_count
+            ? `No quote on this job has been emailed to the customer yet — ${data.quote_count === 1 ? 'it is' : 'they are'} still a draft. Moved to ${awaitingQuoteStatus.label}.`
+            : `There's no quote on this job yet. Moved to ${awaitingQuoteStatus.label}.`
+        );
+        onStatusChange?.(awaitingQuoteStatus.key);
+      }
+    } catch {
+      setPrompt(null);
+      setQuoteWarning(`Couldn't check whether the quote was sent — moved to ${awaitingQuoteStatus.label} to be safe.`);
+      onStatusChange?.(awaitingQuoteStatus.key);
+    } finally { setCheckingQuote(false); }
   }
 
   function discard() {
@@ -151,16 +182,36 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
 
   return (
     <div className={styles.timerBar}>
-      {askComplete && completionStatus && (
+      {prompt === 'complete' && completionStatus && (
         <div className={styles.completePrompt}>
           <span className={styles.completePromptText}>Has this job been completed?</span>
           <button className={styles.timerBtnBig}
-            onClick={() => { setAskComplete(false); onStatusChange?.(completionStatus.key); }}>
+            onClick={() => { setPrompt(null); onStatusChange?.(completionStatus.key); }}>
             Yes — mark {completionStatus.label}
           </button>
-          <button className={styles.completePromptNo} onClick={() => setAskComplete(false)}>
+          <button className={styles.completePromptNo} onClick={() => setPrompt(null)}>
             Not yet
           </button>
+        </div>
+      )}
+
+      {prompt === 'quote-sent' && awaitingQuoteStatus && (
+        <div className={styles.completePrompt}>
+          <span className={styles.completePromptText}>Have you sent a quote to the customer?</span>
+          <button className={styles.timerBtnBig} onClick={confirmQuoteSent} disabled={checkingQuote}>
+            {checkingQuote ? 'Checking…' : 'Yes — quote sent'}
+          </button>
+          <button className={styles.completePromptNo} disabled={checkingQuote}
+            onClick={() => { setPrompt(null); onStatusChange?.(awaitingQuoteStatus.key); }}>
+            No — mark {awaitingQuoteStatus.label}
+          </button>
+        </div>
+      )}
+
+      {quoteWarning && (
+        <div className={styles.quoteWarning}>
+          ⚠ {quoteWarning}
+          <button className={styles.completePromptNo} onClick={() => setQuoteWarning('')}>Dismiss</button>
         </div>
       )}
       {!startTs && !showSave && (

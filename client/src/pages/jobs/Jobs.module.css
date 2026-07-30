@@ -993,3 +993,10 @@
   color: var(--color-text);
 }
 .completePromptNo:hover { background: #f1f5f9; }
+
+/* Shown when the rep says a quote went out but nothing was actually emailed. */
+.quoteWarning {
+  flex: 1 1 100%; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius);
+  padding: 12px 16px; font-size: 13px; font-weight: 500; color: #b91c1c;
+}

@@ -386,6 +386,35 @@ Certified by: ${form.coc_certifier_signature || '—'}</p>
   return true;
 }
 
+// Has any quote on this job actually reached the customer? Checks the quote
+// record and the activity log together — sent_at is the direct signal, and the
+// quote_sent activity covers anything sent before that column was populated.
+async function getQuoteDelivery(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT q.id, q.quote_number, q.status, q.sent_at, q.delivery_status,
+              EXISTS (
+                SELECT 1 FROM activity_log a
+                WHERE a.entity_type='quote' AND a.entity_id=q.id AND a.type='quote_sent'
+              ) AS has_sent_activity
+       FROM quotes q WHERE q.job_id=$1 ORDER BY q.created_at DESC`,
+      [req.params.id]
+    );
+    const isDelivered = q =>
+      !!q.sent_at || (q.delivery_status && q.delivery_status !== 'unsent') || q.has_sent_activity;
+    const delivered = rows.filter(isDelivered);
+    res.json({
+      quote_count: rows.length,
+      delivered_count: delivered.length,
+      delivered: delivered.length > 0,
+      latest_delivered_at: delivered[0]?.sent_at || null,
+    });
+  } catch (err) {
+    console.error('[job] quote delivery check failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 async function getElectricalCoc(req, res) {
   try {
     const { rows } = await pool.query(
@@ -572,5 +601,5 @@ async function deleteElectricalCoc(req, res) {
 
 module.exports = {
   list, get, create, update, updateStatus, remove, updateLineItems, listNotes, createNote, deleteNote,
-  getOpForm, saveOpForm, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf, emailElectricalCoc, deleteElectricalCoc,
+  getOpForm, saveOpForm, getQuoteDelivery, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf, emailElectricalCoc, deleteElectricalCoc,
 };

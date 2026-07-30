@@ -79,6 +79,7 @@ router.put('/:id/op-form', c.saveOpForm);
 // it exists, editing is Admin-or-original-completer (checked in the
 // controller since it depends on row ownership, not just role); deleting is
 // Admin only.
+router.get('/:id/quote-delivery', c.getQuoteDelivery);
 router.get('/:id/electrical-coc', c.getElectricalCoc);
 router.put('/:id/electrical-coc', c.saveElectricalCoc);
 router.delete('/:id/electrical-coc', c.deleteElectricalCoc);
