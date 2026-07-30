@@ -186,16 +186,16 @@
 
 /* Product search dropdown (used in job line items) */
 .productSearch { position: relative; }
+/* Positioned from JS against the viewport (see ProductSearch) so the list can
+   overhang the line-items card, which sets overflow:hidden and would
+   otherwise slice off the last result. */
 .productDropdown {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 100;
+  z-index: 300;
   background: white; border: 1px solid var(--color-border);
   border-radius: var(--radius); box-shadow: var(--shadow-md);
-  /* A flat max-height sliced the last row in half, which read as the end of
-     the list rather than "scroll for more". Whole rows plus a little padding
-     so the cut always lands cleanly between items. */
-  max-height: 296px; overflow-y: auto; padding-bottom: 6px;
-  overscroll-behavior: contain;
+  overflow-y: auto; overscroll-behavior: contain;
 }
+.productDropdown .productOption:last-child { border-bottom: none; }
 .productOption {
   padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--color-border);
   display: flex; align-items: center; gap: 10px;

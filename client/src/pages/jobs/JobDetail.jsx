@@ -24,18 +24,35 @@ const TAB_LABELS = {
 function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusChange }) {
   const [askComplete, setAskComplete] = useState(false);
 
+  // Cancelled sits outside the pipeline, so it's never a step to advance into.
+  const pipeline = (jobStatuses || []).filter(s => s.key !== 'cancelled');
+  const inProgressIdx = pipeline.findIndex(s => s.key === 'in_progress');
+
+  // Whatever the site has configured as the step straight after In Progress.
+  // Not the protected 'complete' key — that's relabelable, and here it's been
+  // renamed "Paid" and sits two steps further on, so targeting it by key
+  // jumped the job to the wrong end of the pipeline.
+  const completionStatus = inProgressIdx >= 0 ? pipeline[inProgressIdx + 1] : null;
+
   // Only ever moves a job forward. The configured status list is ordered, so
   // a job already at (or past) In Progress — invoiced, paid, complete — isn't
   // dragged back just because someone started a timer on it.
   function shouldAdvanceToInProgress() {
     if (!jobStatus || jobStatus === 'in_progress') return false;
-    const order = (jobStatuses || []).map(s => s.key);
-    const target = order.indexOf('in_progress');
-    const current = order.indexOf(jobStatus);
-    if (target === -1) return false;              // status not configured
     if (jobStatus === 'cancelled') return false;
+    if (inProgressIdx === -1) return false;       // status not configured
+    const current = pipeline.findIndex(s => s.key === jobStatus);
     if (current === -1) return true;              // unknown/custom — treat as earlier
-    return current < target;
+    return current < inProgressIdx;
+  }
+
+  // Don't offer completion on a job that's already there or past it.
+  function canOfferCompletion() {
+    if (!completionStatus || jobStatus === completionStatus.key) return false;
+    if (jobStatus === 'cancelled') return false;
+    const current = pipeline.findIndex(s => s.key === jobStatus);
+    if (current === -1) return true;
+    return current <= inProgressIdx;
   }
 
   const STORAGE_KEY = `timer_${jobId}`;
@@ -90,7 +107,7 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
     setStartTs(null);
     localStorage.removeItem(STORAGE_KEY);
     setShowSave(true);
-    if (jobStatus !== 'complete') setAskComplete(true);
+    if (canOfferCompletion()) setAskComplete(true);
   }
 
   function discard() {
@@ -132,16 +149,14 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
 
   const isRunning = !!startTs;
 
-  const completeLabel = (jobStatuses || []).find(s => s.key === 'complete')?.label || 'Job Complete';
-
   return (
     <div className={styles.timerBar}>
-      {askComplete && (
+      {askComplete && completionStatus && (
         <div className={styles.completePrompt}>
           <span className={styles.completePromptText}>Has this job been completed?</span>
           <button className={styles.timerBtnBig}
-            onClick={() => { setAskComplete(false); onStatusChange?.('complete'); }}>
-            Yes — mark {completeLabel}
+            onClick={() => { setAskComplete(false); onStatusChange?.(completionStatus.key); }}>
+            Yes — mark {completionStatus.label}
           </button>
           <button className={styles.completePromptNo} onClick={() => setAskComplete(false)}>
             Not yet
