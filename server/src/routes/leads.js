@@ -7,6 +7,22 @@ const { sendMail } = require('../utils/email');
 const LEAD_STATUSES = ['new', 'contacted', 'converted', 'dismissed'];
 const SALES_EMAIL = 'sales@dekkergroup.co.nz';
 
+// Timestamp column stamped the first time each status is reached.
+const RESULT_STAMP = { contacted: 'contacted_at', converted: 'converted_at', dismissed: 'dismissed_at' };
+
+// A lead is "open" until it's either won or deliberately dropped — that's the
+// number the sidebar badge nags with.
+const OPEN_STATUSES = ['new', 'contacted'];
+
+// Website forms send one address string; manual entry collects the same
+// structured parts as a customer. Keep `address` populated either way so
+// existing display and email code works unchanged.
+function composeAddress(f) {
+  if (f.address && String(f.address).trim()) return String(f.address);
+  return [f.address_street, f.address_city, f.address_region, f.address_postcode]
+    .filter(v => v && String(v).trim()).join(', ') || null;
+}
+
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function leadEmailHtml(lead) {
@@ -31,32 +47,41 @@ function leadEmailHtml(lead) {
     </div>`;
 }
 
-// Shared by both webhook shapes: validate, store, and email the lead
-async function createLead({ name, email, phone, address, service_required, message, source }, res) {
+// Shared by the webhooks and manual entry: validate, store, and email the lead.
+// `notify` is off for manual entry — whoever typed it in already knows.
+async function createLead(f, res, { notify = true, entryMethod = 'website', userId = null } = {}) {
+  const { name, email, phone, mobile, service_required, message, source } = f;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
-  if (!email && !phone) return res.status(400).json({ error: 'email or phone is required' });
+  if (!email && !phone && !mobile) return res.status(400).json({ error: 'email or phone is required' });
 
   const clip = (v, n) => (v ? String(v).slice(0, n) : null);
   try {
     const { rows } = await pool.query(
-      `INSERT INTO leads (name, email, phone, address, service_required, message, source)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [clip(name, 255), clip(email, 255), clip(phone, 50), clip(address, 1000),
-       clip(service_required, 255), clip(message, 5000), clip(source, 255)]
+      `INSERT INTO leads (name, email, phone, mobile, address, service_required, message, source,
+                          contact_name, company, address_street, address_city, address_region,
+                          address_postcode, address_country, entry_method, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+      [clip(name, 255), clip(email, 255), clip(phone, 50), clip(mobile, 50),
+       clip(composeAddress(f), 1000), clip(service_required, 255), clip(message, 5000), clip(source, 255),
+       clip(f.contact_name, 255), clip(f.company, 255), clip(f.address_street, 1000),
+       clip(f.address_city, 255), clip(f.address_region, 255), clip(f.address_postcode, 20),
+       clip(f.address_country, 100), entryMethod, userId]
     );
     const lead = rows[0];
 
     // Notify sales — a failed email must never lose the lead itself
-    sendMail({
-      to: SALES_EMAIL,
-      subject: `New Lead — ${lead.name}${lead.source ? ` (${lead.source})` : ''}`,
-      html: leadEmailHtml(lead),
-      text: `New website lead\nName: ${lead.name}\nPhone: ${lead.phone || '-'}\nEmail: ${lead.email || '-'}\nAddress: ${lead.address || '-'}\nService: ${lead.service_required || '-'}\nSource: ${lead.source || '-'}\nMessage: ${lead.message || '-'}`,
-    }).catch(err => console.error('Lead email failed:', err.message));
+    if (notify) {
+      sendMail({
+        to: SALES_EMAIL,
+        subject: `New Lead — ${lead.name}${lead.source ? ` (${lead.source})` : ''}`,
+        html: leadEmailHtml(lead),
+        text: `New website lead\nName: ${lead.name}\nPhone: ${lead.phone || '-'}\nEmail: ${lead.email || '-'}\nAddress: ${lead.address || '-'}\nService: ${lead.service_required || '-'}\nSource: ${lead.source || '-'}\nMessage: ${lead.message || '-'}`,
+      }).catch(err => console.error('Lead email failed:', err.message));
+    }
 
-    res.status(201).json({ ok: true, id: lead.id });
+    res.status(201).json({ ok: true, id: lead.id, lead });
   } catch (err) {
-    console.error('Lead webhook error:', err);
+    console.error('Lead create error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 }
@@ -138,17 +163,71 @@ router.get('/', requireRawRole('admin', 'office'), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
+// Manual entry — same fields as adding a new customer, so a phone enquiry is
+// tracked identically to a website one.
+router.post('/', requireRawRole('admin', 'office'), async (req, res) => {
+  await createLead(
+    { ...req.body, source: req.body.source || 'Manual Entry' },
+    res,
+    { notify: false, entryMethod: 'manual', userId: req.user.id }
+  );
+});
+
+// Conversion timing, for the "how fast do we action leads" report.
+router.get('/stats', requireRawRole('admin', 'office'), async (req, res) => {
+  try {
+    const { rows: [s] } = await pool.query(`
+      SELECT
+        COUNT(*)                                                    AS total_count,
+        COUNT(*) FILTER (WHERE status='new')                        AS new_count,
+        COUNT(*) FILTER (WHERE status='contacted')                  AS contacted_count,
+        COUNT(*) FILTER (WHERE status='converted')                  AS converted_count,
+        COUNT(*) FILTER (WHERE status='dismissed')                  AS dismissed_count,
+        COUNT(*) FILTER (WHERE status = ANY($1))                    AS open_count,
+        COUNT(*) FILTER (WHERE entry_method='manual')               AS manual_count,
+        COUNT(*) FILTER (WHERE entry_method='website')              AS website_count,
+        AVG(EXTRACT(EPOCH FROM (resulted_at  - created_at)))        AS avg_secs_to_result,
+        AVG(EXTRACT(EPOCH FROM (converted_at - created_at)))        AS avg_secs_to_convert
+      FROM leads`, [OPEN_STATUSES]);
+    const num = v => (v == null ? null : Number(v));
+    res.json({
+      total_count:      Number(s.total_count),
+      new_count:        Number(s.new_count),
+      contacted_count:  Number(s.contacted_count),
+      converted_count:  Number(s.converted_count),
+      dismissed_count:  Number(s.dismissed_count),
+      open_count:       Number(s.open_count),
+      manual_count:     Number(s.manual_count),
+      website_count:    Number(s.website_count),
+      avg_secs_to_result:  num(s.avg_secs_to_result),
+      avg_secs_to_convert: num(s.avg_secs_to_convert),
+      conversion_rate: Number(s.total_count) > 0
+        ? Number(s.converted_count) / Number(s.total_count) : null,
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
 router.patch('/:id/status', requireRawRole('admin', 'office'), async (req, res) => {
   const { status } = req.body;
   if (!LEAD_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
   try {
+    // COALESCE everywhere so the stamps record the *first* time a lead reached
+    // each stage — re-marking it later must not restart the clock.
+    const sets = ['status=$1', 'updated_at=NOW()'];
+    const params = [status, req.params.id];
+    const stamp = RESULT_STAMP[status];
+    if (stamp) sets.push(`${stamp} = COALESCE(${stamp}, NOW())`);
+    if (status !== 'new') {
+      sets.push('resulted_at = COALESCE(resulted_at, NOW())');
+      params.push(req.user.id);
+      sets.push(`resulted_by = COALESCE(resulted_by, $${params.length})`);
+    }
     const { rows } = await pool.query(
-      'UPDATE leads SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
-      [status, req.params.id]
+      `UPDATE leads SET ${sets.join(', ')} WHERE id=$2 RETURNING *`, params
     );
     if (!rows[0]) return res.status(404).json({ error: 'Lead not found' });
     res.json(rows[0]);
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
 // Convert a lead into a customer (links the new customer back to the lead)
@@ -162,8 +241,12 @@ router.post('/:id/convert', requireRawRole('admin', 'office'), async (req, res) 
     if (lead.customer_id) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Lead already converted' }); }
 
     const { rows: custRows } = await client.query(
-      `INSERT INTO customers (name, email, phone, lead_source) VALUES ($1,$2,$3,$4) RETURNING id`,
-      [lead.name, lead.email, lead.phone, lead.source]
+      `INSERT INTO customers (name, contact_name, company, email, phone, mobile, lead_source,
+                              address_street, address_city, address_region, address_postcode, address_country)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      [lead.name, lead.contact_name, lead.company, lead.email, lead.phone, lead.mobile, lead.source,
+       lead.address_street, lead.address_city, lead.address_region, lead.address_postcode,
+       lead.address_country || 'New Zealand']
     );
     if (lead.address) {
       await client.query(
@@ -172,8 +255,12 @@ router.post('/:id/convert', requireRawRole('admin', 'office'), async (req, res) 
       );
     }
     await client.query(
-      `UPDATE leads SET status='converted', customer_id=$1, updated_at=NOW() WHERE id=$2`,
-      [custRows[0].id, lead.id]
+      `UPDATE leads SET status='converted', customer_id=$1, updated_at=NOW(),
+              converted_at = COALESCE(converted_at, NOW()),
+              resulted_at  = COALESCE(resulted_at, NOW()),
+              resulted_by  = COALESCE(resulted_by, $3)
+       WHERE id=$2`,
+      [custRows[0].id, lead.id, req.user.id]
     );
     await client.query('COMMIT');
     res.json({ customer_id: custRows[0].id });

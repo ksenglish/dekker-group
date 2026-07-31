@@ -1,5 +1,7 @@
+import { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import api from '../../lib/api';
 import Dashboard from '../../pages/Dashboard';
 import CustomerList from '../../pages/customers/CustomerList';
 import CustomerDetail from '../../pages/customers/CustomerDetail';
@@ -25,7 +27,7 @@ import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '⊞', exact: true },
-  { to: '/leads', label: 'New Leads', icon: '📥', officeOnly: true },
+  { to: '/leads', label: 'New Leads', icon: '📥', officeOnly: true, badge: 'leads' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/jobs', label: 'Jobs', icon: '🔧' },
   { to: '/schedule', label: 'Schedule', icon: '📅' },
@@ -57,6 +59,29 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const isPresenter = location.pathname === '/presenter';
+  const [openLeads, setOpenLeads] = useState(0);
+
+  // Only office/admin can read leads at all — asking as anyone else just 403s.
+  const canSeeLeads = ['admin', 'office'].includes(user?.role);
+
+  const refreshLeadCount = useCallback(() => {
+    if (!canSeeLeads) { setOpenLeads(0); return; }
+    api.get('/leads/stats')
+      .then(r => setOpenLeads(r.data.open_count || 0))
+      .catch(() => {});
+  }, [canSeeLeads]);
+
+  // Refresh on navigation, on a slow timer, and whenever the Leads page tells
+  // us it changed something — so the badge never sits stale behind an action.
+  useEffect(() => { refreshLeadCount(); }, [refreshLeadCount, location.pathname]);
+  useEffect(() => {
+    if (!canSeeLeads) return;
+    const id = setInterval(refreshLeadCount, 120000);
+    window.addEventListener('leads-updated', refreshLeadCount);
+    return () => { clearInterval(id); window.removeEventListener('leads-updated', refreshLeadCount); };
+  }, [canSeeLeads, refreshLeadCount]);
+
+  const badgeCounts = { leads: openLeads };
 
   async function handleLogout() {
     await logout();
@@ -91,6 +116,9 @@ export default function AppShell() {
             >
               <span className={styles.navIcon}>{item.icon}</span>
               {item.label}
+              {item.badge && badgeCounts[item.badge] > 0 && (
+                <span className={styles.navBadge}>{badgeCounts[item.badge]}</span>
+              )}
             </NavLink>
           ))}
 
