@@ -11,6 +11,27 @@ async function getStatusOrder() {
   return configured.map(s => s.key).filter(Boolean);
 }
 
+// Full {key, label} config, for callers that need to resolve a status by its
+// label text rather than its (possibly relabelled) key.
+async function getStatusConfig() {
+  const { rows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
+  const configured = rows[0]?.value;
+  if (!Array.isArray(configured) || !configured.length) {
+    return DEFAULT_ORDER.map(key => ({ key, label: key }));
+  }
+  return configured;
+}
+
+function normaliseLabel(label) {
+  return (label || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+}
+
+// Finds a status by testing its normalised label, e.g.
+// findStatusByLabel(config, l => l.includes('site visit')).
+function findStatusByLabel(config, test) {
+  return (config || []).find(s => test(normaliseLabel(s.label)));
+}
+
 // Moves a job forward to `target` only if it's currently earlier in the
 // pipeline. Statuses the pipeline doesn't know about are treated as earlier,
 // which matches how the client reasons about custom statuses. Cancelled and
@@ -31,4 +52,4 @@ async function advanceJobStatus(jobId, target) {
   return true;
 }
 
-module.exports = { getStatusOrder, advanceJobStatus };
+module.exports = { getStatusOrder, getStatusConfig, findStatusByLabel, advanceJobStatus };

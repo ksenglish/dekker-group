@@ -1,5 +1,24 @@
 const pool = require('../db/pool');
 const { normaliseRole } = require('../middleware/auth');
+const { getStatusConfig, findStatusByLabel } = require('../utils/jobStatusFlow');
+
+const isSiteVisit       = l => l.includes('site visit');
+const isScheduledInstall = l => l.includes('scheduled') && l.includes('install');
+
+// Booking a sales appointment means a site visit is now on the calendar;
+// booking an operations appointment means the install is now on the calendar.
+// This applies unconditionally — even if the job is further along (e.g.
+// re-booking a callback) — since a newly-booked appointment is always the
+// most current signal of what stage the job is actually at.
+async function applyAppointmentStatus(jobId, appointmentType) {
+  if (!jobId || (appointmentType !== 'sales' && appointmentType !== 'operations')) return;
+  const config = await getStatusConfig();
+  const target = appointmentType === 'operations'
+    ? findStatusByLabel(config, isScheduledInstall)
+    : findStatusByLabel(config, isSiteVisit);
+  if (!target) return;
+  await pool.query('UPDATE jobs SET status=$1, updated_at=NOW() WHERE id=$2', [target.key, jobId]);
+}
 
 async function list(req, res) {
   const { from, to, tech, appointment_type, job } = req.query;
@@ -58,11 +77,16 @@ async function create(req, res) {
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [job_id, user_id, scheduled_date, start_time || null, end_time || null, appointment_type || null, notes || null]
     );
-    // Also update job status to scheduled if it's still 'new'
-    await pool.query(
-      `UPDATE jobs SET status='scheduled', updated_at=NOW() WHERE id=$1 AND status='new'`,
-      [job_id]
-    );
+    if (appointment_type) {
+      await applyAppointmentStatus(job_id, appointment_type);
+    } else {
+      // No type given — fall back to the old, more conservative behaviour of
+      // just getting a brand-new job off 'new'.
+      await pool.query(
+        `UPDATE jobs SET status='scheduled', updated_at=NOW() WHERE id=$1 AND status='new'`,
+        [job_id]
+      );
+    }
     res.status(201).json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
