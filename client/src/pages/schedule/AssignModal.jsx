@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import { toLocalDateStr } from '../../lib/date';
 import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import styles from './Schedule.module.css';
 
@@ -21,6 +22,18 @@ function buildTimeOptions() {
   return opts;
 }
 const TIME_OPTIONS = buildTimeOptions();
+const LAST_TIME = TIME_OPTIONS[TIME_OPTIONS.length - 1].value;
+
+// Appointments default to an hour and a half. Picking a start time that would
+// run past the end of the list just pins the end to the last slot.
+const DEFAULT_DURATION_MINS = 90;
+function defaultEndTime(start) {
+  if (!start) return '';
+  const [h, m] = start.split(':').map(Number);
+  const total = h * 60 + m + DEFAULT_DURATION_MINS;
+  const end = `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  return end > LAST_TIME ? LAST_TIME : end;
+}
 
 function TimeSelect({ value, onChange, label }) {
   return (
@@ -54,7 +67,7 @@ export default function AssignModal({
   const [form, setForm] = useState({
     job_id: isEdit ? existing[0].job_id : (initialJobId || ''),
     user_ids: isEdit ? existing.map(e => e.user_id) : (initialUserId ? [initialUserId] : []),
-    scheduled_date: isEdit ? String(existing[0].scheduled_date).slice(0, 10) : (date || new Date().toISOString().split('T')[0]),
+    scheduled_date: isEdit ? String(existing[0].scheduled_date).slice(0, 10) : (date || toLocalDateStr()),
     start_time: isEdit ? (existing[0].start_time || '') : '',
     end_time: isEdit ? (existing[0].end_time || '') : '',
     appointment_type: isEdit ? (existing[0].appointment_type || '') : guessApptType(techRoles[initialUserId]),
@@ -62,6 +75,10 @@ export default function AssignModal({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Once the user picks an end time themselves we stop re-deriving it, so
+  // changing the start doesn't silently undo their choice. An appointment being
+  // edited already has an end time they chose earlier.
+  const [endTouched, setEndTouched] = useState(isEdit && !!existing[0].end_time);
 
   const effectiveLockJob = lockJob || isEdit;
   const effectiveLockedJobLabel = isEdit
@@ -218,8 +235,20 @@ export default function AssignModal({
 
             {/* Time pickers */}
             <div className={styles.timeRow}>
-              <TimeSelect label="Start Time" value={form.start_time} onChange={v => set('start_time', v)} />
-              <TimeSelect label="End Time" value={form.end_time} onChange={v => set('end_time', v)} />
+              <TimeSelect
+                label="Start Time"
+                value={form.start_time}
+                onChange={v => setForm(f => ({
+                  ...f,
+                  start_time: v,
+                  end_time: endTouched ? f.end_time : defaultEndTime(v),
+                }))}
+              />
+              <TimeSelect
+                label="End Time"
+                value={form.end_time}
+                onChange={v => { setEndTouched(true); set('end_time', v); }}
+              />
             </div>
 
             {/* Appointment notes */}

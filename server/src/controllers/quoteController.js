@@ -7,7 +7,12 @@ const { getThemeById, getDefaultTheme } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
-const { advanceJobStatus } = require('../utils/jobStatusFlow');
+const { advanceJobStatus, advanceJobStatusByLabel } = require('../utils/jobStatusFlow');
+
+// An accepted quote is a won job, so it moves to Sale. Forward-only — a job
+// already past Sale (e.g. install booked, second quote accepted later) stays.
+const isSale = l => l === 'sale' || l.startsWith('sale ') || l.endsWith(' sale');
+const advanceToSale = jobId => advanceJobStatusByLabel(jobId, isSale);
 
 // The wording the customer confirms when they accept. Served to the public
 // quote page as well, so what they read and what the notification records are
@@ -202,6 +207,7 @@ async function update(req, res) {
     }
     if (status === 'accepted' && quote.rows[0].status !== 'accepted') {
       await syncJobLineItemsFromQuote(req.params.id, quote.rows[0].job_id);
+      await advanceToSale(quote.rows[0].job_id);
     }
     await logActivity({ type: 'quote_modified', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id, message: 'Quote modified' });
     res.json({ ...rows[0], attachment_ids: await getQuoteAttachmentIds(req.params.id) });
@@ -662,6 +668,7 @@ async function publicAccept(req, res) {
     );
     if (!rows[0]) return res.status(404).json({ error: 'Quote not found, expired, or already actioned' });
     await syncJobLineItemsFromQuote(rows[0].id, rows[0].job_id);
+    await advanceToSale(rows[0].job_id);
     await logActivity({ type: 'quote_accepted', entity_type: 'quote', entity_id: rows[0].id, user_id: null,
       message: `Quote accepted online by ${name.trim()}` });
     await notifyQuoteDecision({

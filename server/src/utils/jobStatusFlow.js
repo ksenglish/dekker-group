@@ -52,4 +52,17 @@ async function advanceJobStatus(jobId, target) {
   return true;
 }
 
-module.exports = { getStatusOrder, getStatusConfig, findStatusByLabel, advanceJobStatus };
+// Same forward-only move as advanceJobStatus, but resolves the target by its
+// label so it survives per-tenant renaming of the underlying keys. No-ops if
+// the pipeline has no status matching `test`.
+async function advanceJobStatusByLabel(jobId, test) {
+  if (!jobId) return false;
+  const target = findStatusByLabel(await getStatusConfig(), test);
+  if (!target) return false;
+  return advanceJobStatus(jobId, target.key);
+}
+
+module.exports = {
+  getStatusOrder, getStatusConfig, findStatusByLabel,
+  advanceJobStatus, advanceJobStatusByLabel,
+};

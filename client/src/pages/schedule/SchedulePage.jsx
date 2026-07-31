@@ -5,6 +5,7 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import { Link, useSearchParams } from 'react-router-dom';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import { toLocalDateStr } from '../../lib/date';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin, canAct } from '../../lib/permissions';
@@ -114,7 +115,7 @@ export default function SchedulePage() {
   // Auto-open assign modal if ?job= param present
   useEffect(() => {
     const jobId = searchParams.get('job');
-    if (jobId) setAssignTarget({ jobId, date: new Date().toISOString().split('T')[0] });
+    if (jobId) setAssignTarget({ jobId, date: toLocalDateStr() });
   }, []);
 
   useEffect(() => {
