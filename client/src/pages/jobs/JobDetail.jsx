@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { isAdmin, canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import { toLocalDateStr } from '../../lib/date';
+import { isHtml, safeHtml } from '../../lib/richText';
 import { isBillable } from '../../lib/billing';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
@@ -638,15 +639,33 @@ function JobTimesheets({ jobId, user }) {
 
 // ── Schedule tab ──────────────────────────────────────────────────────────────
 function JobScheduleTab({ jobId, job, user }) {
+  const navigate = useNavigate();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   function load() {
     setLoading(true);
     api.get('/schedules', { params: { job: jobId } }).then(r => setEntries(r.data)).finally(() => setLoading(false));
   }
   useEffect(load, [jobId]);
+
+  // Open the calendar on the day this appointment is booked for.
+  function openDay(e) {
+    navigate(`/schedule?date=${String(e.scheduled_date).slice(0, 10)}`);
+  }
+
+  async function removeAppointment(e) {
+    if (!confirm(`Delete the appointment for ${e.tech_name} on ${new Date(e.scheduled_date).toLocaleDateString('en-NZ')}?`)) return;
+    setDeletingId(e.id);
+    try {
+      await api.delete(`/schedules/${e.id}`);
+      setEntries(list => list.filter(x => x.id !== e.id));
+    } catch {
+      alert('Failed to delete the appointment');
+    } finally { setDeletingId(null); }
+  }
 
   function fmtTime(t) {
     if (!t) return '';
@@ -665,18 +684,27 @@ function JobScheduleTab({ jobId, job, user }) {
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        entries.length === 0 ? <div className={styles.emptySmall}>No appointments scheduled yet.</div> : (
         entries.map(e => (
-          <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '12px 20px', borderBottom: '1px solid var(--color-border)' }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>
-                {new Date(e.scheduled_date).toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })}
-                {e.start_time ? ` · ${fmtTime(e.start_time)}` : ''}{e.end_time ? `–${fmtTime(e.end_time)}` : ''}
+          <div key={e.id} className={styles.apptRow}>
+            <button type="button" className={styles.apptMain} onClick={() => openDay(e)}
+              title="Open the calendar on this day">
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>
+                  {new Date(e.scheduled_date).toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  {e.start_time ? ` · ${fmtTime(e.start_time)}` : ''}{e.end_time ? `–${fmtTime(e.end_time)}` : ''}
+                </div>
+                {e.notes && <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>{e.notes}</div>}
               </div>
-              {e.notes && <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>{e.notes}</div>}
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 13, fontWeight: 500 }}>{e.tech_name}</div>
-              <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'capitalize' }}>{e.appointment_type || '—'}</div>
-            </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{e.tech_name}</div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', textTransform: 'capitalize' }}>{e.appointment_type || '—'}</div>
+              </div>
+            </button>
+            {isAdmin(user?.role) && (
+              <button type="button" className={styles.apptDelete} disabled={deletingId === e.id}
+                onClick={() => removeAppointment(e)} title="Delete this appointment">
+                {deletingId === e.id ? '…' : '✕'}
+              </button>
+            )}
           </div>
         ))
       )}
@@ -1091,7 +1119,13 @@ export default function JobDetail() {
                 </div>
                 {job.description && (
                   <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
-                    <span>Description</span><strong style={{ fontWeight: 400, whiteSpace: 'pre-wrap' }}>{job.description}</strong>
+                    <span>Description</span>
+                    {isHtml(job.description) ? (
+                      <div className={styles.richText}
+                        dangerouslySetInnerHTML={{ __html: safeHtml(job.description) }} />
+                    ) : (
+                      <strong style={{ fontWeight: 400, whiteSpace: 'pre-wrap' }}>{job.description}</strong>
+                    )}
                   </div>
                 )}
 

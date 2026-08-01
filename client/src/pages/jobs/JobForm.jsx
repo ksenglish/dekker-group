@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import RichTextEditor from '../../components/RichTextEditor';
+import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import styles from './Jobs.module.css';
 
 export default function JobForm({ initial, onSave, onCancel }) {
@@ -49,13 +51,6 @@ export default function JobForm({ initial, onSave, onCancel }) {
   }, [form.customer_id]);
 
   function set(key, val) { setForm(f => ({ ...f, [key]: val })); }
-
-  function toggleTech(id) {
-    setForm(f => ({
-      ...f,
-      tech_ids: f.tech_ids.includes(id) ? f.tech_ids.filter(x => x !== id) : [...f.tech_ids, id],
-    }));
-  }
 
   async function doSave() {
     if (!form.type) { setError('Job type is required'); return null; }
@@ -136,23 +131,23 @@ export default function JobForm({ initial, onSave, onCancel }) {
         {/* Description */}
         <div className={styles.field}>
           <label>Description</label>
-          <textarea rows={3} value={form.description} onChange={e => set('description', e.target.value)}
-            placeholder="Describe the work to be done…" style={{ resize: 'vertical' }} />
+          <RichTextEditor
+            value={form.description}
+            onChange={html => set('description', html)}
+            placeholder="Describe the work to be done…"
+          />
         </div>
 
-        {/* Team Members */}
+        {/* Team Members — a dropdown rather than a full checkbox list, which
+            pushed everything below it off the first screen. */}
         <div className={styles.field}>
           <label>Team Members</label>
-          <div className={styles.techCheckList}>
-            {techs.map(t => (
-              <label key={t.id} className={styles.techCheckItem}>
-                <input type="checkbox" checked={form.tech_ids.includes(t.id)} onChange={() => toggleTech(t.id)} />
-                <span>{t.name}</span>
-                <span className={styles.techRole}>{t.role}</span>
-              </label>
-            ))}
-            {techs.length === 0 && <span style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>No team members added yet</span>}
-          </div>
+          <TeamMemberMultiSelect
+            options={techs}
+            selected={form.tech_ids}
+            onChange={ids => set('tech_ids', ids)}
+            placeholder="Select team member(s)…"
+          />
         </div>
 
         {/* Recurring */}

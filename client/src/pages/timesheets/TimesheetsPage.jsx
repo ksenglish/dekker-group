@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import { toLocalDateStr } from '../../lib/date';
+import { htmlToText } from '../../lib/richText';
 import { isBillable } from '../../lib/billing';
 import styles from './Timesheets.module.css';
 
@@ -237,7 +238,7 @@ function exportCsv(entries, from, to) {
   const headers = ['Date', 'Team Member', 'Job', 'Hours', 'Description'];
   const rows = entries.map(e => [
     `"${e.date?.slice(0,10)}"`, `"${e.user_name || ''}"`,
-    `"${e.job_title ? `${formatJobNumber(e)} ${e.job_title}` : ''}"`,
+    `"${e.job_title ? `${formatJobNumber(e)} ${htmlToText(e.job_title)}` : ''}"`,
     e.hours, `"${(e.description || '').replace(/"/g, '""')}"`,
   ].join(','));
   const csv = [headers.join(','), ...rows].join('\n');

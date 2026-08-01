@@ -4,6 +4,7 @@ const { getTheme } = require('./settingsController');
 const { buildElectricalCocPDF } = require('../utils/electricalCocPdf');
 const { sendMail } = require('../utils/email');
 const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
+const { sanitizeHtml } = require('../utils/sanitizeHtml');
 
 async function list(req, res) {
   const { search = '', status, tech, customer, from, to, sort, page = 1, limit = 100 } = req.query;
@@ -150,7 +151,7 @@ async function create(req, res) {
     const { rows } = await client.query(
       `INSERT INTO jobs (customer_id, site_id, type, description, priority, lead_tech_id, is_recurring, recurrence_interval, recurrence_next_date, parent_job_id)
        VALUES ($1,$2,$3,$4,'medium',$5,$6,$7,$8,$9) RETURNING *`,
-      [customer_id || null, site_id || null, type, description || null,
+      [customer_id || null, site_id || null, type, sanitizeHtml(description) || null,
        (tech_ids?.[0]) || null,
        !!is_recurring, recurrence_interval || null, nextDate, parent_job_id || null]
     );
@@ -181,7 +182,7 @@ async function update(req, res) {
        lead_tech_id=$5, status=COALESCE($6, status),
        is_recurring=$7, recurrence_interval=$8, recurrence_next_date=$9, updated_at=NOW()
        WHERE id=$10 RETURNING *`,
-      [customer_id || null, site_id || null, type, description || null,
+      [customer_id || null, site_id || null, type, sanitizeHtml(description) || null,
        (tech_ids?.[0]) || null, status || null,
        !!is_recurring, recurrence_interval || null, nextDate, req.params.id]
     );

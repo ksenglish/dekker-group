@@ -118,6 +118,16 @@ export default function SchedulePage() {
     if (jobId) setAssignTarget({ jobId, date: toLocalDateStr() });
   }, []);
 
+  // ?date=YYYY-MM-DD opens Day view on that date — used by the job's Schedule
+  // tab so clicking an appointment lands on the day it's booked for.
+  useEffect(() => {
+    const d = searchParams.get('date');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) return;
+    setDayDate(new Date(`${d}T00:00:00`));
+    setIsDayView(true);
+    calRef.current?.getApi()?.gotoDate(d);
+  }, [searchParams]);
+
   useEffect(() => {
     api.get('/users').then(r => {
       const map = {};

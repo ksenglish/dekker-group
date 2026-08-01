@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
+import { htmlToText } from '../../lib/richText';
 import { useAuth } from '../../context/AuthContext';
 import { canAct, isAdmin as isAdminRole } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
@@ -263,7 +264,7 @@ export default function JobList() {
             <Link key={job.id} to={`/jobs/${job.id}`} className={styles.tableRow}>
               <span className={styles.jobNumber}>{formatJobNumber(job)}</span>
               <span>{job.customer_name || <span className={styles.muted}>No customer</span>}</span>
-              <span className={styles.jobDesc}>{job.description || <span className={styles.muted}>—</span>}</span>
+              <span className={styles.jobDesc}>{htmlToText(job.description) || <span className={styles.muted}>—</span>}</span>
               <span className={styles.typeTag}>{job.type?.replace('_', ' ')}</span>
               <span>
                 <span className={styles.statusBadge} style={{ background: STATUS_COLOURS[job.status] + '18', color: STATUS_COLOURS[job.status] }}>

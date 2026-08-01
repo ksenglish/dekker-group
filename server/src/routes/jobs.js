@@ -4,6 +4,7 @@ const c = require('../controllers/jobController');
 const { importTradify } = require('../controllers/importController');
 const { authenticate, requireRole, authenticateAutomation } = require('../middleware/auth');
 const arcsite = require('../utils/arcsite');
+const { htmlToText } = require('../utils/sanitizeHtml');
 
 // Automation endpoint — accepts X-API-Key or user JWT
 router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
@@ -140,7 +141,7 @@ router.post('/:id/arcsite-sync', requireRole('admin', 'office'), async (req, res
 
     const jobNumber = formatJobNumber(job);
     const project = {
-      name: job.site_address ? `${jobNumber} - ${job.site_address}` : (job.description || `Job ${jobNumber}`),
+      name: job.site_address ? `${jobNumber} - ${job.site_address}` : (htmlToText(job.description) || `Job ${jobNumber}`),
       owner: process.env.ARCSITE_OWNER_EMAIL,
       job_number: jobNumber,
       customer: {

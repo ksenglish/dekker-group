@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { htmlToText } from '../lib/richText';
 import api from '../lib/api';
 import { formatJobNumber } from '../lib/formatJobNumber';
 import styles from './Dashboard.module.css';
@@ -109,7 +110,7 @@ export default function Dashboard() {
               <Link key={job.id} to={`/jobs/${job.id}`} className={styles.recentRow}>
                 <span className={styles.recentNum}>{formatJobNumber(job)}</span>
                 <span className={styles.recentCustomer}>{job.customer_name || 'No customer'}</span>
-                <span className={styles.recentDesc}>{job.description || job.type}</span>
+                <span className={styles.recentDesc}>{htmlToText(job.description) || job.type}</span>
                 <span className={styles.statusBadge} style={{ background: STATUS_COLOURS[job.status] + '18', color: STATUS_COLOURS[job.status] }}>
                   {job.status.replace('_', ' ')}
                 </span>
@@ -129,7 +130,7 @@ export default function Dashboard() {
               <Link key={job.id} to={`/jobs/${job.id}`} className={styles.recentRow}>
                 <span className={styles.recentNum}>{formatJobNumber(job)}</span>
                 <span className={styles.recentCustomer}>{job.customer_name || 'No customer'}</span>
-                <span className={styles.recentDesc}>{job.description || job.type}</span>
+                <span className={styles.recentDesc}>{htmlToText(job.description) || job.type}</span>
                 <span className={styles.recentDate}>
                   {job.due_date ? new Date(job.due_date).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' }) : ''}
                 </span>

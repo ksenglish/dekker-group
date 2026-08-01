@@ -25,4 +25,21 @@ function sanitizeHtml(html) {
   return html.replace(/\son\w+\s*=\s*"[^"]*"/gi, '').replace(/javascript:/gi, '');
 }
 
-module.exports = { sanitizeHtml };
+// Flattens rich text to plain text, for the places a description leaves the
+// app as something other than HTML — ArcSite project names, CSV cells, the
+// subject line of an email.
+function htmlToText(html) {
+  if (!html) return '';
+  return String(html)
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<\/(p|div|li|ul|ol)>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+module.exports = { sanitizeHtml, htmlToText };

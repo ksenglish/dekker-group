@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import L from 'leaflet';
+import { htmlToText } from '../../lib/richText';
 import 'leaflet/dist/leaflet.css';
 import api from '../../lib/api';
 import { formatJobNumber } from '../../lib/formatJobNumber';
@@ -82,7 +83,7 @@ export default function MapPage() {
       j.status === statusFilter;
     const q = searchQuery.toLowerCase();
     const matchesSearch = !q ||
-      j.description?.toLowerCase().includes(q) ||
+      htmlToText(j.description).toLowerCase().includes(q) ||
       j.customer_name?.toLowerCase().includes(q) ||
       j.site_address?.toLowerCase().includes(q);
     return matchesFilter && matchesSearch;
@@ -219,7 +220,7 @@ export default function MapPage() {
                     {STATUS_LABELS[job.status] || job.status}
                   </span>
                 </div>
-                <div className={styles.jobTitle}>{job.description || '—'}</div>
+                <div className={styles.jobTitle}>{htmlToText(job.description) || '—'}</div>
                 <div className={styles.jobMeta}>{job.customer_name}</div>
                 {job.site_address ? (
                   <div className={styles.jobAddr}>
@@ -246,7 +247,7 @@ export default function MapPage() {
               <span className={styles.jobNum}>{formatJobNumber(selectedJob)}</span>
               <button className={styles.previewClose} onClick={() => setSelectedJob(null)}>✕</button>
             </div>
-            <div className={styles.previewTitle}>{selectedJob.description || 'Job'}</div>
+            <div className={styles.previewTitle}>{htmlToText(selectedJob.description) || 'Job'}</div>
             <div className={styles.previewRow}>
               <span className={styles.previewLabel}>Customer</span>
               <span className={styles.previewValue}>{selectedJob.customer_name || '—'}</span>

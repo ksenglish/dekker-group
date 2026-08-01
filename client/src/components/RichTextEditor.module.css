@@ -24,6 +24,8 @@
 
 .divider { width: 1px; height: 20px; background: var(--color-border); margin: 0 2px; }
 
+/* Deliberately has no max-height or overflow: the box grows with its content so
+   a long description is readable in full without scrolling inside it. */
 .editor {
   min-height: 100px; padding: 10px 12px; font-size: 14px; line-height: 1.5;
   outline: none; font-family: inherit;

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import { htmlToText } from '../../lib/richText';
 import { toLocalDateStr } from '../../lib/date';
 import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import styles from './Schedule.module.css';
@@ -191,7 +192,7 @@ export default function AssignModal({
 
             {/* Show job description if available */}
             {!effectiveLockJob && selectedJob?.description && (
-              <p className={styles.jobHint}>{selectedJob.description}</p>
+              <p className={styles.jobHint}>{htmlToText(selectedJob.description)}</p>
             )}
 
             {/* Team member(s) */}
