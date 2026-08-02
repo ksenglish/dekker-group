@@ -332,6 +332,33 @@ function labelOldEmailsAsProcessed() {
   console.log(`Done — ${total} old threads labelled as ${PROCESSED_LABEL}`);
 }
 
+// Run this manually to queue older emails for reprocessing.
+// Example: reprocessEmailsFrom('2026/06/01', '2026/07/01') — re-queues all
+// invoice emails from June 2026.  The daily trigger will then work through them
+// 5 at a time.  Safe to call multiple times — it only touches emails that
+// already have the invoice-processed label.
+function reprocessEmailsFrom(afterDate, beforeDate) {
+  const label = GmailApp.getUserLabelByName(PROCESSED_LABEL);
+  if (!label) { console.log('No invoice-processed label found — nothing to do'); return; }
+
+  const datePart = beforeDate ? `after:${afterDate} before:${beforeDate}` : `after:${afterDate}`;
+  let start = 0;
+  let total = 0;
+  while (true) {
+    const threads = GmailApp.search(
+      `has:attachment filename:pdf label:${PROCESSED_LABEL} ${datePart}`,
+      start, 50
+    );
+    if (threads.length === 0) break;
+    threads.forEach(t => t.removeLabel(label));
+    total += threads.length;
+    console.log(`Re-queued ${total} threads so far…`);
+    start += 50;
+    Utilities.sleep(1000);
+  }
+  console.log(`Done — ${total} threads removed from invoice-processed and queued for reprocessing`);
+}
+
 // Run this manually to test on a single thread by Gmail thread ID
 function testWithThread(threadId) {
   const props = PropertiesService.getScriptProperties();
