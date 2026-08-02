@@ -42,7 +42,7 @@ function processSupplierInvoices() {
 
   // Search for emails with PDF attachments not yet processed
   const threads = GmailApp.search(
-    `has:attachment filename:pdf -label:${PROCESSED_LABEL} -label:${FAILED_LABEL} after:2026/06/27`,
+    `has:attachment filename:pdf -label:${PROCESSED_LABEL} -label:${FAILED_LABEL} after:2026/07/01`,
     0, 5  // small batch — OCR is slow, keep well under the 6-min Apps Script limit
   );
 
@@ -75,22 +75,24 @@ function processSupplierInvoices() {
           const { jobNumber, items, supplier, invoiceNumber } = parsed;
           console.log(`Job: ${jobNumber}, Supplier: ${supplier}, Items: ${items.length}`);
 
+          // 4. Convert PDF to base64 for upload
+          const pdfBase64 = Utilities.base64Encode(attachment.getBytes());
+
           if (!jobNumber) {
-            console.log(`No job number found in ${filename} — skipping`);
-            threadHandled = true; // still label so we don't retry
+            console.log(`No job number found in ${filename} — sending to Invoice Inbox`);
+            saveToInbox(pdfBase64, parsed, apiKey);
+            threadHandled = true;
             continue;
           }
 
           // 3. Look up job in Dekker App
           const job = findJob(jobNumber, apiKey);
           if (!job) {
-            console.warn(`Job ${jobNumber} not found in app — skipping`);
-            threadHandled = true; // still label so we don't retry
+            console.warn(`Job ${jobNumber} not found in app — sending to Invoice Inbox`);
+            saveToInbox(pdfBase64, parsed, apiKey);
+            threadHandled = true;
             continue;
           }
-
-          // 4. Convert PDF to base64 for upload
-          const pdfBase64 = Utilities.base64Encode(attachment.getBytes());
 
           // 5. Post PDF + line items to app
           postCosts(job.id, pdfBase64, items, apiKey);
@@ -100,7 +102,14 @@ function processSupplierInvoices() {
 
         } catch (err) {
           console.error(`Error processing ${filename}: ${err.message}`);
-          thread.addLabel(failedLabel);
+          // Save to inbox so it can be handled manually rather than just failing silently
+          try {
+            const pdfBase64 = Utilities.base64Encode(attachment.getBytes());
+            saveToInbox(pdfBase64, null, apiKey);
+          } catch (e2) {
+            console.error('Could not save to inbox either:', e2.message);
+          }
+          threadHandled = true;
         }
       }
     }
@@ -219,6 +228,30 @@ function findJob(jobNumber, apiKey) {
   return JSON.parse(response.getContentText());
 }
 
+// ─── Invoice Inbox (unmatched invoices) ──────────────────────────────────────
+
+function saveToInbox(pdfBase64, parsed, apiKey) {
+  const body = {
+    document_base64: `data:application/pdf;base64,${pdfBase64}`,
+    mime_type: 'application/pdf',
+    supplier: parsed ? parsed.supplier : null,
+    invoice_number: parsed ? parsed.invoiceNumber : null,
+    detected_job_number: parsed ? parsed.jobNumber : null,
+    parsed_items: parsed && parsed.items ? parsed.items : [],
+  };
+  const response = UrlFetchApp.fetch(`${DEKKER_API}/api/invoice-inbox`, {
+    method: 'post',
+    headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+    payload: JSON.stringify(body),
+    muteHttpExceptions: true,
+  });
+  if (response.getResponseCode() !== 201) {
+    console.error('Failed to save to inbox:', response.getContentText());
+  } else {
+    console.log('Saved to Invoice Inbox for manual review');
+  }
+}
+
 function postCosts(jobId, pdfBase64, items, apiKey) {
   const body = {
     document_base64: `data:application/pdf;base64,${pdfBase64}`,
@@ -261,14 +294,21 @@ function setupTrigger() {
     .filter(t => t.getHandlerFunction() === 'processSupplierInvoices')
     .forEach(t => ScriptApp.deleteTrigger(t));
 
-  // Run once daily at 2am
+  // Run at 8am daily
   ScriptApp.newTrigger('processSupplierInvoices')
     .timeBased()
     .everyDays(1)
-    .atHour(2)
+    .atHour(8)
     .create();
 
-  console.log('Trigger created — processSupplierInvoices will run daily at 2am');
+  // Run at 1pm daily
+  ScriptApp.newTrigger('processSupplierInvoices')
+    .timeBased()
+    .everyDays(1)
+    .atHour(13)
+    .create();
+
+  console.log('Triggers created — processSupplierInvoices will run at 8am and 1pm daily');
 }
 
 // Run this ONCE to label all old emails (before 27 Jun 2026) as processed so they are skipped
@@ -279,7 +319,7 @@ function labelOldEmailsAsProcessed() {
   let total = 0;
   while (true) {
     const threads = GmailApp.search(
-      `has:attachment filename:pdf -label:${PROCESSED_LABEL} before:2026/06/27`,
+      `has:attachment filename:pdf -label:${PROCESSED_LABEL} before:2026/07/01`,
       start, 50
     );
     if (threads.length === 0) break;

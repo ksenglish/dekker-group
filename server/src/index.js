@@ -26,6 +26,7 @@ const emailTemplateRoutes = require('./routes/emailTemplates');
 const hubRoutes = require('./routes/hub');
 const xeroRoutes = require('./routes/xero');
 const xeroWebhookRoutes = require('./routes/xero-webhook');
+const invoiceInboxRoutes = require('./routes/invoiceInbox');
 
 const app = express();
 // SERVER_PORT takes priority so a PORT already exported for the client dev
@@ -87,6 +88,7 @@ app.use('/api/leads', leadRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);
 app.use('/api/hub', hubRoutes);
 app.use('/api/xero', xeroRoutes);
+app.use('/api/invoice-inbox', invoiceInboxRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {

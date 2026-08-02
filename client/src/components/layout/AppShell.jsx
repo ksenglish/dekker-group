@@ -23,11 +23,13 @@ import MapPage from '../../pages/map/MapPage';
 import SalesPresenter from '../../pages/presenter/SalesPresenter';
 import PresenterAdmin from '../../pages/presenter/PresenterAdmin';
 import DekkerHub from '../../pages/hub/DekkerHub';
+import InvoiceInboxPage from '../../pages/invoiceInbox/InvoiceInboxPage';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '⊞', exact: true },
   { to: '/leads', label: 'New Leads', icon: '📥', officeOnly: true, badge: 'leads' },
+  { to: '/invoice-inbox', label: 'Invoice Inbox', icon: '🧾', officeOnly: true, badge: 'inbox' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/jobs', label: 'Jobs', icon: '🔧' },
   { to: '/schedule', label: 'Schedule', icon: '📅' },
@@ -60,8 +62,8 @@ export default function AppShell() {
   const location = useLocation();
   const isPresenter = location.pathname === '/presenter';
   const [openLeads, setOpenLeads] = useState(0);
+  const [inboxCount, setInboxCount] = useState(0);
 
-  // Only office/admin can read leads at all — asking as anyone else just 403s.
   const canSeeLeads = ['admin', 'office'].includes(user?.role);
 
   const refreshLeadCount = useCallback(() => {
@@ -71,17 +73,27 @@ export default function AppShell() {
       .catch(() => {});
   }, [canSeeLeads]);
 
-  // Refresh on navigation, on a slow timer, and whenever the Leads page tells
-  // us it changed something — so the badge never sits stale behind an action.
-  useEffect(() => { refreshLeadCount(); }, [refreshLeadCount, location.pathname]);
+  const refreshInboxCount = useCallback(() => {
+    if (!canSeeLeads) { setInboxCount(0); return; }
+    api.get('/invoice-inbox/count')
+      .then(r => setInboxCount(r.data.count || 0))
+      .catch(() => {});
+  }, [canSeeLeads]);
+
+  useEffect(() => { refreshLeadCount(); refreshInboxCount(); }, [refreshLeadCount, refreshInboxCount, location.pathname]);
   useEffect(() => {
     if (!canSeeLeads) return;
-    const id = setInterval(refreshLeadCount, 120000);
+    const id = setInterval(() => { refreshLeadCount(); refreshInboxCount(); }, 120000);
     window.addEventListener('leads-updated', refreshLeadCount);
-    return () => { clearInterval(id); window.removeEventListener('leads-updated', refreshLeadCount); };
-  }, [canSeeLeads, refreshLeadCount]);
+    window.addEventListener('invoice-inbox-updated', refreshInboxCount);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('leads-updated', refreshLeadCount);
+      window.removeEventListener('invoice-inbox-updated', refreshInboxCount);
+    };
+  }, [canSeeLeads, refreshLeadCount, refreshInboxCount]);
 
-  const badgeCounts = { leads: openLeads };
+  const badgeCounts = { leads: openLeads, inbox: inboxCount };
 
   async function handleLogout() {
     await logout();
@@ -183,6 +195,7 @@ export default function AppShell() {
           <Route path="/presenter" element={<SalesPresenter />} />
           <Route path="/presenter/admin" element={<PresenterAdmin />} />
           <Route path="/hub" element={<DekkerHub />} />
+          <Route path="/invoice-inbox" element={<InvoiceInboxPage />} />
           <Route path="/users/*" element={<ComingSoon title="Users" />} />
         </Routes>
       </main>
