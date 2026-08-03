@@ -59,15 +59,36 @@ async function list(req, res) {
 
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   const orderBy = sort === 'scheduled'
-    ? 'ORDER BY scheduled_date ASC NULLS LAST, scheduled_time ASC NULLS LAST'
+    ? 'ORDER BY sch.scheduled_date ASC NULLS LAST, sch.start_time ASC NULLS LAST'
     : 'ORDER BY j.created_at DESC';
+
+  // The displayed date/time must come from the appointment the user is
+  // actually looking at. Extra params (not referenced by the count query, so
+  // they live on their own array) drive a lateral that picks:
+  //   - only appointments inside the filtered date range, so a job with an
+  //     earlier booking doesn't report that other date, and
+  //   - the selected technician's appointment ahead of a colleague's, so a job
+  //     two people attend at different times shows the viewer their own time.
+  const techIdx = p; const fromIdx = p + 1; const toIdx = p + 2;
+  const listParams = [...params, tech || null, from || null, to || null, limit, offset];
+  const scheduleLateral = `
+       LEFT JOIN LATERAL (
+         SELECT s2.scheduled_date, s2.start_time
+         FROM schedules s2
+         WHERE s2.job_id = j.id
+           AND ($${fromIdx}::date IS NULL OR s2.scheduled_date >= $${fromIdx}::date)
+           AND ($${toIdx}::date   IS NULL OR s2.scheduled_date <= $${toIdx}::date)
+         ORDER BY ($${techIdx}::uuid IS NOT NULL AND s2.user_id = $${techIdx}::uuid) DESC,
+                  s2.scheduled_date ASC, s2.start_time ASC NULLS LAST
+         LIMIT 1
+       ) sch ON TRUE`;
 
   try {
     const { rows } = await pool.query(
       `SELECT j.id, j.job_number, j.external_ref, j.type, j.status, j.priority, j.description,
               j.created_at,
-              (SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) AS scheduled_date,
-              (SELECT s.start_time FROM schedules s WHERE s.job_id=j.id ORDER BY s.scheduled_date LIMIT 1) AS scheduled_time,
+              sch.scheduled_date AS scheduled_date,
+              sch.start_time AS scheduled_time,
               c.id AS customer_id, c.name AS customer_name,
               c.mobile AS customer_mobile, c.phone AS customer_phone,
               -- Jobs without a linked customer site keep their address on the
@@ -83,10 +104,11 @@ async function list(req, res) {
        FROM jobs j
        LEFT JOIN customers c ON c.id = j.customer_id
        LEFT JOIN customer_sites s ON s.id = j.site_id
+       ${scheduleLateral}
        ${where}
        ${orderBy}
-       LIMIT $${p} OFFSET $${p + 1}`,
-      [...params, limit, offset]
+       LIMIT $${p + 3} OFFSET $${p + 4}`,
+      listParams
     );
     const total = await pool.query(
       `SELECT COUNT(*) FROM jobs j LEFT JOIN customers c ON c.id = j.customer_id ${where}`,

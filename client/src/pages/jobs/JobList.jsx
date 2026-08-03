@@ -192,8 +192,14 @@ export default function JobList() {
       }
       byTime.get(key).jobs.push(job);
     }
-    // The API already orders by time, but untimed jobs shouldn't lead the day.
-    return groups.sort((a, b) => (a.key === 'no-time') - (b.key === 'no-time'));
+    // Sorted here rather than trusting the API's order, so the day always reads
+    // top-to-bottom like a calendar. Times are zero-padded 24h ("08:30:00"), so
+    // a plain string compare is chronological. Untimed jobs sit at the bottom.
+    return groups.sort((a, b) => {
+      if (a.key === 'no-time') return 1;
+      if (b.key === 'no-time') return -1;
+      return a.key.localeCompare(b.key);
+    });
   })();
 
   return (

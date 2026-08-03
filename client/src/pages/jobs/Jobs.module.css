@@ -156,7 +156,9 @@
   display: grid;
   grid-template-columns: 78px 1.4fr 1.8fr 120px 1.8fr 150px;
   gap: 12px;
-  padding: 13px 16px;
+  /* Generous vertical padding so each job reads as its own block rather than a
+     dense spreadsheet row. */
+  padding: 20px 16px;
   border-bottom: 1px solid var(--color-border);
   font-size: 13px;
   color: var(--color-text);
