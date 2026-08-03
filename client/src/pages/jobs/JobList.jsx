@@ -9,12 +9,6 @@ import styles from './Jobs.module.css';
 
 const STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
 const PRIORITIES = ['low', 'medium', 'high'];
-const STATUS_COLOURS = {
-  new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
-  in_progress: '#d97706', invoiced: '#9333ea', complete: '#16a34a', cancelled: '#6b7280',
-};
-const PRIORITY_COLOURS = { low: '#6b7280', medium: '#d97706', high: '#dc2626' };
-
 function pad2(n) { return String(n).padStart(2, '0'); }
 function toDateStr(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
@@ -178,6 +172,30 @@ export default function JobList() {
 
   const activeFilters = [filters.status, filters.tech, filters.priority].filter(Boolean).length;
 
+  // In Day view the list is grouped under bold start-time headings so it reads
+  // as a run sheet for the day. Every other view stays a flat list — one
+  // pseudo-group with no heading keeps the render path identical.
+  const groupedJobs = (() => {
+    if (filters.period !== 'day') return [{ key: 'all', timeLabel: null, jobs }];
+    const groups = [];
+    const byTime = new Map();
+    for (const job of jobs) {
+      const key = job.scheduled_time || '';
+      if (!byTime.has(key)) {
+        const group = {
+          key: key || 'no-time',
+          timeLabel: key ? fmtTime(key) : 'No time set',
+          jobs: [],
+        };
+        byTime.set(key, group);
+        groups.push(group);
+      }
+      byTime.get(key).jobs.push(job);
+    }
+    // The API already orders by time, but untimed jobs shouldn't lead the day.
+    return groups.sort((a, b) => (a.key === 'no-time') - (b.key === 'no-time'));
+  })();
+
   return (
     <div className={styles.page}>
       <div className={styles.pageHeader}>
@@ -254,30 +272,35 @@ export default function JobList() {
           <div className={styles.tableHeader}>
             <span>Job #</span>
             <span>Customer</span>
+            <span>Address</span>
+            <span>Mobile</span>
             <span>Description</span>
-            <span>Type</span>
-            <span>Status</span>
-            <span>Team Member</span>
             <span>Schedule Date</span>
           </div>
-          {jobs.map(job => (
-            <Link key={job.id} to={`/jobs/${job.id}`} className={styles.tableRow}>
-              <span className={styles.jobNumber}>{formatJobNumber(job)}</span>
-              <span>{job.customer_name || <span className={styles.muted}>No customer</span>}</span>
-              <span className={styles.jobDesc}>{htmlToText(job.description) || <span className={styles.muted}>—</span>}</span>
-              <span className={styles.typeTag}>{job.type?.replace('_', ' ')}</span>
-              <span>
-                <span className={styles.statusBadge} style={{ background: STATUS_COLOURS[job.status] + '18', color: STATUS_COLOURS[job.status] }}>
-                  {job.status.replace('_', ' ')}
-                </span>
-              </span>
-              <span>{job.tech_name || <span className={styles.muted}>Unassigned</span>}</span>
-              <span>
-                {job.scheduled_date
-                  ? `${new Date(job.scheduled_date).toLocaleDateString('en-NZ')}${job.scheduled_time ? ` · ${fmtTime(job.scheduled_time)}` : ''}`
-                  : <span className={styles.muted}>Not scheduled</span>}
-              </span>
-            </Link>
+          {groupedJobs.map(group => (
+            <div key={group.key}>
+              {/* Day view reads as a run sheet: each start time heads the jobs
+                  booked for it. */}
+              {group.timeLabel && (
+                <div className={styles.timeGroupHeader}>{group.timeLabel}</div>
+              )}
+              {group.jobs.map(job => (
+                <Link key={job.id} to={`/jobs/${job.id}`} className={styles.tableRow}>
+                  <span className={styles.jobNumber}>{formatJobNumber(job)}</span>
+                  <span>{job.customer_name || <span className={styles.muted}>No customer</span>}</span>
+                  <span className={styles.jobCell}>{job.site_address || <span className={styles.muted}>—</span>}</span>
+                  <span className={styles.jobCell}>
+                    {job.customer_mobile || job.customer_phone || <span className={styles.muted}>—</span>}
+                  </span>
+                  <span className={styles.jobCell}>{htmlToText(job.description) || <span className={styles.muted}>—</span>}</span>
+                  <span>
+                    {job.scheduled_date
+                      ? `${new Date(job.scheduled_date).toLocaleDateString('en-NZ')}${job.scheduled_time ? ` · ${fmtTime(job.scheduled_time)}` : ''}`
+                      : <span className={styles.muted}>Not scheduled</span>}
+                  </span>
+                </Link>
+              ))}
+            </div>
           ))}
         </div>
       )}

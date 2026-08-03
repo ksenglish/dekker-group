@@ -69,7 +69,11 @@ async function list(req, res) {
               (SELECT MIN(s.scheduled_date) FROM schedules s WHERE s.job_id=j.id) AS scheduled_date,
               (SELECT s.start_time FROM schedules s WHERE s.job_id=j.id ORDER BY s.scheduled_date LIMIT 1) AS scheduled_time,
               c.id AS customer_id, c.name AS customer_name,
-              s.address AS site_address, s.lat AS site_lat, s.lng AS site_lng,
+              c.mobile AS customer_mobile, c.phone AS customer_phone,
+              -- Jobs without a linked customer site keep their address on the
+              -- job itself, so fall back to it rather than showing a blank.
+              COALESCE(s.address, j.site_address) AS site_address,
+              s.lat AS site_lat, s.lng AS site_lng,
               COALESCE(
                 (SELECT STRING_AGG(u.name, ', ' ORDER BY u.name)
                  FROM job_technicians jt JOIN users u ON u.id=jt.user_id
