@@ -15,7 +15,20 @@ async function list(req, res) {
   let techParamIndex = null;
 
   if (search) {
-    conditions.push(`(j.description ILIKE $${p} OR c.name ILIKE $${p} OR j.job_number::text ILIKE $${p} OR j.external_ref ILIKE $${p})`);
+    // job_number is an integer (1001) but the app shows it as "JB01001", so a
+    // search for the number the user can actually see has to match the
+    // formatted form too — matching the raw column alone never hits.
+    // Mirrors formatJobNumber() on the client.
+    // Descriptions hold rich text, so tags are stripped before matching —
+    // otherwise "span" or "style" hits every formatted job while text split
+    // across a tag boundary is missed.
+    conditions.push(`(
+      regexp_replace(regexp_replace(j.description, '<[^>]+>', ' ', 'g'), '\\s+', ' ', 'g') ILIKE $${p}
+      OR c.name ILIKE $${p}
+      OR j.job_number::text ILIKE $${p}
+      OR ('JB' || LPAD(j.job_number::text, 5, '0')) ILIKE $${p}
+      OR j.external_ref ILIKE $${p}
+    )`);
     params.push(`%${search}%`); p++;
   }
   if (status) { conditions.push(`j.status = $${p}`); params.push(status); p++; }
