@@ -6,6 +6,7 @@ import { isAdmin, canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import { toLocalDateStr } from '../../lib/date';
 import { isHtml, safeHtml } from '../../lib/richText';
+import { compressImage } from '../../lib/image';
 import { isBillable } from '../../lib/billing';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
@@ -255,6 +256,9 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
   );
 }
 
+// Applies to the stored payload, after downscaling — not the file on disk.
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
 function JobAttachments({ jobId, user, category = 'pre_install' }) {
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -292,37 +296,36 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
     e.target.value = '';
     if (!files.length) return;
 
-    const tooBig = files.filter(f => f.size > 5 * 1024 * 1024).map(f => f.name);
-    const usable = files.filter(f => f.size <= 5 * 1024 * 1024);
-    if (tooBig.length) {
-      alert(`Skipped ${tooBig.length} file${tooBig.length === 1 ? '' : 's'} over 5MB:\n${tooBig.join('\n')}`);
-    }
-    if (!usable.length) return;
-
     setUploading(true);
-    setUploadProgress({ done: 0, total: usable.length });
+    setUploadProgress({ done: 0, total: files.length });
     const failed = [];
+    const tooBig = [];
     try {
-      for (const [i, file] of usable.entries()) {
+      for (const [i, file] of files.entries()) {
         try {
-          const data_base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = ev => resolve(ev.target.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          });
-          const { data } = await api.post(`/jobs/${jobId}/attachments`, {
-            filename: file.name, mime_type: file.type, data_base64, category,
-          });
-          setAttachments(a => [data, ...a]);
+          // Downscale first, then check the size. A 12MB phone photo comes out
+          // a few hundred KB, so the limit applies to what's actually stored
+          // rather than rejecting photos that would have fit comfortably.
+          const { dataUrl, mimeType, bytes } = await compressImage(file);
+          if (bytes > MAX_ATTACHMENT_BYTES) {
+            tooBig.push(file.name);
+          } else {
+            const { data } = await api.post(`/jobs/${jobId}/attachments`, {
+              filename: file.name, mime_type: mimeType || file.type, data_base64: dataUrl, category,
+            });
+            setAttachments(a => [data, ...a]);
+          }
         } catch {
           failed.push(file.name);
         }
-        setUploadProgress({ done: i + 1, total: usable.length });
+        setUploadProgress({ done: i + 1, total: files.length });
       }
     } finally {
       setUploading(false);
       setUploadProgress(null);
+    }
+    if (tooBig.length) {
+      alert(`Skipped ${tooBig.length} file${tooBig.length === 1 ? '' : 's'} still over 5MB after compression:\n${tooBig.join('\n')}`);
     }
     if (failed.length) alert(`Failed to upload:\n${failed.join('\n')}`);
   }

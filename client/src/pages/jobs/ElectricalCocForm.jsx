@@ -3,6 +3,7 @@ import api from '../../lib/api';
 import { toLocalDateStr } from '../../lib/date';
 import { isAdmin } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import { compressImage } from '../../lib/image';
 import styles from './Jobs.module.css';
 import formStyles from './ElectricalCocForm.module.css';
 
@@ -57,28 +58,8 @@ function emptyDraft(job, user) {
 }
 
 // Phone cameras produce multi-megabyte images; several of them would blow past
-// the server's request limit. Scale down and re-encode as JPEG before upload.
-const MAX_PHOTO_EDGE = 1400;
-function compressImage(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = ev => {
-      const img = new Image();
-      img.onerror = reject;
-      img.onload = () => {
-        const scale = Math.min(1, MAX_PHOTO_EDGE / Math.max(img.width, img.height));
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.8));
-      };
-      img.src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
+// the server's request limit. Downscaling lives in lib/image so every upload
+// path in the app shares it.
 
 // Normalise DATE columns (returned as full timestamps) down to yyyy-mm-dd for <input type="date">
 function normaliseForDraft(row) {
@@ -160,7 +141,8 @@ export default function ElectricalCocForm({ jobId, job, user, onBack, onSaved })
       const added = [];
       for (const file of files) {
         if (!file.type.startsWith('image/')) continue;
-        added.push({ data_base64: await compressImage(file), mime_type: 'image/jpeg', caption: '' });
+        const { dataUrl, mimeType } = await compressImage(file);
+        added.push({ data_base64: dataUrl, mime_type: mimeType || file.type, caption: '' });
       }
       if (!added.length) setPhotoError('Those files were not images.');
       setDraft(d => ({ ...d, photos: [...(d.photos || []), ...added] }));

@@ -5,6 +5,7 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { compressImage } from '../../lib/image';
 import styles from './Settings.module.css';
 
 const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
@@ -211,13 +212,16 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
   const fileRef = useRef();
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  function handleLogoUpload(e) {
+  // Logos only ever render at header size, so a large upload is downscaled
+  // rather than rejected. compressImage keeps PNG (and its transparency) when
+  // the source has an alpha channel.
+  async function handleLogoUpload(e) {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
-    if (file.size > 500 * 1024) { alert('Logo must be under 500KB'); return; }
-    const reader = new FileReader();
-    reader.onload = ev => set('logoBase64', ev.target.result);
-    reader.readAsDataURL(file);
+    const { dataUrl, bytes } = await compressImage(file, { maxEdge: 600 });
+    if (bytes > 500 * 1024) { alert('Logo must be under 500KB'); return; }
+    set('logoBase64', dataUrl);
   }
 
   // Create-or-update against whatever's already been persisted, without

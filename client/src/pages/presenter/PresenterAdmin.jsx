@@ -6,6 +6,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import api from '../../lib/api';
+import { compressImage } from '../../lib/image';
 import styles from './PresenterAdmin.module.css';
 
 const CALC_TYPES = [
@@ -22,10 +23,12 @@ const CALC_TYPES = [
 
 function ImgUpload({ value, onChange, label = '📷 Upload Image', maxMb = 3 }) {
   const ref = useRef();
-  function handle(e) {
-    const f = e.target.files[0]; if (!f) return;
-    if (f.size > maxMb * 1024 * 1024) { alert(`Max ${maxMb}MB`); return; }
-    const r = new FileReader(); r.onload = ev => onChange(ev.target.result); r.readAsDataURL(f);
+  // Downscale first so the limit applies to what gets stored, not the raw file.
+  async function handle(e) {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    const { dataUrl, bytes } = await compressImage(f);
+    if (bytes > maxMb * 1024 * 1024) { alert(`Max ${maxMb}MB`); return; }
+    onChange(dataUrl);
   }
   return (
     <div className={styles.imgUpload}>
@@ -40,10 +43,12 @@ function ImgUpload({ value, onChange, label = '📷 Upload Image', maxMb = 3 }) 
 
 function BrochureUpload({ value, onChange, maxMb = 10 }) {
   const ref = useRef();
-  function handle(e) {
-    const f = e.target.files[0]; if (!f) return;
-    if (f.size > maxMb * 1024 * 1024) { alert(`Max ${maxMb}MB`); return; }
-    const r = new FileReader(); r.onload = ev => onChange(ev.target.result); r.readAsDataURL(f);
+  // Brochures may be PDFs, which compressImage passes through untouched.
+  async function handle(e) {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    const { dataUrl, bytes } = await compressImage(f);
+    if (bytes > maxMb * 1024 * 1024) { alert(`Max ${maxMb}MB`); return; }
+    onChange(dataUrl);
   }
   const isPdf = value?.startsWith('data:application/pdf');
   return (

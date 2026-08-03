@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { compressImage } from '../../lib/image';
 import styles from './Products.module.css';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -11,16 +12,17 @@ const UNITS = ['each', 'hr', 'm', 'm²', 'kg', 'L', 'day', 'kit', 'set'];
 function ImageUpload({ value, onChange }) {
   const ref = useRef();
 
-  function handleFile(e) {
+  async function handleFile(e) {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type))
       return alert('Please upload a JPG or PNG image.');
-    if (file.size > 2 * 1024 * 1024)
+    // Downscale first — the limit is on what gets stored, not the raw file.
+    const { dataUrl, bytes } = await compressImage(file);
+    if (bytes > 2 * 1024 * 1024)
       return alert('Image must be under 2MB.');
-    const reader = new FileReader();
-    reader.onload = ev => onChange(ev.target.result);
-    reader.readAsDataURL(file);
+    onChange(dataUrl);
   }
 
   return (
@@ -43,17 +45,18 @@ function ImageUpload({ value, onChange }) {
 function BrochureUpload({ value, onChange }) {
   const ref = useRef();
 
-  function handleFile(e) {
+  async function handleFile(e) {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
     if (!allowed.includes(file.type))
       return alert('Please upload a JPG, PNG, or PDF.');
-    if (file.size > 10 * 1024 * 1024)
+    // PDFs pass through compressImage untouched.
+    const { dataUrl, bytes } = await compressImage(file);
+    if (bytes > 10 * 1024 * 1024)
       return alert('Brochure must be under 10MB.');
-    const reader = new FileReader();
-    reader.onload = ev => onChange(ev.target.result);
-    reader.readAsDataURL(file);
+    onChange(dataUrl);
   }
 
   const isPdf = value?.startsWith('data:application/pdf');
