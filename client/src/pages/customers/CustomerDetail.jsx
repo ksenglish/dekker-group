@@ -45,6 +45,9 @@ export default function CustomerDetail() {
   const [noteText, setNoteText] = useState('');
   const [addingSite, setAddingSite] = useState(false);
   const [newSite, setNewSite] = useState({ address: '', label: '' });
+  const [editingSiteId, setEditingSiteId] = useState(null);
+  const [editSite, setEditSite] = useState({ address: '', label: '' });
+  const [siteError, setSiteError] = useState('');
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState([]);
 
@@ -144,15 +147,39 @@ export default function CustomerDetail() {
 
   async function handleAddSite() {
     if (!newSite.address.trim()) return;
-    const { data } = await api.post(`/customers/${id}/sites`, newSite);
-    setCustomer(c => ({ ...c, sites: [...(c.sites || []), data] }));
-    setNewSite({ address: '', label: '' });
-    setAddingSite(false);
+    setSiteError('');
+    try {
+      const { data } = await api.post(`/customers/${id}/sites`, newSite);
+      setCustomer(c => ({ ...c, sites: [...(c.sites || []), data] }));
+      setNewSite({ address: '', label: '' });
+      setAddingSite(false);
+    } catch (err) {
+      setSiteError(err.response?.data?.error || 'Failed to add site');
+    }
+  }
+
+  async function handleSaveSite(siteId) {
+    if (!editSite.address.trim()) return;
+    setSiteError('');
+    try {
+      const { data } = await api.put(`/customers/${id}/sites/${siteId}`, editSite);
+      setCustomer(c => ({ ...c, sites: c.sites.map(s => s.id === siteId ? data : s) }));
+      setEditingSiteId(null);
+    } catch (err) {
+      setSiteError(err.response?.data?.error || 'Failed to save site');
+    }
   }
 
   async function handleDeleteSite(siteId) {
-    await api.delete(`/customers/${id}/sites/${siteId}`);
-    setCustomer(c => ({ ...c, sites: c.sites.filter(s => s.id !== siteId) }));
+    if (!confirm('Delete this site address?')) return;
+    setSiteError('');
+    try {
+      await api.delete(`/customers/${id}/sites/${siteId}`);
+      setCustomer(c => ({ ...c, sites: c.sites.filter(s => s.id !== siteId) }));
+    } catch (err) {
+      // e.g. still used by jobs, or it's the default site
+      setSiteError(err.response?.data?.error || 'Failed to delete site');
+    }
   }
 
   const fullAddress = [
@@ -485,17 +512,45 @@ export default function CustomerDetail() {
             <h3>Site Addresses</h3>
             <button className={styles.btnSmall} onClick={() => setAddingSite(true)}>+ Add Site</button>
           </div>
+          {siteError && <div className={styles.errorBanner}>{siteError}</div>}
           {customer?.sites?.length === 0 && !addingSite && (
             <p className={styles.emptyState}>No sites added yet.</p>
           )}
           {customer?.sites?.map(site => (
-            <div key={site.id} className={styles.siteRow}>
-              <div>
-                <div className={styles.siteAddress}>{site.address}</div>
-                {site.label && <div className={styles.siteLabel}>{site.label}</div>}
+            editingSiteId === site.id ? (
+              <div key={site.id} className={styles.addSiteForm}>
+                <input placeholder="Street address" value={editSite.address}
+                  onChange={e => setEditSite(s => ({ ...s, address: e.target.value }))} />
+                <input placeholder="Label (e.g. Main Office, Site B)" value={editSite.label}
+                  onChange={e => setEditSite(s => ({ ...s, label: e.target.value }))} />
+                <div className={styles.formActions}>
+                  <button className={styles.btnSecondary} onClick={() => { setEditingSiteId(null); setSiteError(''); }}>Cancel</button>
+                  <button className={styles.btnPrimary} onClick={() => handleSaveSite(site.id)}>Save Site</button>
+                </div>
               </div>
-              <button className={styles.deleteBtn} onClick={() => handleDeleteSite(site.id)}>✕</button>
-            </div>
+            ) : (
+              <div key={site.id} className={styles.siteRow}>
+                <div>
+                  <div className={styles.siteAddress}>
+                    {site.address}
+                    {site.is_primary && <span className={styles.siteDefaultBadge}>Default</span>}
+                  </div>
+                  {site.is_primary
+                    ? <div className={styles.siteLabel}>Follows the customer’s address — edit that to change it</div>
+                    : site.label && <div className={styles.siteLabel}>{site.label}</div>}
+                </div>
+                {!site.is_primary && (
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    <button className={styles.btnSmall} onClick={() => {
+                      setEditingSiteId(site.id);
+                      setEditSite({ address: site.address, label: site.label || '' });
+                      setSiteError('');
+                    }}>Edit</button>
+                    <button className={styles.deleteBtn} onClick={() => handleDeleteSite(site.id)}>✕</button>
+                  </div>
+                )}
+              </div>
+            )
           ))}
           {addingSite && (
             <div className={styles.addSiteForm}>

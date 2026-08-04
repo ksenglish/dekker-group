@@ -419,6 +419,12 @@
 
 .siteAddress { font-size: 14px; font-weight: 500; }
 .siteLabel { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+.siteDefaultBadge {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 99px;
+  background: var(--color-primary-light); color: var(--color-primary);
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  vertical-align: middle;
+}
 
 .addSiteForm {
   padding: 16px 20px;

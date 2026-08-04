@@ -6,6 +6,26 @@ function addressLine(c) {
   return [c.address_street, c.address_city, c.address_region, c.address_postcode].filter(Boolean).join(', ');
 }
 
+// Keep the customer's default site address matching their own address, so
+// editing a customer's address updates the site that jobs default to. Other
+// sites are left alone — users can still pick those when creating a job.
+async function syncPrimarySite(customer) {
+  const addr = addressLine(customer);
+  if (!addr) return; // address cleared — leave any existing site as-is rather than blanking it
+  const { rowCount } = await pool.query(
+    'UPDATE customer_sites SET address=$1 WHERE customer_id=$2 AND is_primary',
+    [addr, customer.id]
+  );
+  // No default site yet (customer created without an address, or their only
+  // sites were added manually) — create one now.
+  if (rowCount === 0) {
+    await pool.query(
+      'INSERT INTO customer_sites (customer_id, address, label, is_primary) VALUES ($1, $2, $3, true)',
+      [customer.id, addr, 'Primary']
+    );
+  }
+}
+
 async function list(req, res) {
   const { search = '', page = 1, limit = 50 } = req.query;
   const offset = (page - 1) * limit;
@@ -71,12 +91,12 @@ async function create(req, res) {
        address_street || null, address_city || null, address_region || null,
        address_postcode || null, address_country || 'New Zealand']
     );
-    // Auto-create a primary site if address provided
+    // Auto-create the default site from the customer's own address. It stays
+    // in sync with that address on every later update (see syncPrimarySite).
     if (address_street) {
-      const addr = addressLine(rows[0]);
       await pool.query(
-        'INSERT INTO customer_sites (customer_id, address, label) VALUES ($1, $2, $3)',
-        [rows[0].id, addr, 'Primary']
+        'INSERT INTO customer_sites (customer_id, address, label, is_primary) VALUES ($1, $2, $3, true)',
+        [rows[0].id, addressLine(rows[0]), 'Primary']
       );
     }
     res.status(201).json(rows[0]);
@@ -102,8 +122,10 @@ async function update(req, res) {
        address_postcode || null, address_country || 'New Zealand', req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Customer not found' });
+    await syncPrimarySite(rows[0]);
     res.json(rows[0]);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 }
@@ -120,7 +142,7 @@ async function remove(req, res) {
 async function listSites(req, res) {
   try {
     const { rows } = await pool.query(
-      'SELECT * FROM customer_sites WHERE customer_id = $1 ORDER BY label',
+      'SELECT * FROM customer_sites WHERE customer_id = $1 ORDER BY is_primary DESC, label',
       [req.params.id]
     );
     res.json(rows);
@@ -145,22 +167,57 @@ async function createSite(req, res) {
 
 async function updateSite(req, res) {
   const { address, label } = req.body;
+  if (!address?.trim()) return res.status(400).json({ error: 'Address is required' });
   try {
+    const { rows: [existing] } = await pool.query(
+      'SELECT * FROM customer_sites WHERE id=$1 AND customer_id=$2',
+      [req.params.siteId, req.params.id]
+    );
+    if (!existing) return res.status(404).json({ error: 'Site not found' });
+    // The default site mirrors the customer's own address — editing it here
+    // would just be overwritten the next time the customer is saved.
+    if (existing.is_primary && address.trim() !== existing.address) {
+      return res.status(400).json({
+        error: "This is the customer's default site — edit the customer's address to change it.",
+      });
+    }
     const { rows } = await pool.query(
       'UPDATE customer_sites SET address=$1, label=$2 WHERE id=$3 AND customer_id=$4 RETURNING *',
-      [address, label || null, req.params.siteId, req.params.id]
+      [address.trim(), label || null, req.params.siteId, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 }
 
 async function deleteSite(req, res) {
   try {
+    const { rows: [site] } = await pool.query(
+      'SELECT * FROM customer_sites WHERE id=$1 AND customer_id=$2',
+      [req.params.siteId, req.params.id]
+    );
+    if (!site) return res.status(404).json({ error: 'Site not found' });
+    if (site.is_primary) {
+      return res.status(400).json({
+        error: "The customer's default site can't be deleted — it follows their address.",
+      });
+    }
+    // jobs.site_id has no ON DELETE rule, so deleting a site still in use
+    // would fail as a raw FK violation. Check first and explain instead.
+    const { rows: [{ count }] } = await pool.query(
+      'SELECT COUNT(*) FROM jobs WHERE site_id=$1', [req.params.siteId]
+    );
+    if (parseInt(count) > 0) {
+      return res.status(400).json({
+        error: `This site is used by ${count} job${count === '1' ? '' : 's'} — reassign ${count === '1' ? 'it' : 'them'} to another site first.`,
+      });
+    }
     await pool.query('DELETE FROM customer_sites WHERE id=$1 AND customer_id=$2', [req.params.siteId, req.params.id]);
     res.json({ message: 'Site deleted' });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Server error' });
   }
 }
@@ -262,7 +319,7 @@ async function importCsv(req, res) {
       if (rows[0] && r.address_street) {
         const addr = [r.address_street, r.address_city, r.address_region, r.address_postcode].filter(Boolean).join(', ');
         await client.query(
-          'INSERT INTO customer_sites (customer_id, address, label) VALUES ($1, $2, $3)',
+          'INSERT INTO customer_sites (customer_id, address, label, is_primary) VALUES ($1, $2, $3, true)',
           [rows[0].id, addr, 'Primary']
         );
       }

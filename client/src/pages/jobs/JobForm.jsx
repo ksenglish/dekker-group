@@ -60,6 +60,10 @@ export default function JobForm({ initial, onSave, onCancel }) {
       const { data } = initial?.id
         ? await api.put(`/jobs/${initial.id}`, payload)
         : await api.post('/jobs', payload);
+      // Clear the saving state on success too — the caller usually unmounts
+      // this form, but not always (creating a job navigates to the new id on
+      // the same route, which keeps this component mounted).
+      setSaving(false);
       return data;
     } catch (err) {
       setError(err.response?.data?.error || 'Save failed');

@@ -993,11 +993,17 @@ export default function JobDetail() {
   }
 
   function handleSaved(savedJob) {
+    // Must clear editMode on the new-job path too. Navigating to the real id
+    // flips isNew to false but leaves editMode true, so `isNew || editMode`
+    // kept the form mounted — with its "Saving…" state frozen, since the
+    // component never unmounts on a same-route id change.
+    setEditMode(false);
     if (isNew) {
       navigate(`/jobs/${savedJob.id}`, { replace: true });
+      setEmailFlash(`Job ${formatJobNumber(savedJob)} created`);
     } else {
       setJob(j => ({ ...j, ...savedJob }));
-      setEditMode(false);
+      setEmailFlash('Changes saved');
     }
   }
 
