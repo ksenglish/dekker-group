@@ -297,12 +297,19 @@
 
 .reopenBtn:hover { background: #f1f5f9; }
 
-/* Tabs */
+/* Tabs — the strip scrolls sideways on its own rather than pushing the whole
+   page wide, which is what made the entire screen pan left/right on mobile. */
 .tabs {
   display: flex;
   gap: 2px;
   margin-bottom: 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* old Edge */
 }
+.tabs::-webkit-scrollbar { display: none; }
 
 .tab {
   display: flex;
@@ -317,6 +324,8 @@
   color: var(--color-text-muted);
   cursor: pointer;
   transition: all 0.1s;
+  flex-shrink: 0;       /* don't squash tabs to fit — let the strip scroll */
+  white-space: nowrap;
 }
 
 .tab:hover { background: #f1f5f9; color: var(--color-text); }
@@ -680,9 +689,71 @@
 
 .btnSmall:hover { background: #f1f5f9; }
 
+/* ── Mobile quick actions (Navigate / Call / Message / Email) ──────────────
+   Tradify-style round icon buttons under the job header. Mobile only — tel:
+   and sms: links are meaningless on desktop, and the desktop layout already
+   surfaces this contact info in the sidebar. */
+.quickActions { display: none; }
+
+.quickAction {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--color-primary);
+}
+
+.quickActionIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.quickActionLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
 @media (max-width: 768px) {
   .page { padding: 12px; }
   .pageHeader { flex-direction: column; gap: 10px; }
+
+  .quickActions {
+    display: flex;
+    justify-content: space-around;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 16px 8px;
+    margin-bottom: 12px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+  }
+
+  /* Tab strip spans the page's padding on mobile so it reads as a full-width
+     scrolling rail, like Tradify's. */
+  .tabs {
+    margin-left: -12px;
+    margin-right: -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
   .toolbar { gap: 8px; }
   .searchInput { min-width: 0; }
 

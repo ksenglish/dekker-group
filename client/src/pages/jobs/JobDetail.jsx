@@ -1010,6 +1010,8 @@ export default function JobDetail() {
   const subtotal = (job?.line_items || []).reduce((s, i) => s + (i.unit_price * i.quantity), 0);
   const gst = Math.round(subtotal * 0.15);
   const total = subtotal + gst;
+  // Prefer the mobile for calling — it's the number most likely to be answered on site
+  const callNumber = job?.customer_mobile || job?.customer_phone;
   const hasPhotos = parseInt(job?.attachment_count) > 0;
   const hasOpForm = !!job?.has_completed_forms;
 
@@ -1063,6 +1065,37 @@ export default function JobDetail() {
                 <button className={styles.btnDanger} onClick={handleDelete}>Delete Job</button>
               )}
             </div>
+          </div>
+
+          {/* Mobile quick actions — CSS hides these above 768px */}
+          <div className={styles.quickActions}>
+            {job.site_address && (
+              <a className={styles.quickAction} target="_blank" rel="noreferrer"
+                href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.site_address)}`}>
+                <span className={styles.quickActionIcon}>➤</span>
+                <span className={styles.quickActionLabel}>Navigate</span>
+              </a>
+            )}
+            {job.customer_email && (
+              <a className={styles.quickAction} href={`mailto:${job.customer_email}`}>
+                <span className={styles.quickActionIcon}>✉</span>
+                <span className={styles.quickActionLabel}>Email</span>
+              </a>
+            )}
+            {callNumber && (
+              <a className={styles.quickAction} href={`tel:${callNumber.replace(/\s+/g, '')}`}>
+                <span className={styles.quickActionIcon}>✆</span>
+                <span className={styles.quickActionLabel}>Call</span>
+              </a>
+            )}
+            {/* Texting only makes sense for a mobile number, so this falls away
+                when we only hold a landline. */}
+            {job.customer_mobile && (
+              <a className={styles.quickAction} href={`sms:${job.customer_mobile.replace(/\s+/g, '')}`}>
+                <span className={styles.quickActionIcon}>💬</span>
+                <span className={styles.quickActionLabel}>Message</span>
+              </a>
+            )}
           </div>
 
           {/* Status is driven by the workflow now — quoting, the timer, and
