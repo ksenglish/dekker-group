@@ -1033,6 +1033,12 @@ export default function JobDetail() {
     );
   }
 
+  // Just after creating a job the url switches from /jobs/new to the real id,
+  // so `loading` is already false (it starts false for a new job) while the
+  // detail fetch for that id is still in flight — job is briefly null here.
+  // Everything below dereferences it, so bail out until it arrives.
+  if (!job) return <div className={styles.page}><div className={styles.loading}>Loading…</div></div>;
+
   return (
     <div className={styles.page}>
       {/* Main layout */}
