@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import api from '../../lib/api';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Map.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 // Fix Leaflet's broken default icon paths when bundled with Vite
 delete L.Icon.Default.prototype._getIconUrl;
@@ -241,7 +242,7 @@ export default function MapPage() {
 
       {/* Preview panel for a clicked marker */}
       {selectedJob && (
-        <div className={styles.previewOverlay} onClick={() => setSelectedJob(null)}>
+        <div className={styles.previewOverlay} {...overlayClose(() => setSelectedJob(null))}>
           <div className={styles.previewPanel} onClick={e => e.stopPropagation()}>
             <div className={styles.previewHeader}>
               <span className={styles.jobNum}>{formatJobNumber(selectedJob)}</span>

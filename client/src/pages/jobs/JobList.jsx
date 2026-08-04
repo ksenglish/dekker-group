@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { canAct, isAdmin as isAdminRole } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import styles from './Jobs.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const STATUSES = ['new', 'quoted', 'scheduled', 'in_progress', 'invoiced', 'complete', 'cancelled'];
 const PRIORITIES = ['low', 'medium', 'high'];
@@ -313,7 +314,7 @@ export default function JobList() {
 
       {/* Template picker modal */}
       {showTemplates && (
-        <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && setShowTemplates(false)}>
+        <div className={styles.modalOverlay} {...overlayClose(() => setShowTemplates(false))}>
           <div className={styles.modal}>
             <div className={styles.modalHeader}>
               <h2>New Job from Template</h2>

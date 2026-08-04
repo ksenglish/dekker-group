@@ -14,6 +14,7 @@ import JobCosts from './JobCosts';
 import AssignModal from '../schedule/AssignModal';
 import JobFormsTab from './JobFormsTab';
 import styles from './Jobs.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const TAB_LABELS = {
   photos: 'Pre-Install Forms',
@@ -470,7 +471,7 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
   }
 
   return (
-    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay} {...overlayClose(onClose)}>
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <h2>{isNew ? 'New Timesheet Entry' : 'Edit Timesheet Entry'}</h2>

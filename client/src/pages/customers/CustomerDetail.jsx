@@ -7,6 +7,7 @@ import { isAdmin, canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import AddressAutocomplete from '../../components/AddressAutocomplete';
 import styles from './Customers.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const STATUS_COLOURS = {
   new: '#1e40af', quoted: '#7c3aed', scheduled: '#0891b2',
@@ -510,7 +511,7 @@ export default function CustomerDetail() {
       )}
       {/* Template picker modal */}
       {showTemplates && (
-        <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && setShowTemplates(false)}>
+        <div className={styles.modalOverlay} {...overlayClose(() => setShowTemplates(false))}>
           <div className={styles.modal}>
             <div className={styles.modalHeader}>
               <h2>New Job from Template</h2>

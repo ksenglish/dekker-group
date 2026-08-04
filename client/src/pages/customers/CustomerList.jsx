@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { canAct } from '../../lib/permissions';
 import styles from './Customers.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const PAGE_SIZE = 20;
 
@@ -167,7 +168,7 @@ function ImportModal({ onClose, onImported }) {
   }
 
   return (
-    <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.modalOverlay} {...overlayClose(onClose)}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <h2>Import Customers from CSV</h2>

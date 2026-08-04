@@ -7,6 +7,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { compressImage } from '../../lib/image';
 import styles from './Settings.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
 
@@ -260,7 +261,7 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={e => e.target === e.currentTarget && onClose()}>
+      {...overlayClose(onClose)}>
       <div style={{ background: 'white', borderRadius: 10, width: 640, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
         <div style={{ padding: '20px 28px', borderBottom: '1px solid var(--color-border)' }}>
           <h3 style={{ fontSize: 17, fontWeight: 700 }}>{isNew ? 'New Document Theme' : 'Edit Theme'}</h3>
@@ -1053,7 +1054,7 @@ function EmailTemplatesTab() {
 
       {editing !== null && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={e => e.target === e.currentTarget && setEditing(null)}>
+          {...overlayClose(() => setEditing(null))}>
           <div style={{ background: 'white', borderRadius: 10, padding: 28, width: 560, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
             <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>{editing === 'new' ? 'New Email Template' : 'Edit Email Template'}</h3>
             {err && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 14px', borderRadius: 6, fontSize: 13, marginBottom: 14 }}>{err}</div>}
@@ -1316,7 +1317,7 @@ function JobTypesTab() {
       {/* Template edit modal */}
       {editingTpl !== null && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={e => e.target === e.currentTarget && setEditingTpl(null)}>
+          {...overlayClose(() => setEditingTpl(null))}>
           <div style={{ background: 'white', borderRadius: 10, padding: 28, width: 480, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
             <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>{editingTpl === 'new' ? 'New Template' : 'Edit Template'}</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

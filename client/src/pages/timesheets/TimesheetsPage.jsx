@@ -7,6 +7,7 @@ import { toLocalDateStr } from '../../lib/date';
 import { htmlToText } from '../../lib/richText';
 import { isBillable } from '../../lib/billing';
 import styles from './Timesheets.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -163,7 +164,7 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
   }
 
   return (
-    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay} {...overlayClose(onClose)}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <h2>{entry ? 'Edit Time Entry' : 'Log Time'}</h2>

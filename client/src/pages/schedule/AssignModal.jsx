@@ -5,6 +5,7 @@ import { htmlToText } from '../../lib/richText';
 import { toLocalDateStr } from '../../lib/date';
 import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import styles from './Schedule.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 // Build list of times 07:00–20:30 in 15-min steps
 function buildTimeOptions() {
@@ -163,7 +164,7 @@ export default function AssignModal({
   const selectedJob = jobs.find(j => j.id === form.job_id);
 
   return (
-    <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.modalOverlay} {...overlayClose(onClose)}>
       <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <h2>{isEdit ? 'Edit Appointment' : 'Schedule Job'}</h2>

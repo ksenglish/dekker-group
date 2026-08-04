@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Leads.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const STATUSES = ['new', 'contacted', 'converted', 'dismissed'];
 const STATUS_COLOURS = { new: '#1e40af', contacted: '#d97706', converted: '#16a34a', dismissed: '#6b7280' };
@@ -190,7 +191,7 @@ export default function LeadsPage() {
       )}
 
       {selected && (
-        <div className={styles.overlay} onClick={e => e.target === e.currentTarget && setSelected(null)}>
+        <div className={styles.overlay} {...overlayClose(() => setSelected(null))}>
           <div className={styles.modal}>
             <div className={styles.modalHeader}>
               <h2>{selected.name}</h2>
@@ -267,7 +268,7 @@ export default function LeadsPage() {
       )}
 
       {showNew && (
-        <div className={styles.overlay} onClick={e => e.target === e.currentTarget && setShowNew(false)}>
+        <div className={styles.overlay} {...overlayClose(() => setShowNew(false))}>
           <form className={`${styles.modal} ${styles.modalWide}`} onSubmit={createLead}>
             <div className={styles.modalHeader}>
               <h2>New Lead</h2>

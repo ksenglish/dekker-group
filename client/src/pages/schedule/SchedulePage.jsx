@@ -13,6 +13,7 @@ import AssignModal from './AssignModal';
 import AddNoteModal from './AddNoteModal';
 import DayColumnsView from './DayColumnsView';
 import styles from './Schedule.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const APPT_TYPE_LABEL = { sales: 'Sales', operations: 'Operations' };
 const APPT_TYPE_COLOURS = { sales: '#5b21b6', operations: '#1e40af' };
@@ -512,7 +513,7 @@ export default function SchedulePage() {
       </div>
 
       {selectedEvent && (
-        <div className={styles.modalOverlay} onClick={() => setSelectedEvent(null)}>
+        <div className={styles.modalOverlay} {...overlayClose(() => setSelectedEvent(null))}>
           <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>Job {formatJobNumber(selectedEvent)}</h2>
@@ -575,7 +576,7 @@ export default function SchedulePage() {
       )}
 
       {selectedNote && (
-        <div className={styles.modalOverlay} onClick={() => setSelectedNote(null)}>
+        <div className={styles.modalOverlay} {...overlayClose(() => setSelectedNote(null))}>
           <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2>📝 Note</h2>

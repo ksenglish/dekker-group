@@ -3,6 +3,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { compressImage } from '../../lib/image';
 import styles from './Products.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const GST_RATE = 0.15;
@@ -123,7 +124,7 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
   }
 
   return (
-    <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.modalOverlay} {...overlayClose(onClose)}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <h2>{product ? 'Edit Product' : 'Add Product'}</h2>
@@ -241,7 +242,7 @@ function ImportModal({ onDone, onClose }) {
   const canImport = tab === 'zip' ? !!zipFile : !!csv;
 
   return (
-    <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.modalOverlay} {...overlayClose(onClose)}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <h2>Import Products</h2>

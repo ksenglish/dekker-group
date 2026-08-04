@@ -5,6 +5,7 @@ import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
 import 'react-pdf/dist/esm/Page/TextLayer.css';
 import api from '../../lib/api';
 import styles from './SalesPresenter.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 // Use CDN worker so Vite doesn't need to bundle it
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
@@ -141,7 +142,7 @@ function PlanScanner({ jobId, mode = 'area', hint, onResult }) {
       )}
 
       {showJobPicker && (
-        <div className={styles.jobPickerOverlay} onClick={e => e.target === e.currentTarget && setShowJobPicker(false)}>
+        <div className={styles.jobPickerOverlay} {...overlayClose(() => setShowJobPicker(false))}>
           <div className={styles.jobPickerModal}>
             <div className={styles.jobPickerHeader}>
               <span>Select an image from this job</span>
@@ -1283,7 +1284,7 @@ function BrochureModal({ src, name, onClose }) {
   }
 
   return (
-    <div className={styles.brochureOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.brochureOverlay} {...overlayClose(onClose)}>
       <div className={styles.brochureModal}>
         <div className={styles.brochureHeader}>
           <span className={styles.brochureTitle}>{name}</span>
@@ -1394,7 +1395,7 @@ function BrochureModal({ src, name, onClose }) {
 function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVariant }) {
   const [showBrochure, setShowBrochure] = useState(false);
   return (
-    <div className={styles.panelOverlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.panelOverlay} {...overlayClose(onClose)}>
       <div className={styles.panel}>
         <button className={styles.panelClose} onClick={onClose}>✕</button>
         {product.image_base64 && (

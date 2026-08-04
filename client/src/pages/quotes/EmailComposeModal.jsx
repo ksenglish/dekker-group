@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import styles from './Quotes.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 // Compose-before-send modal for the quote "Email to Customer" button — loads a
 // saved, personalised template (with {{placeholders}} already resolved for this
@@ -62,7 +63,7 @@ export default function EmailComposeModal({ quoteId, jobId, customerEmail, onClo
   }
 
   return (
-    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay} {...overlayClose(onClose)}>
       <div className={styles.modal} style={{ maxWidth: 620 }}>
         <div className={styles.modalHeader}>
           <h2>Email Quote to Customer</h2>

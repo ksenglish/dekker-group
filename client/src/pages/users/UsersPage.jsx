@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Users.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const ROLES = [
   { value: 'admin',         label: 'Admin',         desc: 'Full access — settings, users, all data' },
@@ -92,7 +93,7 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
   }
 
   return (
-    <div className={styles.overlay} onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay} {...overlayClose(onClose)}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <h2>{isNew ? 'Add Team Member' : 'Edit User'}</h2>
