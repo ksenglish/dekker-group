@@ -14,7 +14,7 @@ router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
     const num = parseInt(req.params.number.replace(/^[A-Za-z]+0*/,''), 10);
     if (isNaN(num)) return res.status(400).json({ error: 'Invalid job number' });
     const { rows } = await pool.query(
-      `SELECT j.id, j.job_number, j.title, j.status,
+      `SELECT j.id, j.job_number, j.description AS title, j.status,
               c.name AS customer_name
        FROM jobs j LEFT JOIN customers c ON c.id = j.customer_id
        WHERE j.job_number = $1`,
