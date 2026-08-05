@@ -13,12 +13,15 @@ router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
     // Strip optional "JB" prefix and leading zeros to get the integer
     const num = parseInt(req.params.number.replace(/^[A-Za-z]+0*/,''), 10);
     if (isNaN(num)) return res.status(400).json({ error: 'Invalid job number' });
+    // Match either the new sequential job_number (integer) or the original
+    // Tradify external_ref (stored as e.g. "JB00867")
+    const rawRef = req.params.number.toUpperCase();
     const { rows } = await pool.query(
       `SELECT j.id, j.job_number, j.description AS title, j.status,
               c.name AS customer_name
        FROM jobs j LEFT JOIN customers c ON c.id = j.customer_id
-       WHERE j.job_number = $1`,
-      [num]
+       WHERE j.job_number = $1 OR j.external_ref = $2`,
+      [num, rawRef]
     );
     if (!rows[0]) return res.status(404).json({ error: `No job found with number ${req.params.number}` });
     res.json(rows[0]);
