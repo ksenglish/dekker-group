@@ -50,6 +50,9 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
     default_billing_rate_id: user?.default_billing_rate_id || '',
     licence_number: user?.licence_number || '',
     mobile: user?.mobile || '',
+    address: user?.address || '',
+    gst_number: user?.gst_number || '',
+    gst_registered: !!user?.gst_registered,
     password: '',
     confirmPassword: '',
     is_active: user?.is_active !== false,
@@ -83,6 +86,8 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
         name: form.name, email: form.email, role: form.role, diaries: form.diaries,
         default_billing_rate_id: form.default_billing_rate_id || null, is_active: form.is_active,
         licence_number: form.licence_number || null, mobile: form.mobile || null,
+        address: form.address || null, gst_number: form.gst_number || null,
+        gst_registered: form.gst_registered,
       };
       if (form.password) payload.password = form.password;
       const { data } = user
@@ -157,6 +162,26 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
               <p className={styles.hint}>Pre-fills the phone field on onsite compliance forms.</p>
               <input value={form.mobile} onChange={e => set('mobile', e.target.value)} placeholder="e.g. 021 123 4567" />
             </div>
+
+            {/* Billing details — used on Buyer Created Invoices for commission */}
+            <div className={styles.field} style={{ gridColumn: '1/-1' }}>
+              <label>Address</label>
+              <p className={styles.hint}>Shown as the supplier’s address on Buyer Created Invoices for commission.</p>
+              <textarea rows={2} value={form.address} onChange={e => set('address', e.target.value)}
+                placeholder={'e.g. 12 Example Road\nTauranga 3110'}
+                style={{ padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 14, fontFamily: 'inherit', resize: 'vertical' }} />
+            </div>
+            <div className={styles.field}>
+              <label>GST Number</label>
+              <input value={form.gst_number} onChange={e => set('gst_number', e.target.value)}
+                placeholder="e.g. 123-456-789" disabled={!form.gst_registered} />
+            </div>
+            <div className={styles.field} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'end', paddingBottom: 9 }}>
+              <input type="checkbox" id="gst_registered" checked={form.gst_registered}
+                onChange={e => set('gst_registered', e.target.checked)} />
+              <label htmlFor="gst_registered" style={{ marginBottom: 0 }}>GST registered</label>
+            </div>
+
             <div className={styles.field}>
               <label>{isNew ? 'Password *' : 'New Password'}</label>
               <input type="password" value={form.password} onChange={e => set('password', e.target.value)}

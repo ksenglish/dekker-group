@@ -1,6 +1,9 @@
 const router = require('express').Router();
 const { authenticate, requireRole } = require('../middleware/auth');
 const pool = require('../db/pool');
+const { buildPDF } = require('../utils/pdf');
+const { sendMail } = require('../utils/email');
+const { getTheme } = require('../controllers/settingsController');
 
 router.use(authenticate);
 // subcontractor added explicitly — sales/operations already pass via
@@ -125,52 +128,179 @@ function qualifyingStatusKeys(statuses) {
   return pipeline.slice(quotedIdx).map(s => s.key);
 }
 
+// Single source of truth for the diary report and the commission invoice, so
+// the PDF can never disagree with the figures shown on screen.
+async function commissionData(userId, from, to) {
+  const { rows: settingsRows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
+  const statuses = settingsRows[0]?.value || DEFAULT_STATUSES;
+  const qualifying = qualifyingStatusKeys(statuses);
+
+  const { rows } = await pool.query(
+    `SELECT j.id, j.job_number, j.external_ref, j.status, j.type,
+            c.name AS customer_name,
+            COALESCE(cs.address, j.site_address) AS site_address,
+            MIN(s.scheduled_date) AS first_scheduled,
+            COUNT(s.id) AS appointment_count
+     FROM schedules s
+     JOIN jobs j ON j.id = s.job_id
+     LEFT JOIN customers c ON c.id = j.customer_id
+     LEFT JOIN customer_sites cs ON cs.id = j.site_id
+     WHERE s.user_id = $1 AND s.scheduled_date >= $2 AND s.scheduled_date <= $3
+     GROUP BY j.id, j.job_number, j.external_ref, j.status, j.type, c.name, cs.address, j.site_address
+     ORDER BY MIN(s.scheduled_date) DESC`,
+    [userId, from, to]
+  );
+
+  const jobs = rows.map(j => ({ ...j, counts_toward_commission: qualifying.includes(j.status) }));
+  const qualifyingJobs = jobs.filter(j => j.counts_toward_commission);
+  const amount = qualifyingJobs.length * SITE_VISIT_COMMISSION_CENTS;
+
+  return {
+    jobs, qualifyingJobs, statuses, qualifying,
+    commission: {
+      qualifying_jobs: qualifyingJobs.length,
+      rate_cents: SITE_VISIT_COMMISSION_CENTS,
+      amount_cents: amount,
+    },
+  };
+}
+
+// GST is only charged when the supplier is registered for it.
+function commissionTotals(amountCents, gstRegistered) {
+  const gst = gstRegistered ? Math.round(amountCents * 0.15) : 0;
+  return { subtotal: amountCents, gst, total: amountCents + gst };
+}
+
+function jobRef(j) {
+  return j.external_ref || (j.job_number ? `JB${String(j.job_number).padStart(5, '0')}` : j.id.slice(0, 8).toUpperCase());
+}
+
+function fmtDay(d) {
+  return d ? new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+}
+
+// Only admins can report on someone else; everyone else is pinned to themselves.
+function targetUserId(req) {
+  return req.user.role === 'admin' ? (req.query.user_id || req.body?.user_id || req.user.id) : req.user.id;
+}
+
 // Jobs that were in one team member's diary over a period, with where each
 // job stands now — plus the site-visit commission derived from that same set,
 // so the count is always auditable against the list beneath it.
 router.get('/user-jobs', async (req, res) => {
   const { from, to } = req.query;
-  // Only admins can report on someone else; everyone else sees themselves.
-  const userId = req.user.role === 'admin' ? (req.query.user_id || req.user.id) : req.user.id;
+  const userId = targetUserId(req);
   if (!from || !to) return res.status(400).json({ error: 'from and to dates are required' });
   try {
-    const { rows: settingsRows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
-    const statuses = settingsRows[0]?.value || DEFAULT_STATUSES;
-    const qualifying = qualifyingStatusKeys(statuses);
-
-    const { rows } = await pool.query(
-      `SELECT j.id, j.job_number, j.external_ref, j.status, j.type,
-              c.name AS customer_name,
-              COALESCE(cs.address, j.site_address) AS site_address,
-              MIN(s.scheduled_date) AS first_scheduled,
-              COUNT(s.id) AS appointment_count
-       FROM schedules s
-       JOIN jobs j ON j.id = s.job_id
-       LEFT JOIN customers c ON c.id = j.customer_id
-       LEFT JOIN customer_sites cs ON cs.id = j.site_id
-       WHERE s.user_id = $1 AND s.scheduled_date >= $2 AND s.scheduled_date <= $3
-       GROUP BY j.id, j.job_number, j.external_ref, j.status, j.type, c.name, cs.address, j.site_address
-       ORDER BY MIN(s.scheduled_date) DESC`,
-      [userId, from, to]
-    );
-
-    const jobs = rows.map(j => ({ ...j, counts_toward_commission: qualifying.includes(j.status) }));
-    const qualifyingCount = jobs.filter(j => j.counts_toward_commission).length;
-
+    const data = await commissionData(userId, from, to);
     res.json({
       user_id: userId,
-      jobs,
-      statuses,
-      qualifying_statuses: qualifying,
-      commission: {
-        qualifying_jobs: qualifyingCount,
-        rate_cents: SITE_VISIT_COMMISSION_CENTS,
-        amount_cents: qualifyingCount * SITE_VISIT_COMMISSION_CENTS,
-      },
+      jobs: data.jobs,
+      statuses: data.statuses,
+      qualifying_statuses: data.qualifying,
+      commission: data.commission,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Build the Buyer Created Invoice for one team member's commission over a
+// period. Dekker is the buyer raising the invoice on the supplier's behalf.
+async function buildCommissionBCI(userId, from, to) {
+  const { rows: [supplier] } = await pool.query(
+    'SELECT id, name, email, address, gst_number, gst_registered FROM users WHERE id=$1', [userId]
+  );
+  if (!supplier) return { error: 'Team member not found' };
+
+  const data = await commissionData(userId, from, to);
+  if (data.qualifyingJobs.length === 0) {
+    return { error: 'No commission-earning jobs in this period — nothing to invoice.' };
+  }
+
+  const { subtotal, gst, total } = commissionTotals(data.commission.amount_cents, supplier.gst_registered);
+  const theme = await getTheme();
+
+  const items = data.qualifyingJobs.map(j => ({
+    description: `${jobRef(j)} — ${j.customer_name || 'No customer'}${j.site_address ? `, ${j.site_address}` : ''}`
+      + `${j.first_scheduled ? ` (${fmtDay(j.first_scheduled)})` : ''}`,
+    quantity: 1,
+    unit_price: SITE_VISIT_COMMISSION_CENTS,
+  }));
+
+  const periodStr = `${fmtDay(from)} to ${fmtDay(to)}`;
+  const pdf = await buildPDF({
+    type: 'Buyer Created Invoice',
+    number: `BCI-${String(supplier.name || '').split(' ')[0].toUpperCase()}-${String(from).replace(/-/g, '')}`,
+    partyLabel: 'SUPPLIER',
+    customer: {
+      name: supplier.name,
+      email: supplier.email,
+      address: supplier.address,
+      gstNumber: supplier.gst_registered ? supplier.gst_number : null,
+    },
+    items, subtotal, gst, total,
+    status: 'issued',
+    issuedAt: new Date(),
+    notes: `Site-visit commission for ${periodStr}.\n`
+      + `${data.qualifyingJobs.length} job${data.qualifyingJobs.length === 1 ? '' : 's'} at `
+      + `$${(SITE_VISIT_COMMISSION_CENTS / 100).toFixed(2)} each (excl. GST).\n`
+      + (supplier.gst_registered
+        ? 'This is a buyer created invoice. GST has been included as the supplier is GST registered.'
+        : 'This is a buyer created invoice. No GST has been charged as the supplier is not GST registered.'),
+    theme,
+  });
+
+  return { pdf, supplier, subtotal, gst, total, periodStr, jobCount: data.qualifyingJobs.length, theme };
+}
+
+// Preview — returns the PDF inline so the browser can display it
+router.get('/commission-bci', async (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return res.status(400).json({ error: 'from and to dates are required' });
+  try {
+    const built = await buildCommissionBCI(targetUserId(req), from, to);
+    if (built.error) return res.status(400).json({ error: built.error });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="commission-${built.supplier.name.replace(/\s+/g, '-').toLowerCase()}-${from}.pdf"`,
+    });
+    res.send(built.pdf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'PDF generation failed' });
+  }
+});
+
+// Send — emails the same PDF to the team member it belongs to
+router.post('/commission-bci/send', async (req, res) => {
+  const { from, to } = req.body;
+  if (!from || !to) return res.status(400).json({ error: 'from and to dates are required' });
+  try {
+    const built = await buildCommissionBCI(targetUserId(req), from, to);
+    if (built.error) return res.status(400).json({ error: built.error });
+    const { supplier, pdf, total, periodStr, jobCount, theme } = built;
+    if (!supplier.email) return res.status(400).json({ error: `${supplier.name} has no email address on file.` });
+
+    const totalStr = `$${(total / 100).toFixed(2)}`;
+    await sendMail({
+      to: supplier.email,
+      subject: `Buyer Created Invoice — site-visit commission ${periodStr}`,
+      html: `<p>Hi ${String(supplier.name || '').split(' ')[0]},</p>
+<p>Please find attached your buyer created invoice for site-visit commission covering ${periodStr}.</p>
+<p><strong>${jobCount} job${jobCount === 1 ? '' : 's'} · ${totalStr}${supplier.gst_registered ? ' (incl. GST)' : ' (no GST)'}</strong></p>
+<p>Kind regards,<br>${theme.companyName}</p>`,
+      attachments: [{
+        filename: `commission-${supplier.name.replace(/\s+/g, '-').toLowerCase()}-${from}.pdf`,
+        content: pdf,
+        contentType: 'application/pdf',
+      }],
+    });
+    res.json({ message: `Sent to ${supplier.email}`, total_cents: total, jobs: jobCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Failed to send report' });
   }
 });
 

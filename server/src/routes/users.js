@@ -26,7 +26,7 @@ function validDiaries(diaries) {
 router.get('/', authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, email, role, diaries, default_billing_rate_id, licence_number, mobile, is_active, created_at FROM users ORDER BY name'
+      'SELECT id, name, email, role, diaries, default_billing_rate_id, licence_number, mobile, address, gst_number, gst_registered, is_active, created_at FROM users ORDER BY name'
     );
     res.json(rows);
   } catch {
@@ -36,7 +36,8 @@ router.get('/', authenticate, async (req, res) => {
 
 // Create user (admin only)
 router.post('/', authenticate, requireRole('admin'), async (req, res) => {
-  const { name, email, password, role, diaries, default_billing_rate_id, licence_number, mobile } = req.body;
+  const { name, email, password, role, diaries, default_billing_rate_id, licence_number, mobile,
+          address, gst_number, gst_registered } = req.body;
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'All fields are required' });
   }
@@ -49,8 +50,9 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
   try {
     const password_hash = await bcrypt.hash(password, 12);
     const { rows } = await pool.query(
-      'INSERT INTO users (name, email, password_hash, role, diaries, default_billing_rate_id, licence_number, mobile) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, name, email, role, diaries, default_billing_rate_id, licence_number, mobile, created_at',
-      [name, email.toLowerCase().trim(), password_hash, role, diaries !== undefined ? diaries : diariesFromRole(role), default_billing_rate_id || null, licence_number || null, mobile || null]
+      'INSERT INTO users (name, email, password_hash, role, diaries, default_billing_rate_id, licence_number, mobile, address, gst_number, gst_registered) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, name, email, role, diaries, default_billing_rate_id, licence_number, mobile, address, gst_number, gst_registered, created_at',
+      [name, email.toLowerCase().trim(), password_hash, role, diaries !== undefined ? diaries : diariesFromRole(role), default_billing_rate_id || null, licence_number || null, mobile || null,
+       address || null, gst_number || null, !!gst_registered]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -61,30 +63,40 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // Update user (admin only)
 router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
-  const { name, email, role, password, is_active, diaries, default_billing_rate_id, licence_number, mobile } = req.body;
+  const { name, email, role, password, is_active, diaries, default_billing_rate_id, licence_number, mobile,
+          address, gst_number, gst_registered } = req.body;
   if (req.params.id === req.user.id && is_active === false)
     return res.status(400).json({ error: 'You cannot deactivate your own account' });
   if (diaries !== undefined && !validDiaries(diaries)) {
     return res.status(400).json({ error: 'Invalid diaries' });
   }
   try {
-    // Keep existing diaries/rate when the request doesn't include them
-    const { rows: existingRows } = await pool.query('SELECT diaries, default_billing_rate_id FROM users WHERE id=$1', [req.params.id]);
+    // Keep existing diaries/rate/billing details when the request omits them
+    const { rows: existingRows } = await pool.query(
+      'SELECT diaries, default_billing_rate_id, address, gst_number, gst_registered FROM users WHERE id=$1',
+      [req.params.id]
+    );
     if (!existingRows[0]) return res.status(404).json({ error: 'User not found' });
-    const finalDiaries = diaries !== undefined ? diaries : existingRows[0].diaries;
-    const finalRateId = default_billing_rate_id !== undefined ? (default_billing_rate_id || null) : existingRows[0].default_billing_rate_id;
+    const cur = existingRows[0];
+    const finalDiaries = diaries !== undefined ? diaries : cur.diaries;
+    const finalRateId = default_billing_rate_id !== undefined ? (default_billing_rate_id || null) : cur.default_billing_rate_id;
+    const finalAddress = address !== undefined ? (address || null) : cur.address;
+    const finalGstNumber = gst_number !== undefined ? (gst_number || null) : cur.gst_number;
+    const finalGstRegistered = gst_registered !== undefined ? !!gst_registered : cur.gst_registered;
 
     if (password) {
       const password_hash = await bcrypt.hash(password, 12);
       const { rows } = await pool.query(
-        'UPDATE users SET name=$1, email=$2, role=$3, password_hash=$4, is_active=$5, diaries=$6, default_billing_rate_id=$7, licence_number=$8, mobile=$9, updated_at=NOW() WHERE id=$10 RETURNING id, name, email, role, diaries, default_billing_rate_id, licence_number, mobile, is_active, created_at',
-        [name, email.toLowerCase().trim(), role, password_hash, is_active !== false, finalDiaries, finalRateId, licence_number || null, mobile || null, req.params.id]
+        'UPDATE users SET name=$1, email=$2, role=$3, password_hash=$4, is_active=$5, diaries=$6, default_billing_rate_id=$7, licence_number=$8, mobile=$9, address=$10, gst_number=$11, gst_registered=$12, updated_at=NOW() WHERE id=$13 RETURNING id, name, email, role, diaries, default_billing_rate_id, licence_number, mobile, address, gst_number, gst_registered, is_active, created_at',
+        [name, email.toLowerCase().trim(), role, password_hash, is_active !== false, finalDiaries, finalRateId, licence_number || null, mobile || null,
+         finalAddress, finalGstNumber, finalGstRegistered, req.params.id]
       );
       return res.json(rows[0]);
     }
     const { rows } = await pool.query(
-      'UPDATE users SET name=$1, email=$2, role=$3, is_active=$4, diaries=$5, default_billing_rate_id=$6, licence_number=$7, mobile=$8, updated_at=NOW() WHERE id=$9 RETURNING id, name, email, role, diaries, default_billing_rate_id, licence_number, mobile, is_active, created_at',
-      [name, email.toLowerCase().trim(), role, is_active !== false, finalDiaries, finalRateId, licence_number || null, mobile || null, req.params.id]
+      'UPDATE users SET name=$1, email=$2, role=$3, is_active=$4, diaries=$5, default_billing_rate_id=$6, licence_number=$7, mobile=$8, address=$9, gst_number=$10, gst_registered=$11, updated_at=NOW() WHERE id=$12 RETURNING id, name, email, role, diaries, default_billing_rate_id, licence_number, mobile, address, gst_number, gst_registered, is_active, created_at',
+      [name, email.toLowerCase().trim(), role, is_active !== false, finalDiaries, finalRateId, licence_number || null, mobile || null,
+       finalAddress, finalGstNumber, finalGstRegistered, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) {

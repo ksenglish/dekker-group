@@ -186,7 +186,7 @@ const STATUS_COLOURS = {
   cancelled: '#6b7280', paid: '#16a34a', overdue: '#dc2626',
 };
 
-async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, paymentTerms, issuedAt, theme = {}, appendixImages = [] }) {
+async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, paymentTerms, issuedAt, theme = {}, appendixImages = [], partyLabel = 'BILL TO' }) {
   const t = { ...DEFAULT_THEME, ...theme };
   t.companyName = stripDiacritics(t.companyName);
   t.contactDetails = stripDiacritics(t.contactDetails);
@@ -212,6 +212,7 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
     email: stripDiacritics(customer?.email),
     phone: stripDiacritics(customer?.phone),
     address: stripDiacritics(customer?.address),
+    gstNumber: stripDiacritics(customer?.gstNumber),
   };
   items = (items || []).map(i => ({ ...i, description: stripDiacritics(i.description) }));
 
@@ -476,18 +477,27 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
         dateRowY += 16;
       }
 
-      // ── Bill To ──────────────────────────────────────────────────
+      // ── Party block (Bill To, or the supplier on a buyer created invoice) ──
       const billY = docY + 70;
-      doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('BILL TO', 50, billY);
+      doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text(partyLabel, 50, billY);
       doc.fillColor(TEXT).fontSize(11).font('Helvetica-Bold').text(customer.name || '', 50, billY + 14);
       doc.fontSize(9).font('Helvetica');
       let cy = billY + 30;
       if (customer.company) { doc.text(customer.company, 50, cy); cy += 14; }
+      // Multi-line addresses are common — advance past however many lines it takes
+      if (customer.address) {
+        const addrW = 240;
+        doc.text(customer.address, 50, cy, { width: addrW });
+        cy += doc.heightOfString(customer.address, { width: addrW }) + 2;
+      }
       if (customer.email)   { doc.text(customer.email, 50, cy); cy += 14; }
-      if (customer.phone)   { doc.text(customer.phone, 50, cy); }
+      if (customer.phone)   { doc.text(customer.phone, 50, cy); cy += 14; }
+      if (customer.gstNumber) { doc.text(`GST No: ${customer.gstNumber}`, 50, cy); cy += 14; }
 
       // ── Line items table ─────────────────────────────────────────
-      const tableY = billY + 90;
+      // Keep the original 90pt gap for short party blocks, but push down if
+      // an address/GST number made it taller, so the two never collide.
+      const tableY = Math.max(billY + 90, cy + 12);
       const colDesc  = 50 + IMG_PAD;
       const colQty   = 340;
       const colUnit  = 390;
