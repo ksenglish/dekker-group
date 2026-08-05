@@ -101,6 +101,79 @@ router.get('/timesheets', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 });
 
+// Site-visit commission earned per qualifying job, in cents, excl. GST.
+// Change this one constant to change the rate.
+const SITE_VISIT_COMMISSION_CENTS = 4000; // $40.00
+
+const DEFAULT_STATUSES = [
+  { key: 'new', label: 'New' }, { key: 'quoted', label: 'Quoted' },
+  { key: 'scheduled', label: 'Scheduled' }, { key: 'in_progress', label: 'In Progress' },
+  { key: 'invoiced', label: 'Invoiced' }, { key: 'complete', label: 'Complete' },
+  { key: 'cancelled', label: 'Cancelled' },
+];
+
+// Which statuses count as "Quoted or above". Derived from the admin-ordered
+// status list rather than a fixed list of keys, so it keeps working if the
+// pipeline is reordered or the custom stages before Quoted are renamed —
+// everything ordered before Quoted (New, Scheduled - Site-Visit, Awaiting
+// Quote…) falls out automatically. Cancelled sits outside the pipeline and
+// never qualifies.
+function qualifyingStatusKeys(statuses) {
+  const pipeline = statuses.filter(s => s.key !== 'cancelled');
+  const quotedIdx = pipeline.findIndex(s => s.key === 'quoted');
+  if (quotedIdx === -1) return [];
+  return pipeline.slice(quotedIdx).map(s => s.key);
+}
+
+// Jobs that were in one team member's diary over a period, with where each
+// job stands now — plus the site-visit commission derived from that same set,
+// so the count is always auditable against the list beneath it.
+router.get('/user-jobs', async (req, res) => {
+  const { from, to } = req.query;
+  // Only admins can report on someone else; everyone else sees themselves.
+  const userId = req.user.role === 'admin' ? (req.query.user_id || req.user.id) : req.user.id;
+  if (!from || !to) return res.status(400).json({ error: 'from and to dates are required' });
+  try {
+    const { rows: settingsRows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
+    const statuses = settingsRows[0]?.value || DEFAULT_STATUSES;
+    const qualifying = qualifyingStatusKeys(statuses);
+
+    const { rows } = await pool.query(
+      `SELECT j.id, j.job_number, j.external_ref, j.status, j.type,
+              c.name AS customer_name,
+              COALESCE(cs.address, j.site_address) AS site_address,
+              MIN(s.scheduled_date) AS first_scheduled,
+              COUNT(s.id) AS appointment_count
+       FROM schedules s
+       JOIN jobs j ON j.id = s.job_id
+       LEFT JOIN customers c ON c.id = j.customer_id
+       LEFT JOIN customer_sites cs ON cs.id = j.site_id
+       WHERE s.user_id = $1 AND s.scheduled_date >= $2 AND s.scheduled_date <= $3
+       GROUP BY j.id, j.job_number, j.external_ref, j.status, j.type, c.name, cs.address, j.site_address
+       ORDER BY MIN(s.scheduled_date) DESC`,
+      [userId, from, to]
+    );
+
+    const jobs = rows.map(j => ({ ...j, counts_toward_commission: qualifying.includes(j.status) }));
+    const qualifyingCount = jobs.filter(j => j.counts_toward_commission).length;
+
+    res.json({
+      user_id: userId,
+      jobs,
+      statuses,
+      qualifying_statuses: qualifying,
+      commission: {
+        qualifying_jobs: qualifyingCount,
+        rate_cents: SITE_VISIT_COMMISSION_CENTS,
+        amount_cents: qualifyingCount * SITE_VISIT_COMMISSION_CENTS,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Recent activity log — admin only
 router.get('/activity', async (req, res) => {
   if (req.user.role !== 'admin') return res.json([]);
