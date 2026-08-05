@@ -60,23 +60,30 @@ function processSupplierInvoices() {
         const filename = attachment.getName();
         console.log(`Processing attachment: ${filename} from ${message.getFrom()}`);
 
+        // Declare outside try so catch block can access them for inbox fallback
+        let parsed = null;
+        let pdfBase64 = null;
+
         try {
           // 1. Extract text from PDF via Google Drive OCR
           const pdfText = extractTextFromPdf(attachment);
           console.log(`Extracted ${pdfText.length} chars from ${filename}`);
 
           // 2. Use Claude to find job number + parse line items
-          const parsed = parseInvoiceWithClaude(pdfText, anthropicKey);
+          parsed = parseInvoiceWithClaude(pdfText, anthropicKey);
           if (!parsed) {
-            console.warn(`Claude could not parse ${filename}`);
+            console.warn(`Claude could not parse ${filename} — sending to Invoice Inbox`);
+            pdfBase64 = Utilities.base64Encode(attachment.getBytes());
+            saveToInbox(pdfBase64, null, apiKey);
+            threadHandled = true;
             continue;
           }
 
           const { jobNumber, items, supplier, invoiceNumber } = parsed;
           console.log(`Job: ${jobNumber}, Supplier: ${supplier}, Items: ${items.length}`);
 
-          // 4. Convert PDF to base64 for upload
-          const pdfBase64 = Utilities.base64Encode(attachment.getBytes());
+          // Convert PDF to base64 for upload
+          pdfBase64 = Utilities.base64Encode(attachment.getBytes());
 
           if (!jobNumber) {
             console.log(`No job number found in ${filename} — sending to Invoice Inbox`);
@@ -94,7 +101,7 @@ function processSupplierInvoices() {
             continue;
           }
 
-          // 5. Post PDF + line items to app
+          // 4. Post PDF + line items to app
           postCosts(job.id, pdfBase64, items, apiKey);
 
           console.log(`✅ Posted ${items.length} cost items to Job #${job.job_number} (${job.title})`);
@@ -102,10 +109,10 @@ function processSupplierInvoices() {
 
         } catch (err) {
           console.error(`Error processing ${filename}: ${err.message}`);
-          // Save to inbox so it can be handled manually rather than just failing silently
+          // Save to inbox with whatever we managed to parse before the error
           try {
-            const pdfBase64 = Utilities.base64Encode(attachment.getBytes());
-            saveToInbox(pdfBase64, null, apiKey);
+            if (!pdfBase64) pdfBase64 = Utilities.base64Encode(attachment.getBytes());
+            saveToInbox(pdfBase64, parsed, apiKey);
           } catch (e2) {
             console.error('Could not save to inbox either:', e2.message);
           }
