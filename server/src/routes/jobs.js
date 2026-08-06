@@ -28,6 +28,36 @@ router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Automation: post cost items + PDF to a job (accepts X-API-Key or user JWT).
+// Must be declared before router.use(authenticate) so the global middleware
+// doesn't block API-key requests before authenticateAutomation can check them.
+router.post('/:id/costs', authenticateAutomation, async (req, res) => {
+  const { items, document_base64, mime_type, gst_treatment } = req.body;
+  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
+  try {
+    let scanId = null;
+    if (document_base64) {
+      const { rows: [scan] } = await pool.query(
+        `INSERT INTO job_cost_scans (job_id, document_base64, mime_type, gst_treatment, status)
+         VALUES ($1,$2,$3,$4,'matched') RETURNING id`,
+        [req.params.id, document_base64, mime_type || 'image/jpeg', gst_treatment || 'exclusive']
+      );
+      scanId = scan.id;
+    }
+    const inserted = [];
+    for (let i = 0; i < items.length; i++) {
+      const { description, quantity, unit_price } = items[i];
+      const { rows: [row] } = await pool.query(
+        `INSERT INTO job_costs (job_id, scan_id, description, quantity, unit_price, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [req.params.id, scanId, description, quantity || 1, Math.round((unit_price || 0) * 100), i]
+      );
+      inserted.push(row);
+    }
+    res.status(201).json({ items: inserted, scan_id: scanId });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.use(authenticate);
 
 // Geocode an address using Nominatim (OpenStreetMap) — free, no API key required
@@ -295,32 +325,6 @@ router.get('/:id/costs', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-router.post('/:id/costs', authenticateAutomation, async (req, res) => {
-  const { items, document_base64, mime_type, gst_treatment } = req.body;
-  if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
-  try {
-    let scanId = null;
-    if (document_base64) {
-      const { rows: [scan] } = await pool.query(
-        `INSERT INTO job_cost_scans (job_id, document_base64, mime_type, gst_treatment)
-         VALUES ($1,$2,$3,$4) RETURNING id`,
-        [req.params.id, document_base64, mime_type || 'image/jpeg', gst_treatment || 'exclusive']
-      );
-      scanId = scan.id;
-    }
-    const inserted = [];
-    for (let i = 0; i < items.length; i++) {
-      const { description, quantity, unit_price } = items[i];
-      const { rows: [row] } = await pool.query(
-        `INSERT INTO job_costs (job_id, scan_id, description, quantity, unit_price, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [req.params.id, scanId, description, quantity || 1, Math.round((unit_price || 0) * 100), i]
-      );
-      inserted.push(row);
-    }
-    res.status(201).json({ items: inserted, scan_id: scanId });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
 router.delete('/:id/costs/:costId', async (req, res) => {
   try {

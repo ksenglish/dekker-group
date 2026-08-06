@@ -244,24 +244,31 @@ export default function JobCosts({ jobId, readonly }) {
         <div className={styles.costsDocSection}>
           <div className={styles.costsDocTitle}>Documents</div>
           <div className={styles.costsDocGrid}>
-            {scans.map(scan => (
-              <div key={scan.id} className={styles.costsDocCard}
-                onClick={() => setLightbox(`${VITE_API}/jobs/${jobId}/cost-scans/${scan.id}/document`)}>
-                <img
-                  src={`${VITE_API}/jobs/${jobId}/cost-scans/${scan.id}/document`}
-                  alt="Cost document"
-                  className={styles.costsDocThumb}
-                />
-                <div className={styles.costsDocMeta}>
-                  {new Date(scan.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}
+            {scans.map(scan => {
+              const docUrl = `${VITE_API}/jobs/${jobId}/cost-scans/${scan.id}/document`;
+              const isPdf = (scan.mime_type || '').includes('pdf');
+              return (
+                <div key={scan.id} className={styles.costsDocCard}
+                  onClick={() => isPdf ? window.open(docUrl, '_blank') : setLightbox(docUrl)}>
+                  {isPdf ? (
+                    <div className={styles.costsDocPdfThumb}>
+                      <span className={styles.costsDocPdfIcon}>📄</span>
+                      <span className={styles.costsDocPdfLabel}>PDF</span>
+                    </div>
+                  ) : (
+                    <img src={docUrl} alt="Cost document" className={styles.costsDocThumb} />
+                  )}
+                  <div className={styles.costsDocMeta}>
+                    {new Date(scan.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* Lightbox */}
+      {/* Lightbox (images only — PDFs open in new tab) */}
       {lightbox && (
         <div className={styles.lightboxOverlay} onClick={() => setLightbox(null)}>
           <button className={styles.lightboxClose} onClick={() => setLightbox(null)}>✕</button>
