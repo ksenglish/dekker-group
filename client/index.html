@@ -23,6 +23,36 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <!--
+      Self-heal for a poisoned service worker cache.
+
+      If a build's stylesheet fails to apply (historically: a stale asset hash
+      answered by the SPA fallback with index.html, which the SW then cached as
+      the CSS file) the app renders as unstyled HTML and stays that way. Nobody
+      on a phone can clear a service worker by hand, so detect it and recover:
+      drop every cache, unregister the workers, reload. sessionStorage guards
+      against a reload loop if the page is genuinely styleless for some other
+      reason.
+    -->
+    <script>
+      window.addEventListener('load', function () {
+        // A styled build always sets a background on body via the CSS bundle.
+        var styled = getComputedStyle(document.body).backgroundColor !== 'rgba(0, 0, 0, 0)';
+        if (styled || sessionStorage.getItem('cssRecoveryTried')) return;
+        sessionStorage.setItem('cssRecoveryTried', '1');
+        var done = function () { location.reload(); };
+        Promise.all([
+          window.caches ? caches.keys().then(function (ks) {
+            return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+          }) : Promise.resolve(),
+          navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(function (rs) {
+            return Promise.all(rs.map(function (r) { return r.unregister(); }));
+          }) : Promise.resolve(),
+        ]).then(done, done);
+      });
+    </script>
+
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

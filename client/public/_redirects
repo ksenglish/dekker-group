@@ -1,3 +1,13 @@
 # API requests are proxied via functions/api/[[path]].js (Cloudflare Pages Function)
-# SPA fallback — all non-file routes serve index.html
+
+# Hashed build output must 404 when it is missing, NOT fall through to the SPA
+# rule below. Without these, a request for a stale asset hash (an old tab, or a
+# service worker holding a previous build's precache) gets index.html back with
+# a 200. The browser then rejects that HTML as CSS/JS on MIME grounds and the
+# app renders unstyled, and the service worker caches the HTML *as* the asset,
+# so it stays broken instead of correcting itself on the next load.
+/assets/* /404.html 404
+/workbox-*.js /404.html 404
+
+# SPA fallback - all remaining non-file routes serve index.html
 /* /index.html 200
