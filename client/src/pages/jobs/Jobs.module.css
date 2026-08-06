@@ -998,6 +998,10 @@
   display: flex; align-items: center; justify-content: center; padding: 24px;
   cursor: zoom-out;
 }
+.lightboxPdf {
+  width: 92vw; height: 90vh; border: none; border-radius: 6px;
+  box-shadow: 0 12px 48px rgba(0,0,0,0.5); background: #fff; cursor: default;
+}
 .lightboxImg {
   max-width: 92vw; max-height: 92vh; object-fit: contain;
   border-radius: 6px; box-shadow: 0 12px 48px rgba(0,0,0,0.5);

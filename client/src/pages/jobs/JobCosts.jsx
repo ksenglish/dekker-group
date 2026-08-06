@@ -3,7 +3,6 @@ import api from '../../lib/api';
 import styles from './Jobs.module.css';
 
 const GST_RATE = 0.15;
-const VITE_API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export default function JobCosts({ jobId, readonly }) {
   const [costs, setCosts] = useState([]);
@@ -17,9 +16,40 @@ export default function JobCosts({ jobId, readonly }) {
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const [lightbox, setLightbox] = useState(null);
+  const [docUrls, setDocUrls] = useState({});   // scan id -> blob URL (image thumbnails)
+  const [viewer, setViewer] = useState(null);   // { url, isPdf, loading }
   const fileRef = useRef();
+  // Blob URLs have to be revoked by hand or they leak for the life of the tab
+  const blobUrls = useRef([]);
 
   useEffect(() => { load(); }, [jobId]);
+
+  useEffect(() => () => {
+    blobUrls.current.forEach(URL.revokeObjectURL);
+    blobUrls.current = [];
+  }, []);
+
+  // The document endpoint needs the auth header, so it can't be used as a plain
+  // <img>/<iframe> src — fetch through the API client and hand over a blob URL.
+  async function fetchDocUrl(scanId) {
+    const res = await api.get(`/jobs/${jobId}/cost-scans/${scanId}/document`, { responseType: 'blob' });
+    const url = URL.createObjectURL(res.data);
+    blobUrls.current.push(url);
+    return url;
+  }
+
+  async function openDoc(scan) {
+    const isPdf = (scan.mime_type || '').includes('pdf');
+    if (docUrls[scan.id]) { setViewer({ url: docUrls[scan.id], isPdf, loading: false }); return; }
+    setViewer({ url: null, isPdf, loading: true });
+    try {
+      const url = await fetchDocUrl(scan.id);
+      setDocUrls(prev => ({ ...prev, [scan.id]: url }));
+      setViewer({ url, isPdf, loading: false });
+    } catch {
+      setViewer(null);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -30,6 +60,13 @@ export default function JobCosts({ jobId, readonly }) {
       ]);
       setCosts(costsRes.data);
       setScans(scansRes.data);
+
+      // Preload image thumbnails only — PDFs get an icon, so there's nothing to show
+      const images = scansRes.data.filter(s => !(s.mime_type || '').includes('pdf'));
+      const entries = await Promise.all(images.map(async s => {
+        try { return [s.id, await fetchDocUrl(s.id)]; } catch { return null; }
+      }));
+      setDocUrls(prev => ({ ...prev, ...Object.fromEntries(entries.filter(Boolean)) }));
     } finally { setLoading(false); }
   }
 
@@ -245,18 +282,16 @@ export default function JobCosts({ jobId, readonly }) {
           <div className={styles.costsDocTitle}>Documents</div>
           <div className={styles.costsDocGrid}>
             {scans.map(scan => {
-              const docUrl = `${VITE_API}/jobs/${jobId}/cost-scans/${scan.id}/document`;
               const isPdf = (scan.mime_type || '').includes('pdf');
               return (
-                <div key={scan.id} className={styles.costsDocCard}
-                  onClick={() => isPdf ? window.open(docUrl, '_blank') : setLightbox(docUrl)}>
+                <div key={scan.id} className={styles.costsDocCard} onClick={() => openDoc(scan)}>
                   {isPdf ? (
                     <div className={styles.costsDocPdfThumb}>
                       <span className={styles.costsDocPdfIcon}>📄</span>
                       <span className={styles.costsDocPdfLabel}>PDF</span>
                     </div>
                   ) : (
-                    <img src={docUrl} alt="Cost document" className={styles.costsDocThumb} />
+                    <img src={docUrls[scan.id]} alt="Cost document" className={styles.costsDocThumb} />
                   )}
                   <div className={styles.costsDocMeta}>
                     {new Date(scan.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -268,7 +303,27 @@ export default function JobCosts({ jobId, readonly }) {
         </div>
       )}
 
-      {/* Lightbox (images only — PDFs open in new tab) */}
+      {/* Document viewer — PDFs render inline in an iframe, images in an img */}
+      {viewer && (
+        <div className={styles.lightboxOverlay} onClick={() => setViewer(null)}>
+          <button className={styles.lightboxClose} onClick={() => setViewer(null)}>✕</button>
+          {viewer.loading ? (
+            <div className={styles.lightboxHint}>Loading document…</div>
+          ) : viewer.isPdf ? (
+            <iframe
+              src={viewer.url}
+              title="Cost document"
+              className={styles.lightboxPdf}
+              onClick={e => e.stopPropagation()}
+            />
+          ) : (
+            <img src={viewer.url} alt="Document" className={styles.lightboxImg} onClick={e => e.stopPropagation()} />
+          )}
+          <div className={styles.lightboxHint}>Click outside to close</div>
+        </div>
+      )}
+
+      {/* Lightbox for the freshly-scanned (not yet saved) document */}
       {lightbox && (
         <div className={styles.lightboxOverlay} onClick={() => setLightbox(null)}>
           <button className={styles.lightboxClose} onClick={() => setLightbox(null)}>✕</button>
