@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 import styles from './Todos.module.css';
 
-const EMPTY = { description: '', notes: '', due_date: '', assigned_to: '' };
+// New to-dos default to the logged-in user — assigning to yourself is the
+// common case, and the field is required either way.
+const emptyForm = userId => ({ description: '', notes: '', due_date: '', assigned_to: userId || '' });
 
 function todayStr() {
   const d = new Date();
@@ -26,13 +29,14 @@ function dueState(todo) {
 const announceChange = () => window.dispatchEvent(new Event('todos-updated'));
 
 export default function TodosPage() {
+  const { user } = useAuth();
   const [tab, setTab] = useState('todo');
   const [todos, setTodos] = useState([]);
   const [doneCount, setDoneCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [staff, setStaff] = useState([]);
   const [showNew, setShowNew] = useState(false);
-  const [form, setForm] = useState(EMPTY);
+  const [form, setForm] = useState(() => emptyForm(user?.id));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
@@ -62,17 +66,18 @@ export default function TodosPage() {
   async function save(e) {
     e.preventDefault();
     if (!form.description.trim()) { setError('Description is required'); return; }
+    if (!form.assigned_to) { setError('Please choose who this is assigned to'); return; }
     setSaving(true); setError('');
     try {
       const payload = {
         description: form.description.trim(),
         notes: form.notes || null,
         due_date: form.due_date || null,
-        assigned_to: form.assigned_to || null,
+        assigned_to: form.assigned_to,
       };
       if (editing) await api.put(`/todos/${editing}`, payload);
       else await api.post('/todos', payload);
-      setForm(EMPTY); setShowNew(false); setEditing(null);
+      setForm(emptyForm(user?.id)); setShowNew(false); setEditing(null);
       load(); announceChange();
     } catch (err) {
       setError(err.response?.data?.error || 'Could not save');
@@ -104,7 +109,7 @@ export default function TodosPage() {
   }
 
   function cancelForm() {
-    setShowNew(false); setEditing(null); setForm(EMPTY); setError('');
+    setShowNew(false); setEditing(null); setForm(emptyForm(user?.id)); setError('');
   }
 
   const openCount = tab === 'todo' ? todos.length : null;
@@ -169,15 +174,22 @@ export default function TodosPage() {
               </div>
             </div>
             <div className={styles.formCol}>
-              <label className={styles.label}>Assign to (optional)</label>
+              <label className={styles.label}>Assign to</label>
               <select
                 className={styles.input}
                 value={form.assigned_to}
                 onChange={e => setField('assigned_to', e.target.value)}
               >
-                <option value="">Anyone</option>
-                {staff.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                <option value="" disabled>Select a team member…</option>
+                {staff.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}{u.id === user?.id ? ' (me)' : ''}
+                  </option>
+                ))}
               </select>
+              <div className={styles.hint}>
+                Only you and the person assigned can see this to-do.
+              </div>
             </div>
           </div>
 
