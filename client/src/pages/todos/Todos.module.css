@@ -114,6 +114,8 @@
 .input:focus, .textarea:focus { border-color: #1a1a1a; }
 .textarea { resize: vertical; }
 
+.dateInput { max-width: 220px; }
+
 .formRow {
   display: flex;
   gap: 16px;
@@ -126,6 +128,61 @@
   color: var(--color-text-muted);
   margin-top: -10px;
   margin-bottom: 14px;
+}
+
+/* Assignee picker */
+.assigneePicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.assigneeOption {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  cursor: pointer;
+  user-select: none;
+}
+
+.assigneeOption:hover { border-color: #9ca3af; }
+
+.assigneeOptionOn {
+  border-color: #1a1a1a;
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.assigneeOption input { cursor: pointer; width: 14px; height: 14px; }
+
+.sharedTag {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+
+.sharedBadge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 1px 8px;
 }
 
 .error {
@@ -260,6 +317,13 @@
   border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 1px 8px;
+}
+
+/* Your own name stands out so a shared task reads at a glance */
+.assigneeMe {
+  color: var(--color-text);
+  font-weight: 600;
+  border-color: #9ca3af;
 }
 
 .doneAt { color: var(--color-text-muted); }

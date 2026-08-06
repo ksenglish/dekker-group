@@ -4,8 +4,10 @@ import { useAuth } from '../../context/AuthContext';
 import styles from './Todos.module.css';
 
 // New to-dos default to the logged-in user — assigning to yourself is the
-// common case, and the field is required either way.
-const emptyForm = userId => ({ description: '', notes: '', due_date: '', assigned_to: userId || '' });
+// common case, and at least one assignee is required either way.
+const emptyForm = userId => ({
+  description: '', notes: '', due_date: '', assignee_ids: userId ? [userId] : [],
+});
 
 function todayStr() {
   const d = new Date();
@@ -43,6 +45,13 @@ export default function TodosPage() {
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const toggleAssignee = id => setForm(f => ({
+    ...f,
+    assignee_ids: f.assignee_ids.includes(id)
+      ? f.assignee_ids.filter(x => x !== id)
+      : [...f.assignee_ids, id],
+  }));
+
   const load = useCallback(() => {
     setLoading(true);
     api.get(`/todos?done=${tab === 'done'}`)
@@ -66,14 +75,14 @@ export default function TodosPage() {
   async function save(e) {
     e.preventDefault();
     if (!form.description.trim()) { setError('Description is required'); return; }
-    if (!form.assigned_to) { setError('Please choose who this is assigned to'); return; }
+    if (form.assignee_ids.length === 0) { setError('Please choose at least one team member'); return; }
     setSaving(true); setError('');
     try {
       const payload = {
         description: form.description.trim(),
         notes: form.notes || null,
         due_date: form.due_date || null,
-        assigned_to: form.assigned_to,
+        assignee_ids: form.assignee_ids,
       };
       if (editing) await api.put(`/todos/${editing}`, payload);
       else await api.post('/todos', payload);
@@ -103,7 +112,7 @@ export default function TodosPage() {
       description: todo.description,
       notes: todo.notes || '',
       due_date: todo.due_date ? todo.due_date.slice(0, 10) : '',
-      assigned_to: todo.assigned_to || '',
+      assignee_ids: (todo.assignees || []).map(a => a.id),
     });
     setShowNew(true);
   }
@@ -160,37 +169,40 @@ export default function TodosPage() {
             placeholder="Any extra detail…"
           />
 
-          <div className={styles.formRow}>
-            <div className={styles.formCol}>
-              <label className={styles.label}>Due date (optional)</label>
-              <input
-                type="date"
-                className={styles.input}
-                value={form.due_date}
-                onChange={e => setField('due_date', e.target.value)}
-              />
-              <div className={styles.hint}>
-                Leave blank to keep it as a reminder with no set date.
-              </div>
-            </div>
-            <div className={styles.formCol}>
-              <label className={styles.label}>Assign to</label>
-              <select
-                className={styles.input}
-                value={form.assigned_to}
-                onChange={e => setField('assigned_to', e.target.value)}
+          <label className={styles.label}>Due date (optional)</label>
+          <input
+            type="date"
+            className={`${styles.input} ${styles.dateInput}`}
+            value={form.due_date}
+            onChange={e => setField('due_date', e.target.value)}
+          />
+          <div className={styles.hint}>
+            Leave blank to keep it as a reminder with no set date.
+          </div>
+
+          <label className={styles.label}>
+            Assign to {form.assignee_ids.length > 1 && (
+              <span className={styles.sharedTag}>Shared · {form.assignee_ids.length} people</span>
+            )}
+          </label>
+          <div className={styles.assigneePicker}>
+            {staff.map(u => (
+              <label
+                key={u.id}
+                className={`${styles.assigneeOption} ${form.assignee_ids.includes(u.id) ? styles.assigneeOptionOn : ''}`}
               >
-                <option value="" disabled>Select a team member…</option>
-                {staff.map(u => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}{u.id === user?.id ? ' (me)' : ''}
-                  </option>
-                ))}
-              </select>
-              <div className={styles.hint}>
-                Only you and the person assigned can see this to-do.
-              </div>
-            </div>
+                <input
+                  type="checkbox"
+                  checked={form.assignee_ids.includes(u.id)}
+                  onChange={() => toggleAssignee(u.id)}
+                />
+                {u.name}{u.id === user?.id ? ' (me)' : ''}
+              </label>
+            ))}
+          </div>
+          <div className={styles.hint}>
+            Tick everyone who shares this task — they'll all see it on their list.
+            Nobody else can.
           </div>
 
           {error && <div className={styles.error}>{error}</div>}
@@ -238,9 +250,17 @@ export default function TodosPage() {
                     ) : (
                       <span className={styles.noDue}>Reminder — no date</span>
                     )}
-                    {todo.assigned_to_name && (
-                      <span className={styles.assignee}>{todo.assigned_to_name}</span>
+                    {(todo.assignees || []).length > 1 && (
+                      <span className={styles.sharedBadge}>Shared</span>
                     )}
+                    {(todo.assignees || []).map(a => (
+                      <span
+                        key={a.id}
+                        className={`${styles.assignee} ${a.id === user?.id ? styles.assigneeMe : ''}`}
+                      >
+                        {a.name}
+                      </span>
+                    ))}
                     {todo.done && todo.done_at && (
                       <span className={styles.doneAt}>Done {fmtDate(todo.done_at)}</span>
                     )}
