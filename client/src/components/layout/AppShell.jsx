@@ -24,10 +24,12 @@ import SalesPresenter from '../../pages/presenter/SalesPresenter';
 import PresenterAdmin from '../../pages/presenter/PresenterAdmin';
 import DekkerHub from '../../pages/hub/DekkerHub';
 import InvoiceInboxPage from '../../pages/invoiceInbox/InvoiceInboxPage';
+import TodosPage from '../../pages/todos/TodosPage';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '⊞', exact: true },
+  { to: '/todos', label: 'To-Do List', icon: '☑', badge: 'todos' },
   { to: '/leads', label: 'New Leads', icon: '📥', officeOnly: true, badge: 'leads' },
   { to: '/invoice-inbox', label: 'Invoice Inbox', icon: '🧾', officeOnly: true, badge: 'inbox' },
   { to: '/customers', label: 'Customers', icon: '👥' },
@@ -63,6 +65,7 @@ export default function AppShell() {
   const isPresenter = location.pathname === '/presenter';
   const [openLeads, setOpenLeads] = useState(0);
   const [inboxCount, setInboxCount] = useState(0);
+  const [dueTodos, setDueTodos] = useState(0);
 
   const canSeeLeads = ['admin', 'office'].includes(user?.role);
 
@@ -80,20 +83,33 @@ export default function AppShell() {
       .catch(() => {});
   }, [canSeeLeads]);
 
-  useEffect(() => { refreshLeadCount(); refreshInboxCount(); }, [refreshLeadCount, refreshInboxCount, location.pathname]);
+  // To-dos are open to every role, so this one isn't gated on canSeeLeads.
+  const refreshTodoCount = useCallback(() => {
+    api.get('/todos/due-count')
+      .then(r => setDueTodos(r.data.count || 0))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
-    if (!canSeeLeads) return;
-    const id = setInterval(() => { refreshLeadCount(); refreshInboxCount(); }, 120000);
+    refreshLeadCount(); refreshInboxCount(); refreshTodoCount();
+  }, [refreshLeadCount, refreshInboxCount, refreshTodoCount, location.pathname]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      refreshLeadCount(); refreshInboxCount(); refreshTodoCount();
+    }, 120000);
     window.addEventListener('leads-updated', refreshLeadCount);
     window.addEventListener('invoice-inbox-updated', refreshInboxCount);
+    window.addEventListener('todos-updated', refreshTodoCount);
     return () => {
       clearInterval(id);
       window.removeEventListener('leads-updated', refreshLeadCount);
       window.removeEventListener('invoice-inbox-updated', refreshInboxCount);
+      window.removeEventListener('todos-updated', refreshTodoCount);
     };
-  }, [canSeeLeads, refreshLeadCount, refreshInboxCount]);
+  }, [refreshLeadCount, refreshInboxCount, refreshTodoCount]);
 
-  const badgeCounts = { leads: openLeads, inbox: inboxCount };
+  const badgeCounts = { leads: openLeads, inbox: inboxCount, todos: dueTodos };
 
   async function handleLogout() {
     await logout();
@@ -196,6 +212,7 @@ export default function AppShell() {
           <Route path="/presenter/admin" element={<PresenterAdmin />} />
           <Route path="/hub" element={<DekkerHub />} />
           <Route path="/invoice-inbox" element={<InvoiceInboxPage />} />
+          <Route path="/todos" element={<TodosPage />} />
           <Route path="/users/*" element={<ComingSoon title="Users" />} />
         </Routes>
       </main>
@@ -204,6 +221,7 @@ export default function AppShell() {
       <nav className={styles.bottomNav}>
         {visibleNavItems([
           { to: '/',          icon: '⊞', label: 'Home',      exact: true },
+          { to: '/todos',     icon: '☑', label: 'To-Do' },
           { to: '/jobs',      icon: '🔧', label: 'Jobs' },
           { to: '/schedule',  icon: '📅', label: 'Schedule' },
           { to: '/quotes',    icon: '📋', label: 'Quotes', hideForOperations: true },

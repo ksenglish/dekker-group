@@ -1,0 +1,298 @@
+.page {
+  padding: 32px;
+  max-width: 900px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  gap: 12px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.btnNew {
+  padding: 9px 18px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.btnNew:hover { background: #333; }
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 20px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tab:hover { color: var(--color-text); }
+
+.tabActive {
+  color: var(--color-text);
+  font-weight: 600;
+  border-bottom-color: #1a1a1a;
+}
+
+.tabCount {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+/* Form */
+.form {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.formTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 16px;
+}
+
+.label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-bottom: 5px;
+}
+
+.input, .textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  margin-bottom: 14px;
+}
+
+.input:focus, .textarea:focus { border-color: #1a1a1a; }
+.textarea { resize: vertical; }
+
+.formRow {
+  display: flex;
+  gap: 16px;
+}
+
+.formCol { flex: 1; }
+
+.hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: -10px;
+  margin-bottom: 14px;
+}
+
+.error {
+  color: #dc2626;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.formButtons {
+  display: flex;
+  gap: 10px;
+}
+
+.btnSave {
+  padding: 9px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: #16a34a;
+  color: #fff;
+}
+
+.btnSave:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.btnCancel {
+  padding: 9px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* List */
+.loading, .empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.emptyIcon {
+  font-size: 40px;
+  color: #16a34a;
+  margin-bottom: 10px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.row:last-child { border-bottom: none; }
+.row:hover { background: var(--color-bg); }
+.rowDone .rowDesc { text-decoration: line-through; color: var(--color-text-muted); }
+
+.check {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.check:hover { border-color: #16a34a; }
+
+.checkDone {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.rowBody { flex: 1; min-width: 0; }
+
+.rowDesc {
+  font-size: 14px;
+  color: var(--color-text);
+  margin-bottom: 3px;
+}
+
+.rowNotes {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.rowMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.due { font-weight: 500; }
+.due_overdue { color: #dc2626; font-weight: 600; }
+.due_today { color: #d97706; font-weight: 600; }
+.due_upcoming { color: var(--color-text-muted); }
+
+.noDue {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.assignee {
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+
+.doneAt { color: var(--color-text-muted); }
+
+.rowActions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btnEdit, .btnDelete {
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.btnEdit:hover { background: var(--color-bg); }
+
+.btnDelete {
+  border-color: #fecaca;
+  background: #fff5f5;
+  color: #dc2626;
+}
+
+.btnDelete:hover { background: #fee2e2; }
+
+@media (max-width: 640px) {
+  .page { padding: 16px; }
+  .formRow { flex-direction: column; gap: 0; }
+  .row { flex-wrap: wrap; }
+  .rowActions { width: 100%; justify-content: flex-end; }
+}
