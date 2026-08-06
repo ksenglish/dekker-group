@@ -92,6 +92,19 @@ router.post('/:id/link', authenticate, async (req, res) => {
   }
 });
 
+// Bulk delete — declared before /:id so "bulk-delete" isn't read as an id
+router.post('/bulk-delete', authenticate, async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM job_cost_scans WHERE id = ANY($1::uuid[]) AND status = 'unmatched'`,
+      [ids]
+    );
+    res.json({ message: `Deleted ${rowCount} invoice${rowCount === 1 ? '' : 's'}`, deleted: rowCount });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Delete an inbox scan (not relevant to any job)
 router.delete('/:id', authenticate, async (req, res) => {
   try {

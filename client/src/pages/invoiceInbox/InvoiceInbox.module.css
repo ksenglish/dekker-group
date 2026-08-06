@@ -46,6 +46,67 @@
   font-size: 16px;
 }
 
+/* Select-all / bulk action bar — sticks under the page header while scrolling */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.selectAll {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.selectAll input { cursor: pointer; width: 16px; height: 16px; }
+
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.selectedCount {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.btnBulkDelete {
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  background: #dc2626;
+  color: #fff;
+}
+
+.btnBulkDelete:hover { background: #b91c1c; }
+.btnBulkDelete:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.cardCheckbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  margin-right: 2px;
+}
+
 .list {
   display: flex;
   flex-direction: column;
@@ -57,6 +118,11 @@
   border: 1px solid var(--color-border);
   border-radius: 10px;
   overflow: hidden;
+}
+
+.cardSelected {
+  border-color: #1e40af;
+  box-shadow: 0 0 0 1px #1e40af;
 }
 
 .cardHeader {

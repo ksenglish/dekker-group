@@ -17,14 +17,38 @@ export default function InvoiceInboxPage() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [linkError, setLinkError] = useState('');
   const [pdfPreview, setPdfPreview] = useState(null); // scan being previewed
+  const [selected, setSelected] = useState([]);       // ids ticked for bulk delete
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     api.get('/invoice-inbox')
-      .then(r => setScans(r.data))
+      .then(r => { setScans(r.data); setSelected([]); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const allSelected = scans.length > 0 && selected.length === scans.length;
+
+  function toggleSelect(id) {
+    setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  }
+
+  function toggleSelectAll() {
+    setSelected(allSelected ? [] : scans.map(s => s.id));
+  }
+
+  async function handleBulkDelete() {
+    const n = selected.length;
+    if (!confirm(`Delete ${n} invoice${n === 1 ? '' : 's'} from the inbox? They will not be added to any job.`)) return;
+    setBulkDeleting(true);
+    try {
+      await api.post('/invoice-inbox/bulk-delete', { ids: selected });
+      load();
+      window.dispatchEvent(new Event('invoice-inbox-updated'));
+    } catch { alert('Bulk delete failed'); }
+    finally { setBulkDeleting(false); }
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -85,6 +109,27 @@ export default function InvoiceInboxPage() {
         </div>
       </div>
 
+      {scans.length > 0 && (
+        <div className={styles.toolbar}>
+          <label className={styles.selectAll}>
+            <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
+            {allSelected ? 'Deselect all' : `Select all (${scans.length})`}
+          </label>
+          {selected.length > 0 && (
+            <div className={styles.toolbarActions}>
+              <span className={styles.selectedCount}>{selected.length} selected</span>
+              <button
+                className={styles.btnBulkDelete}
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting ? 'Deleting…' : `Delete ${selected.length}`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {scans.length === 0 && (
         <div className={styles.empty}>
           <div className={styles.emptyIcon}>✓</div>
@@ -98,9 +143,16 @@ export default function InvoiceInboxPage() {
           const total = items.reduce((s, i) => s + (i.unit_price || 0) * (i.quantity || 1), 0);
 
           return (
-            <div key={scan.id} className={styles.card}>
+            <div key={scan.id} className={`${styles.card} ${selected.includes(scan.id) ? styles.cardSelected : ''}`}>
               <div className={styles.cardHeader}>
                 <div className={styles.cardMeta}>
+                  <input
+                    type="checkbox"
+                    className={styles.cardCheckbox}
+                    checked={selected.includes(scan.id)}
+                    onChange={() => toggleSelect(scan.id)}
+                    aria-label="Select invoice"
+                  />
                   <span className={styles.supplier}>{scan.supplier || 'Unknown supplier'}</span>
                   {scan.invoice_number && (
                     <span className={styles.invNum}>#{scan.invoice_number}</span>
