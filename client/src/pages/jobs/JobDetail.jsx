@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
@@ -33,6 +34,42 @@ function findStatus(jobStatuses, test) {
 const isSiteVisit       = l => l.includes('site visit');
 const isScheduledInstall = l => l.includes('scheduled') && l.includes('install');
 const isAwaitingQuote   = l => l.includes('awaiting') && l.includes('quote');
+
+// The Job Summary card sets overflow:hidden to clip its rounded corners, which
+// also clipped the status dropdown nested inside it — the list was cut off at
+// the card's edge, so the statuses at the bottom (Paid) could not be reached.
+// The menu is portalled to <body> and positioned fixed against the button to
+// escape that, and capped to the room actually available so it always scrolls
+// within the viewport rather than running off the end of it.
+const STATUS_MENU_WIDTH = 210;
+const STATUS_MENU_MAX_HEIGHT = 320;
+
+function statusMenuPosition(rect) {
+  const GAP = 6;
+  const MARGIN = 8;
+  const spaceBelow = window.innerHeight - rect.bottom - GAP - MARGIN;
+  const spaceAbove = rect.top - GAP - MARGIN;
+
+  // Right-align to the button, but never let it run off either edge
+  const left = Math.max(
+    MARGIN,
+    Math.min(rect.right - STATUS_MENU_WIDTH, window.innerWidth - STATUS_MENU_WIDTH - MARGIN)
+  );
+
+  // Prefer dropping down; flip up only when below is genuinely cramped
+  if (spaceBelow < 180 && spaceAbove > spaceBelow) {
+    return {
+      left,
+      bottom: window.innerHeight - rect.top + GAP,
+      maxHeight: Math.min(STATUS_MENU_MAX_HEIGHT, spaceAbove),
+    };
+  }
+  return {
+    left,
+    top: rect.bottom + GAP,
+    maxHeight: Math.min(STATUS_MENU_MAX_HEIGHT, spaceBelow),
+  };
+}
 
 function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusChange }) {
   const [prompt, setPrompt] = useState(null); // 'complete' | 'quote-sent' | null
@@ -888,16 +925,45 @@ export default function JobDetail() {
   const [attachmentsRefreshKey, setAttachmentsRefreshKey] = useState(0);
   const [jobStatuses, setJobStatuses] = useState([]);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [statusMenuPos, setStatusMenuPos] = useState(null);
   const statusMenuRef = useRef(null);
+  const statusBtnRef = useRef(null);
+  const statusMenuElRef = useRef(null);
+
+  const positionStatusMenu = useCallback(() => {
+    if (!statusBtnRef.current) return;
+    setStatusMenuPos(statusMenuPosition(statusBtnRef.current.getBoundingClientRect()));
+  }, []);
+
+  function toggleStatusMenu() {
+    if (statusMenuOpen) { setStatusMenuOpen(false); return; }
+    positionStatusMenu();
+    setStatusMenuOpen(true);
+  }
 
   useEffect(() => {
     if (!statusMenuOpen) return;
     function onDown(e) {
-      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target)) setStatusMenuOpen(false);
+      // The menu is portalled to <body>, so it is no longer inside the picker —
+      // both nodes have to be treated as "inside" or clicking an item closes
+      // the menu before its own click handler runs.
+      const inPicker = statusMenuRef.current?.contains(e.target);
+      const inMenu = statusMenuElRef.current?.contains(e.target);
+      if (!inPicker && !inMenu) setStatusMenuOpen(false);
     }
+    function onKey(e) { if (e.key === 'Escape') setStatusMenuOpen(false); }
     document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [statusMenuOpen]);
+    document.addEventListener('keydown', onKey);
+    // Fixed positioning does not follow the page, so track it while open
+    window.addEventListener('scroll', positionStatusMenu, true);
+    window.addEventListener('resize', positionStatusMenu);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('scroll', positionStatusMenu, true);
+      window.removeEventListener('resize', positionStatusMenu);
+    };
+  }, [statusMenuOpen, positionStatusMenu]);
 
   useEffect(() => {
     if (isNew) return;
@@ -1376,15 +1442,25 @@ export default function JobDetail() {
                 {isAdmin(user?.role) ? (
                   <div className={styles.statusPicker} ref={statusMenuRef}>
                     <button
+                      ref={statusBtnRef}
                       className={styles.statusBadgeBtn}
                       style={{ background: statusColor(job.status) + '18', color: statusColor(job.status) }}
-                      onClick={() => setStatusMenuOpen(o => !o)}
+                      onClick={toggleStatusMenu}
                       title="Change job status"
                     >
                       {statusLabel(job.status)} <span className={styles.statusCaret}>▾</span>
                     </button>
-                    {statusMenuOpen && (
-                      <div className={styles.statusMenu}>
+                    {statusMenuOpen && statusMenuPos && createPortal(
+                      <div
+                        ref={statusMenuElRef}
+                        className={styles.statusMenu}
+                        style={{
+                          left: statusMenuPos.left,
+                          top: statusMenuPos.top,
+                          bottom: statusMenuPos.bottom,
+                          maxHeight: statusMenuPos.maxHeight,
+                        }}
+                      >
                         {jobStatuses.map(s => (
                           <button
                             key={s.key}
@@ -1395,7 +1471,8 @@ export default function JobDetail() {
                             {s.label}
                           </button>
                         ))}
-                      </div>
+                      </div>,
+                      document.body
                     )}
                   </div>
                 ) : (

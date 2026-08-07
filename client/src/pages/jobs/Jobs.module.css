@@ -1161,9 +1161,12 @@
 }
 .statusBadgeBtn:hover { filter: brightness(0.95); }
 .statusCaret { font-size: 9px; opacity: 0.7; }
+/* Portalled to <body> and positioned from JS (see statusMenuPosition) so the
+   Job Summary card's overflow:hidden cannot clip it. Offsets and max-height
+   are set inline; keep them out of here or they will fight each other. */
 .statusMenu {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 200;
-  min-width: 210px; max-height: 320px; overflow-y: auto;
+  position: fixed; z-index: 1000;
+  width: 210px; overflow-y: auto; overscroll-behavior: contain;
   background: var(--color-surface); border: 1px solid var(--color-border);
   border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.12);
   padding: 4px;
