@@ -343,6 +343,30 @@ async function createNote(req, res) {
   }
 }
 
+// Authors edit their own notes only. A note is displayed under someone's name,
+// so nobody else — admin included — gets to change the words attributed to them.
+// The user_id check is in the WHERE clause, so a mismatch simply matches no row.
+async function updateNote(req, res) {
+  const { content } = req.body;
+  if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE job_notes SET content=$1, updated_at=NOW()
+       WHERE id=$2 AND job_id=$3 AND user_id=$4
+       RETURNING id, job_id, user_id, content, created_at, updated_at`,
+      [content.trim(), req.params.noteId, req.params.id, req.user.id]
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ error: 'Note not found, or it was written by someone else' });
+    }
+    const note = rows[0];
+    note.author_name = req.user.name;
+    res.json(note);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 async function deleteNote(req, res) {
   try {
     await pool.query('DELETE FROM job_notes WHERE id=$1 AND job_id=$2', [req.params.noteId, req.params.id]);
@@ -640,6 +664,6 @@ async function deleteElectricalCoc(req, res) {
 }
 
 module.exports = {
-  list, get, create, update, updateStatus, remove, updateLineItems, listNotes, createNote, deleteNote,
+  list, get, create, update, updateStatus, remove, updateLineItems, listNotes, createNote, updateNote, deleteNote,
   getOpForm, saveOpForm, getQuoteDelivery, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf, emailElectricalCoc, deleteElectricalCoc,
 };

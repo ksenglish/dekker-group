@@ -571,6 +571,58 @@
 
 .deleteBtn:hover { color: var(--color-error); background: #fef2f2; }
 
+/* Note actions — Edit sits alongside delete in the row's top-right corner */
+.noteActions {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.noteEditBtn,
+.noteDeleteBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.noteEditBtn:hover { color: var(--color-text); background: var(--color-bg); }
+.noteDeleteBtn:hover { color: var(--color-error); background: #fef2f2; }
+
+.noteEdited {
+  font-size: 11px !important;
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.noteEdit { display: flex; flex-direction: column; gap: 8px; padding-right: 24px; }
+
+.noteEdit textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.noteEdit textarea:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.noteEditButtons { display: flex; gap: 8px; }
+.noteEditError { font-size: 13px; color: var(--color-error); }
+
 .emptySmall { padding: 16px 20px; font-size: 13px; color: var(--color-text-muted); }
 
 /* Time tab — Tradify-style day timeline */

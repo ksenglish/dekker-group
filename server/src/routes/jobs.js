@@ -103,6 +103,9 @@ router.put('/:id/line-items', requireRole('admin', 'office'), c.updateLineItems)
 // Notes
 router.get('/:id/notes', c.listNotes);
 router.post('/:id/notes', c.createNote);
+// No requireRole — the controller restricts editing to the note's own author,
+// which includes field techs editing what they wrote on site.
+router.put('/:id/notes/:noteId', c.updateNote);
 router.delete('/:id/notes/:noteId', requireRole('admin', 'office'), c.deleteNote);
 
 // Op Form — completed by whoever's on site, so any authenticated team member can fill it in

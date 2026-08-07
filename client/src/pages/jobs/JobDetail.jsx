@@ -875,6 +875,10 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(!isNew);
   const [editMode, setEditMode] = useState(isNew);
   const [noteText, setNoteText] = useState('');
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editNoteText, setEditNoteText] = useState('');
+  const [editNoteError, setEditNoteError] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
   // Supports deep-linking to a tab, e.g. /jobs/:id?tab=line_items from the "Edit" button on a quote
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'details');
   const [emailFlash, setEmailFlash] = useState('');
@@ -946,6 +950,33 @@ export default function JobDetail() {
   async function handleDeleteNote(noteId) {
     await api.delete(`/jobs/${id}/notes/${noteId}`);
     setJob(j => ({ ...j, notes: j.notes.filter(n => n.id !== noteId) }));
+  }
+
+  function handleStartEditNote(note) {
+    setEditingNoteId(note.id);
+    setEditNoteText(note.content);
+    setEditNoteError('');
+  }
+
+  function handleCancelEditNote() {
+    setEditingNoteId(null);
+    setEditNoteText('');
+    setEditNoteError('');
+  }
+
+  async function handleSaveNote(noteId) {
+    if (!editNoteText.trim()) return;
+    setSavingNote(true);
+    setEditNoteError('');
+    try {
+      const { data } = await api.put(`/jobs/${id}/notes/${noteId}`, { content: editNoteText });
+      setJob(j => ({ ...j, notes: j.notes.map(n => (n.id === noteId ? data : n)) }));
+      handleCancelEditNote();
+    } catch (err) {
+      setEditNoteError(err.response?.data?.error || 'Could not save the note');
+    } finally {
+      setSavingNote(false);
+    }
   }
 
   async function handleSaveLineItems(items) {
@@ -1265,18 +1296,69 @@ export default function JobDetail() {
                 <button className={styles.btnPrimary} onClick={handleAddNote} disabled={!noteText.trim()}>Add Note</button>
               </div>
               {(!job.notes || job.notes.length === 0) && <p className={styles.emptySmall}>No notes yet.</p>}
-              {job.notes?.map(note => (
-                <div key={note.id} className={styles.noteRow}>
-                  <div className={styles.noteMeta}>
-                    <strong>{note.author_name}</strong>
-                    <span>{new Date(note.created_at).toLocaleString('en-NZ')}</span>
+              {job.notes?.map(note => {
+                const isEditing = editingNoteId === note.id;
+                // Only the author can edit — the note carries their name
+                const canEdit = note.user_id === user?.id;
+                return (
+                  <div key={note.id} className={styles.noteRow}>
+                    <div className={styles.noteMeta}>
+                      <strong>{note.author_name}</strong>
+                      <span>{new Date(note.created_at).toLocaleString('en-NZ')}</span>
+                      {note.updated_at && (
+                        <span
+                          className={styles.noteEdited}
+                          title={`Edited ${new Date(note.updated_at).toLocaleString('en-NZ')}`}
+                        >
+                          edited
+                        </span>
+                      )}
+                    </div>
+
+                    {isEditing ? (
+                      <div className={styles.noteEdit}>
+                        <textarea
+                          rows={4}
+                          value={editNoteText}
+                          onChange={e => setEditNoteText(e.target.value)}
+                          autoFocus
+                        />
+                        {editNoteError && <div className={styles.noteEditError}>{editNoteError}</div>}
+                        <div className={styles.noteEditButtons}>
+                          <button
+                            className={styles.btnPrimary}
+                            onClick={() => handleSaveNote(note.id)}
+                            disabled={!editNoteText.trim() || savingNote}
+                          >
+                            {savingNote ? 'Saving…' : 'Save'}
+                          </button>
+                          <button className={styles.btnSecondary} onClick={handleCancelEditNote}>
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className={styles.noteContent}>{note.content}</p>
+                    )}
+
+                    {!isEditing && (
+                      <div className={styles.noteActions}>
+                        {canEdit && (
+                          <button
+                            className={styles.noteEditBtn}
+                            onClick={() => handleStartEditNote(note)}
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {user?.role !== 'field_tech' && (
+                          <button className={styles.noteDeleteBtn} onClick={() => handleDeleteNote(note.id)}>✕</button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <p className={styles.noteContent}>{note.content}</p>
-                  {user?.role !== 'field_tech' && (
-                    <button className={styles.deleteBtn} onClick={() => handleDeleteNote(note.id)}>✕</button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
