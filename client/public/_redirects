@@ -1,13 +1,10 @@
 # API requests are proxied via functions/api/[[path]].js (Cloudflare Pages Function)
+#
+# Missing /assets/* files are turned into real 404s by functions/assets/[[path]].js,
+# NOT here: Cloudflare Pages only honours 301/302/303/307/308 and 200 rewrites in
+# this file, so a `404` rule is silently ignored and the catch-all below wins.
+# Without that guard a stale bundle hash comes back as index.html with a 200,
+# which the browser rejects as CSS/JS and the service worker caches as the asset.
 
-# Hashed build output must 404 when it is missing, NOT fall through to the SPA
-# rule below. Without these, a request for a stale asset hash (an old tab, or a
-# service worker holding a previous build's precache) gets index.html back with
-# a 200. The browser then rejects that HTML as CSS/JS on MIME grounds and the
-# app renders unstyled, and the service worker caches the HTML *as* the asset,
-# so it stays broken instead of correcting itself on the next load.
-/assets/* /404.html 404
-/workbox-*.js /404.html 404
-
-# SPA fallback - all remaining non-file routes serve index.html
+# SPA fallback - all non-file routes serve index.html
 /* /index.html 200
