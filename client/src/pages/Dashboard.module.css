@@ -30,6 +30,33 @@
 .statLabel { font-size: 12px; color: var(--color-text-muted); font-weight: 500; }
 .statCardAlert { border-color: #fecaca; background: #fff5f5; }
 
+.quickLinks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.quickLink {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-text);
+  text-decoration: none;
+  transition: box-shadow 0.15s;
+}
+
+.quickLink:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.10); }
+
+.quickLinkIcon { font-size: 24px; line-height: 1; }
+.quickLinkLabel { display: block; font-weight: 600; font-size: 15px; }
+.quickLinkSub { display: block; font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+
 .dashGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 20px; }
 
 .recentCard {

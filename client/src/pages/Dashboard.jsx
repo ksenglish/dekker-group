@@ -98,6 +98,19 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Stock lives under Reports, which has no place in the mobile bottom
+          nav — this is how it's reached on a phone, where the scanning
+          actually happens. */}
+      <div className={styles.quickLinks}>
+        <Link to="/reports/stock" className={styles.quickLink}>
+          <span className={styles.quickLinkIcon}>📦</span>
+          <span>
+            <span className={styles.quickLinkLabel}>Stock</span>
+            <span className={styles.quickLinkSub}>Scan, load a van, check levels</span>
+          </span>
+        </Link>
+      </div>
+
       <div className={styles.dashGrid}>
         {/* Recent jobs */}
         {recentJobs.length > 0 && (
