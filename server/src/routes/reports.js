@@ -13,6 +13,111 @@ router.use(authenticate);
 router.use(requireRole('admin', 'office', 'subcontractor'));
 
 // Monthly revenue (last 12 months) — filtered to user's jobs for non-admin
+// ── Marketing: what each lead source produced against what it cost ──────────
+//
+// Attribution runs through the customer: a customer carries the lead_source
+// that brought them in, and their jobs and invoices inherit it. That means a
+// customer who came from one source and later returns still counts to that
+// source, which is the honest reading of "where did this work come from".
+//
+// Revenue counts invoices that are actually money — draft invoices are excluded
+// since they have not been sent to anyone. Costs are unfiltered by the date
+// range on purpose: spend is usually recorded monthly while jobs land later,
+// and clipping it would flatter recent sources.
+router.get('/marketing', requireRole('admin'), async (req, res) => {
+  const { from, to } = req.query;
+  try {
+    const { rows } = await pool.query(
+      `WITH sourced AS (
+         SELECT COALESCE(NULLIF(TRIM(c.lead_source), ''), 'Not recorded') AS source, c.id
+         FROM customers c
+       ),
+       job_counts AS (
+         SELECT s.source, COUNT(j.id)::int AS job_count
+         FROM sourced s JOIN jobs j ON j.customer_id = s.id
+         WHERE ($1::date IS NULL OR j.created_at::date >= $1::date)
+           AND ($2::date IS NULL OR j.created_at::date <= $2::date)
+         GROUP BY s.source
+       ),
+       revenue AS (
+         -- Older invoices can carry the customer only through their job, so
+         -- fall back to that rather than dropping them from the report.
+         SELECT s.source,
+                COALESCE(SUM(i.total), 0)::bigint AS revenue_cents,
+                COALESCE(SUM(CASE WHEN i.status = 'paid' THEN i.total ELSE 0 END), 0)::bigint AS paid_cents,
+                COUNT(i.id)::int AS invoice_count
+         FROM invoices i
+         LEFT JOIN jobs j ON j.id = i.job_id
+         JOIN sourced s ON s.id = COALESCE(i.customer_id, j.customer_id)
+         WHERE i.status <> 'draft'
+           AND ($1::date IS NULL OR i.created_at::date >= $1::date)
+           AND ($2::date IS NULL OR i.created_at::date <= $2::date)
+         GROUP BY s.source
+       ),
+       costs AS (
+         SELECT COALESCE(NULLIF(TRIM(source), ''), 'Not recorded') AS source,
+                COALESCE(SUM(amount_cents), 0)::bigint AS cost_cents
+         FROM marketing_costs GROUP BY 1
+       ),
+       all_sources AS (
+         SELECT source FROM job_counts
+         UNION SELECT source FROM revenue
+         UNION SELECT source FROM costs
+       )
+       SELECT a.source,
+              COALESCE(jc.job_count, 0)      AS job_count,
+              COALESCE(r.revenue_cents, 0)   AS revenue_cents,
+              COALESCE(r.paid_cents, 0)      AS paid_cents,
+              COALESCE(r.invoice_count, 0)   AS invoice_count,
+              COALESCE(co.cost_cents, 0)     AS cost_cents
+       FROM all_sources a
+       LEFT JOIN job_counts jc ON jc.source = a.source
+       LEFT JOIN revenue r     ON r.source  = a.source
+       LEFT JOIN costs co      ON co.source = a.source
+       ORDER BY COALESCE(r.revenue_cents, 0) DESC, a.source`,
+      [from || null, to || null]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Marketing report failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/marketing/costs', requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.*, u.name AS created_by_name
+       FROM marketing_costs m LEFT JOIN users u ON u.id = m.created_by
+       ORDER BY m.incurred_on DESC, m.created_at DESC`
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/marketing/costs', requireRole('admin'), async (req, res) => {
+  const { source, amount, incurred_on, notes } = req.body;
+  if (!source?.trim()) return res.status(400).json({ error: 'A lead source is required' });
+  const amountCents = Math.round(parseFloat(amount) * 100);
+  if (!Number.isFinite(amountCents)) return res.status(400).json({ error: 'Enter an amount' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO marketing_costs (source, amount_cents, incurred_on, notes, created_by)
+       VALUES ($1,$2,COALESCE($3::date, CURRENT_DATE),$4,$5) RETURNING *`,
+      [source.trim(), amountCents, incurred_on || null, notes?.trim() || null, req.user.id]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.delete('/marketing/costs/:id', requireRole('admin'), async (req, res) => {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM marketing_costs WHERE id = $1', [req.params.id]);
+    if (rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ message: 'Deleted' });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/revenue', async (req, res) => {
   try {
     const isAdmin = req.user.role === 'admin';

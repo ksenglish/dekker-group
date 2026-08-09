@@ -27,6 +27,8 @@ import InvoiceInboxPage from '../../pages/invoiceInbox/InvoiceInboxPage';
 import TodosPage from '../../pages/todos/TodosPage';
 import StockPage from '../../pages/stock/StockPage';
 import CostsPage from '../../pages/costs/CostsPage';
+import SalesPage from '../../pages/reports/SalesPage';
+import MarketingPage from '../../pages/reports/MarketingPage';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
@@ -223,6 +225,8 @@ export default function AppShell() {
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/reports/stock" element={<StockPage />} />
           <Route path="/reports/costs" element={<CostsPage />} />
+          <Route path="/reports/sales" element={<SalesPage />} />
+          <Route path="/reports/marketing" element={<MarketingPage />} />
           <Route path="/presenter" element={<SalesPresenter />} />
           <Route path="/presenter/admin" element={<PresenterAdmin />} />
           <Route path="/hub" element={<DekkerHub />} />

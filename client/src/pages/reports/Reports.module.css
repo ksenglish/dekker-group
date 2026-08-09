@@ -120,3 +120,37 @@
   white-space: nowrap;
 }
 .stockLink:hover { background: var(--color-bg); }
+
+/* Back link on the Reports sub-pages */
+.backLink {
+  display: inline-block; margin-bottom: 6px; font-size: 13px;
+  color: var(--color-text-muted); text-decoration: none;
+}
+.backLink:hover { color: var(--color-text); }
+
+/* Marketing */
+.marketingTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.marketingTable th {
+  padding: 10px 20px; text-align: left; font-weight: 600; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);
+  background: var(--color-bg); border-bottom: 1px solid var(--color-border); white-space: nowrap;
+}
+.marketingTable td {
+  padding: 10px 20px; border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+.marketingTable tr:last-child td { border-bottom: none; }
+.tRight { text-align: right !important; white-space: nowrap; }
+
+.spendOverlay {
+  position: fixed; inset: 0; z-index: 3000; background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.spendPanel {
+  width: 100%; max-width: 760px; background: var(--color-surface);
+  border-radius: 10px; max-height: 88vh; overflow-y: auto;
+}
+.spendForm {
+  display: flex; gap: 8px; padding: 14px 20px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border); align-items: center;
+}
