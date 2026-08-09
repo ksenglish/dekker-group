@@ -28,6 +28,7 @@ const xeroRoutes = require('./routes/xero');
 const xeroWebhookRoutes = require('./routes/xero-webhook');
 const invoiceInboxRoutes = require('./routes/invoiceInbox');
 const todoRoutes = require('./routes/todos');
+const stockRoutes = require('./routes/stock');
 
 const app = express();
 // SERVER_PORT takes priority so a PORT already exported for the client dev
@@ -91,6 +92,7 @@ app.use('/api/hub', hubRoutes);
 app.use('/api/xero', xeroRoutes);
 app.use('/api/invoice-inbox', invoiceInboxRoutes);
 app.use('/api/todos', todoRoutes);
+app.use('/api/stock', stockRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {

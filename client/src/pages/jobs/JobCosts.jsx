@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
+import ScanFlow from '../stock/ScanFlow';
 import styles from './Jobs.module.css';
 
 const GST_RATE = 0.15;
@@ -16,6 +17,8 @@ export default function JobCosts({ jobId, readonly }) {
   const [adding, setAdding] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const [lightbox, setLightbox] = useState(null);
+  const [scanningStock, setScanningStock] = useState(false);
+  const [stockLocations, setStockLocations] = useState([]);
   const [docUrls, setDocUrls] = useState({});   // scan id -> blob URL (image thumbnails)
   const [viewer, setViewer] = useState(null);   // { url, isPdf, loading }
   const fileRef = useRef();
@@ -68,6 +71,23 @@ export default function JobCosts({ jobId, readonly }) {
       }));
       setDocUrls(prev => ({ ...prev, ...Object.fromEntries(entries.filter(Boolean)) }));
     } finally { setLoading(false); }
+  }
+
+  // Locations are only needed once someone actually scans, so they're fetched
+  // on demand rather than on every visit to the Costs tab.
+  async function openStockScan() {
+    try {
+      const { data } = await api.get('/stock/locations');
+      const vans = data.filter(l => l.type === 'van');
+      if (vans.length === 0) {
+        alert('No vans have been set up yet. Add one under Reports → Stock first.');
+        return;
+      }
+      setStockLocations(data);
+      setScanningStock(true);
+    } catch {
+      alert('Could not load stock locations');
+    }
   }
 
   async function handleScanFile(e) {
@@ -196,6 +216,25 @@ export default function JobCosts({ jobId, readonly }) {
           </label>
           <span className={styles.scanHintText}>JPG, PNG or WebP · max 10MB</span>
         </div>
+      )}
+
+      {/* Stock fitted on site — comes off the van and lands here as a cost */}
+      {!readonly && !scanResults && (
+        <div className={styles.costsScanner}>
+          <div className={styles.costsScannerTitle}>Stock used on this job</div>
+          <button className={styles.btnScan} onClick={openStockScan}>📦 Scan from van</button>
+          <span className={styles.scanHintText}>Takes it off the van and adds it here</span>
+        </div>
+      )}
+
+      {scanningStock && (
+        <ScanFlow
+          mode="use"
+          jobId={jobId}
+          locations={stockLocations}
+          onClose={() => { setScanningStock(false); load(); }}
+          onUsed={() => load()}
+        />
       )}
 
       {scanError && <div className={styles.scanError}>{scanError}</div>}

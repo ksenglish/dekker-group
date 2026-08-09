@@ -104,3 +104,18 @@
   .barChart { height: 120px; }
   .barLabel { display: none; }
 }
+
+/* Link through to the Stock report, which lives under Reports */
+.stockLink {
+  align-self: center;
+  padding: 8px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.stockLink:hover { background: var(--color-bg); }

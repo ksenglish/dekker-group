@@ -146,6 +146,7 @@ export default function ReportsPage() {
           <h1 className={styles.pageTitle}>Reports</h1>
           <p className={styles.pageSubtitle}>Business overview and analytics</p>
         </div>
+        <Link to="/reports/stock" className={styles.stockLink}>Stock →</Link>
       </div>
 
       {/* Revenue summary */}
