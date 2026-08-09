@@ -31,7 +31,7 @@ import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '⊞', exact: true },
-  { to: '/todos', label: 'To-Do List', icon: '☑', badge: 'todos' },
+  { to: '/todos', label: 'To-Do List', icon: '☑', badge: 'todos', newBadge: 'todosNew' },
   { to: '/leads', label: 'New Leads', icon: '📥', officeOnly: true, badge: 'leads' },
   { to: '/invoice-inbox', label: 'PDF Check', icon: '🧾', officeOnly: true, badge: 'inbox' },
   { to: '/customers', label: 'Customers', icon: '👥' },
@@ -68,6 +68,7 @@ export default function AppShell() {
   const [openLeads, setOpenLeads] = useState(0);
   const [inboxCount, setInboxCount] = useState(0);
   const [dueTodos, setDueTodos] = useState(0);
+  const [newTodos, setNewTodos] = useState(0);
 
   const canSeeLeads = ['admin', 'office'].includes(user?.role);
 
@@ -90,6 +91,9 @@ export default function AppShell() {
     api.get('/todos/due-count')
       .then(r => setDueTodos(r.data.count || 0))
       .catch(() => {});
+    api.get('/todos/unseen-count')
+      .then(r => setNewTodos(r.data.count || 0))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -111,7 +115,7 @@ export default function AppShell() {
     };
   }, [refreshLeadCount, refreshInboxCount, refreshTodoCount]);
 
-  const badgeCounts = { leads: openLeads, inbox: inboxCount, todos: dueTodos };
+  const badgeCounts = { leads: openLeads, inbox: inboxCount, todos: dueTodos, todosNew: newTodos };
 
   async function handleLogout() {
     await logout();
@@ -146,6 +150,13 @@ export default function AppShell() {
             >
               <span className={styles.navIcon}>{item.icon}</span>
               {item.label}
+              {/* Green counts tasks handed to you that you haven't opened;
+                  red counts anything whose due date has arrived. */}
+              {item.newBadge && badgeCounts[item.newBadge] > 0 && (
+                <span className={styles.navBadgeNew} title="New tasks assigned to you">
+                  {badgeCounts[item.newBadge]}
+                </span>
+              )}
               {item.badge && badgeCounts[item.badge] > 0 && (
                 <span className={styles.navBadge}>{badgeCounts[item.badge]}</span>
               )}

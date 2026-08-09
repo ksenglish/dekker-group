@@ -67,6 +67,25 @@
 }
 
 /* Unactioned-item count, e.g. open leads. Sits hard right of the nav label. */
+/* Newly assigned, not yet opened. Sits before the red due badge. */
+.navBadgeNew {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #16a34a;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* When both are shown, only the first should claim the free space — two auto
+   margins would split it and leave the badges drifting apart. */
+.navBadgeNew ~ .navBadge { margin-left: 4px; }
+
 .navBadge {
   margin-left: auto;
   flex-shrink: 0;

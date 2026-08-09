@@ -62,6 +62,14 @@ export default function TodosPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Opening the list is what counts as having seen what's on it, so the green
+  // "new" badge clears here. Runs once per visit, not per tab switch.
+  useEffect(() => {
+    api.post('/todos/mark-seen')
+      .then(() => announceChange())
+      .catch(() => {});
+  }, []);
+
   // Counts for the tab headers — the inactive tab's count still has to be right
   const refreshCounts = useCallback(() => {
     api.get('/todos?done=true').then(r => setDoneCount(r.data.length)).catch(() => {});
