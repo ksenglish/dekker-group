@@ -17,6 +17,10 @@ const fmtDateTime = d => new Date(d).toLocaleString('en-NZ', {
   day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
 });
 
+const fmtMoney = cents => (Number(cents || 0) / 100).toLocaleString('en-NZ', {
+  style: 'currency', currency: 'NZD', minimumFractionDigits: 2,
+});
+
 const REASON_LABEL = {
   receive: 'Received', transfer: 'Moved', used_on_job: 'Used on job', adjust: 'Adjusted',
 };
@@ -106,7 +110,12 @@ export default function StockPage() {
       </div>
 
       <div className={styles.tabs}>
-        {[['levels', 'Stock levels'], ['movements', 'Recent movements'], ['vans', 'Vans']].map(([key, label]) => (
+        {[
+          ['levels', 'Stock levels'],
+          ['vans', 'Vans'],
+          ['movements', 'Recent movements'],
+          ...(admin ? [['value', 'Value']] : []),
+        ].map(([key, label]) => (
           <button
             key={key}
             className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`}
@@ -163,7 +172,7 @@ export default function StockPage() {
                         <td className={styles.num}>
                           <QtyCell
                             value={qtyAt(row, warehouse.id)}
-                            onClick={canManage ? () => handleAdjust(row, warehouse) : undefined}
+                            onClick={admin ? () => handleAdjust(row, warehouse) : undefined}
                           />
                         </td>
                       )}
@@ -171,7 +180,7 @@ export default function StockPage() {
                         <td key={v.id} className={styles.num}>
                           <QtyCell
                             value={qtyAt(row, v.id)}
-                            onClick={canManage ? () => handleAdjust(row, v) : undefined}
+                            onClick={admin ? () => handleAdjust(row, v) : undefined}
                           />
                         </td>
                       ))}
@@ -183,14 +192,15 @@ export default function StockPage() {
             </div>
           )}
 
-          {canManage && (
-            <div className={styles.footNote}>
-              Tap any quantity to correct it after a stocktake. Negative figures mean more
-              has been scanned out than was recorded in — worth a recount.
-              {' '}
-              <button className={styles.linkBtn} onClick={() => setLabelsFor(rows)}>Print labels</button>
-            </div>
-          )}
+          <div className={styles.footNote}>
+            {admin
+              ? 'Tap any quantity to correct it after a stocktake. '
+              : 'Quantities change by scanning. Ask an admin if a count needs correcting. '}
+            Negative figures mean more has been scanned out than was recorded in — worth a recount.
+            {canManage && (
+              <> <button className={styles.linkBtn} onClick={() => setLabelsFor(rows)}>Print labels</button></>
+            )}
+          </div>
         </>
       ) : tab === 'movements' ? (
         movements.length === 0 ? (
@@ -229,6 +239,8 @@ export default function StockPage() {
             </table>
           </div>
         )
+      ) : tab === 'value' ? (
+        <ValueTab />
       ) : (
         <VansTab locations={locations} canManage={canManage} onChanged={load} />
       )}
@@ -243,6 +255,66 @@ export default function StockPage() {
 
       {labelsFor && <LabelSheet rows={labelsFor} onClose={() => { setLabelsFor(null); load(); }} />}
     </div>
+  );
+}
+
+// Stock valued at what we paid for it. Sell price would inflate this by the
+// margin, which is not what stock on hand is worth.
+function ValueTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/stock/valuation')
+      .then(r => setData(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className={styles.loading}>Loading…</div>;
+  if (!data) return <div className={styles.empty}>Could not load the valuation.</div>;
+
+  const missing = data.locations.reduce((sum, l) => sum + Number(l.missing_cost_count || 0), 0);
+
+  return (
+    <>
+      <div className={styles.valueTotal}>
+        <div className={styles.valueTotalLabel}>Total stock on hand, at cost</div>
+        <div className={styles.valueTotalFigure}>{fmtMoney(data.total_value_cents)}</div>
+      </div>
+
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Location</th>
+              <th className={styles.num}>Units</th>
+              <th className={styles.num}>Value at cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.locations.map(l => (
+              <tr key={l.id}>
+                <td>
+                  <span className={styles.productName}>{l.name}</span>
+                  {l.type === 'warehouse' && <span className={styles.chip} style={{ marginLeft: 8 }}>Warehouse</span>}
+                </td>
+                <td className={styles.num}>{fmtQty(l.unit_count)}</td>
+                <td className={`${styles.num} ${styles.total}`}>{fmtMoney(l.value_cents)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {missing > 0 && (
+        <div className={styles.footNote}>
+          {missing} product{missing === 1 ? ' has' : 's have'} no cost price on the Price List, so
+          {missing === 1 ? ' it counts' : ' they count'} as nothing here. The real figure is higher
+          until {missing === 1 ? 'that is' : 'those are'} filled in.
+        </div>
+      )}
+    </>
   );
 }
 
@@ -261,6 +333,7 @@ function VansTab({ locations, canManage, onChanged }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [editing, setEditing] = useState(null);
+  const [openStock, setOpenStock] = useState(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -297,29 +370,41 @@ function VansTab({ locations, canManage, onChanged }) {
 
       <div className={styles.vanList}>
         {vans.map(van => (
-          <div key={van.id} className={styles.vanRow}>
-            <div>
-              <div className={styles.vanName}>{van.name}</div>
-              <div className={styles.vanUsers}>
-                {(van.users || []).length === 0
-                  ? <span className={styles.muted}>Nobody assigned</span>
-                  : van.users.map(u => <span key={u.id} className={styles.chip}>{u.name}</span>)}
+          <div key={van.id} className={styles.vanCard}>
+            <div className={styles.vanRow}>
+              <div>
+                <div className={styles.vanName}>{van.name}</div>
+                <div className={styles.vanUsers}>
+                  {(van.users || []).length === 0
+                    ? <span className={styles.muted}>Nobody assigned</span>
+                    : van.users.map(u => <span key={u.id} className={styles.chip}>{u.name}</span>)}
+                </div>
+              </div>
+              <div className={styles.vanActions}>
+                <button
+                  className={styles.btnSecondary}
+                  onClick={() => setOpenStock(id => (id === van.id ? null : van.id))}
+                >
+                  {openStock === van.id ? 'Hide van stock' : 'Van stock'}
+                </button>
+                {canManage && editing !== van.id && (
+                  <button className={styles.btnSecondary} onClick={() => setEditing(van.id)}>
+                    Who drives it
+                  </button>
+                )}
               </div>
             </div>
-            {canManage && (
-              editing === van.id ? (
-                <AssignEditor
-                  staff={staff}
-                  selected={(van.users || []).map(u => u.id)}
-                  onCancel={() => setEditing(null)}
-                  onSave={ids => saveAssignment(van, ids)}
-                />
-              ) : (
-                <button className={styles.btnSecondary} onClick={() => setEditing(van.id)}>
-                  Who drives it
-                </button>
-              )
+
+            {canManage && editing === van.id && (
+              <AssignEditor
+                staff={staff}
+                selected={(van.users || []).map(u => u.id)}
+                onCancel={() => setEditing(null)}
+                onSave={ids => saveAssignment(van, ids)}
+              />
             )}
+
+            {openStock === van.id && <LocationStock locationId={van.id} />}
           </div>
         ))}
       </div>
@@ -341,6 +426,45 @@ function VansTab({ locations, canManage, onChanged }) {
           <button className={styles.btnPrimary} onClick={() => setAdding(true)}>+ Add a van</button>
         )
       )}
+    </div>
+  );
+}
+
+// What should be on the van right now — the list a tech checks against before
+// heading out, rather than reading it off the wide grid.
+function LocationStock({ locationId }) {
+  const [items, setItems] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    api.get(`/stock/locations/${locationId}/stock`)
+      .then(r => { if (live) setItems(r.data); })
+      .catch(() => { if (live) setItems([]); });
+    return () => { live = false; };
+  }, [locationId]);
+
+  if (items === null) return <div className={styles.vanStockLoading}>Loading…</div>;
+  if (items.length === 0) return <div className={styles.vanStockEmpty}>Nothing on this van.</div>;
+
+  const totalUnits = items.reduce((sum, i) => sum + Number(i.quantity || 0), 0);
+
+  return (
+    <div className={styles.vanStock}>
+      <div className={styles.vanStockHeader}>
+        <span>{items.length} product{items.length === 1 ? '' : 's'}</span>
+        <span>{fmtQty(totalUnits)} units</span>
+      </div>
+      {items.map(i => (
+        <div key={i.id} className={styles.vanStockRow}>
+          <span className={styles.vanStockName}>
+            {i.name}
+            {i.category && <span className={styles.muted}> · {i.category}</span>}
+          </span>
+          <span className={`${styles.num} ${Number(i.quantity) < 0 ? styles.qtyNegative : ''}`}>
+            {fmtQty(i.quantity)} {i.unit || 'each'}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

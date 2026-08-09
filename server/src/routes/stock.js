@@ -138,6 +138,49 @@ router.get('/', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// What should be sitting in one location — the van sheet a tech checks against
+// before leaving, or the warehouse shelf list.
+router.get('/locations/:id/stock', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.name, p.category, p.unit, p.cost_price,
+              s.quantity,
+              (s.quantity * p.cost_price) AS value_cents
+       FROM stock_levels s
+       JOIN products p ON p.id = s.product_id
+       WHERE s.location_id = $1 AND s.quantity <> 0
+       ORDER BY p.category NULLS LAST, p.name`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// What the stock is worth, by location.
+//
+// Valued at cost — what we paid — since that is what the stock represents as an
+// asset. Valuing it at sell price would inflate the figure by the margin. A
+// product with no cost price entered contributes nothing, so the count of those
+// comes back too rather than letting the total look more complete than it is.
+router.get('/valuation', requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.id, l.name, l.type,
+              COALESCE(SUM(s.quantity * p.cost_price), 0)::bigint AS value_cents,
+              COALESCE(SUM(s.quantity), 0) AS unit_count,
+              COUNT(DISTINCT p.id) FILTER (WHERE COALESCE(p.cost_price, 0) = 0) AS missing_cost_count
+       FROM stock_locations l
+       LEFT JOIN stock_levels s ON s.location_id = l.id AND s.quantity <> 0
+       LEFT JOIN products p ON p.id = s.product_id
+       WHERE l.is_active
+       GROUP BY l.id, l.name, l.type
+       ORDER BY (l.type = 'warehouse') DESC, l.name`
+    );
+    const total = rows.reduce((sum, r) => sum + Number(r.value_cents || 0), 0);
+    res.json({ locations: rows, total_value_cents: total });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/movements', async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -322,7 +365,11 @@ router.post('/use', async (req, res) => {
 
 // Stocktake correction — sets the figure outright rather than nudging it, and
 // records the difference so the count still reconciles against the audit trail.
-router.post('/adjust', requireRole('admin', 'office'), async (req, res) => {
+//
+// Admin only. Every other route here moves stock by scanning something real;
+// this is the one that can write a number with nothing behind it, so it is the
+// one that needs holding tightly.
+router.post('/adjust', requireRole('admin'), async (req, res) => {
   const { product_id, location_id, quantity } = req.body;
   if (!product_id || !location_id || quantity == null) {
     return res.status(400).json({ error: 'product_id, location_id and quantity are required' });

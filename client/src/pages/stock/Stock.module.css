@@ -95,11 +95,44 @@
 
 /* Vans */
 .vanList { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.vanCard {
+  border: 1px solid var(--color-border); border-radius: 10px;
+  background: var(--color-surface); overflow: hidden;
+}
 .vanRow {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
-  padding: 14px 18px; border: 1px solid var(--color-border);
-  border-radius: 10px; background: var(--color-surface); flex-wrap: wrap;
+  padding: 14px 18px; flex-wrap: wrap;
 }
+.vanActions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Van stock list */
+.vanStock { border-top: 1px solid var(--color-border); }
+.vanStockHeader {
+  display: flex; justify-content: space-between; padding: 8px 18px;
+  background: var(--color-bg); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);
+}
+.vanStockRow {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  padding: 9px 18px; font-size: 13px; border-bottom: 1px solid var(--color-border);
+}
+.vanStockRow:last-child { border-bottom: none; }
+.vanStockName { min-width: 0; }
+.vanStockLoading, .vanStockEmpty {
+  padding: 14px 18px; font-size: 13px; color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Valuation */
+.valueTotal {
+  border: 1px solid var(--color-border); border-radius: 10px;
+  background: var(--color-surface); padding: 20px 24px; margin-bottom: 16px;
+}
+.valueTotalLabel {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--color-text-muted); margin-bottom: 6px;
+}
+.valueTotalFigure { font-size: 30px; font-weight: 700; color: var(--color-text); }
 .vanName { font-weight: 600; font-size: 15px; }
 .vanUsers { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; font-size: 12px; }
 .chip {
