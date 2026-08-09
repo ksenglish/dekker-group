@@ -8,6 +8,15 @@ const fmtDate = d => new Date(d).toLocaleDateString('en-NZ', {
 });
 const fmtCurrency = cents => `$${((cents || 0) / 100).toFixed(2)}`;
 
+// Folders nest, so the picker shows them in tree order with the depth carried
+// through — a flat alphabetical list would put a subfolder nowhere near its
+// parent and make "Spark → 2026" impossible to find.
+function flattenFolders(folders, parentId = null, depth = 0) {
+  return folders
+    .filter(f => (f.parent_id || null) === parentId)
+    .flatMap(f => [{ ...f, depth }, ...flattenFolders(folders, f.id, depth + 1)]);
+}
+
 // Files a PDF under operating costs. Admins can mint a folder here rather than
 // having to break off and set one up under Reports first.
 function FolderPicker({ scan, onClose, onFiled }) {
@@ -78,8 +87,14 @@ function FolderPicker({ scan, onClose, onFiled }) {
           </div>
         ) : (
           <div className={styles.pickerList}>
-            {folders.map(f => (
-              <button key={f.id} className={styles.pickerItem} onClick={() => file(f)} disabled={busy}>
+            {flattenFolders(folders).map(f => (
+              <button
+                key={f.id}
+                className={styles.pickerItem}
+                onClick={() => file(f)}
+                disabled={busy}
+                style={{ paddingLeft: 12 + f.depth * 16 }}
+              >
                 <span>📁 {f.name}</span>
                 <span className={styles.pickerCount}>{f.document_count}</span>
               </button>

@@ -16,11 +16,15 @@ const TOTAL_FROM_JOB_COSTS = `
 
 // ── Folders ──────────────────────────────────────────────────────────────────
 
+// Flat list with parent_id — the client nests it. Counts are per folder rather
+// than rolled up through the subtree, so a number next to a folder always means
+// "filed directly in here".
 router.get('/folders', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT f.*,
-              (SELECT COUNT(*)::int FROM job_cost_scans s WHERE s.folder_id = f.id) AS document_count
+              (SELECT COUNT(*)::int FROM job_cost_scans s WHERE s.folder_id = f.id) AS document_count,
+              (SELECT COUNT(*)::int FROM cost_folders c WHERE c.parent_id = f.id) AS child_count
        FROM cost_folders f
        ORDER BY f.name`
     );
@@ -29,16 +33,26 @@ router.get('/folders', async (req, res) => {
 });
 
 router.post('/folders', requireRole('admin'), async (req, res) => {
-  const { name } = req.body;
+  const { name, parent_id } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Folder name is required' });
   try {
+    if (parent_id) {
+      const { rows: [parent] } = await pool.query('SELECT id FROM cost_folders WHERE id = $1', [parent_id]);
+      if (!parent) return res.status(404).json({ error: 'That parent folder no longer exists' });
+    }
     const { rows } = await pool.query(
-      'INSERT INTO cost_folders (name, created_by) VALUES ($1,$2) RETURNING *',
-      [name.trim(), req.user.id]
+      'INSERT INTO cost_folders (name, parent_id, created_by) VALUES ($1,$2,$3) RETURNING *',
+      [name.trim(), parent_id || null, req.user.id]
     );
-    res.status(201).json({ ...rows[0], document_count: 0 });
+    res.status(201).json({ ...rows[0], document_count: 0, child_count: 0 });
   } catch (err) {
-    if (err.code === '23505') return res.status(409).json({ error: 'A folder with that name already exists' });
+    if (err.code === '23505') {
+      return res.status(409).json({
+        error: parent_id
+          ? 'That folder already has a subfolder with this name'
+          : 'A folder with that name already exists',
+      });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -58,16 +72,21 @@ router.put('/folders/:id', requireRole('admin'), async (req, res) => {
   }
 });
 
-// Refuses while anything is filed in it, rather than quietly cutting the
-// documents loose where nobody would find them again.
+// Refuses while the folder still holds anything — documents or subfolders —
+// rather than quietly cutting a subtree loose where nobody would find it again.
 router.delete('/folders/:id', requireRole('admin'), async (req, res) => {
   try {
     const { rows: [count] } = await pool.query(
-      'SELECT COUNT(*)::int AS n FROM job_cost_scans WHERE folder_id = $1', [req.params.id]
+      `SELECT (SELECT COUNT(*)::int FROM job_cost_scans WHERE folder_id = $1) AS docs,
+              (SELECT COUNT(*)::int FROM cost_folders WHERE parent_id = $1) AS kids`,
+      [req.params.id]
     );
-    if (count.n > 0) {
+    if (count.docs > 0 || count.kids > 0) {
+      const parts = [];
+      if (count.docs) parts.push(`${count.docs} document${count.docs === 1 ? '' : 's'}`);
+      if (count.kids) parts.push(`${count.kids} subfolder${count.kids === 1 ? '' : 's'}`);
       return res.status(409).json({
-        error: `This folder still holds ${count.n} document${count.n === 1 ? '' : 's'}. Move or delete them first.`,
+        error: `This folder still holds ${parts.join(' and ')}. Empty it first.`,
       });
     }
     const { rowCount } = await pool.query('DELETE FROM cost_folders WHERE id = $1', [req.params.id]);

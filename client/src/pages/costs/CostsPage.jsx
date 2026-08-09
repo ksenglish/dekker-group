@@ -160,9 +160,17 @@ async function openDocument(id) {
   }
 }
 
+// Folders come back flat with a parent_id; nesting them here keeps the query
+// simple and the depth unbounded.
+function buildTree(folders, parentId = null) {
+  return folders
+    .filter(f => (f.parent_id || null) === parentId)
+    .map(f => ({ ...f, children: buildTree(folders, f.id) }));
+}
+
 function OperatingCosts({ admin }) {
   const [folders, setFolders] = useState([]);
-  const [open, setOpen] = useState(null);
+  const [openIds, setOpenIds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
@@ -201,10 +209,22 @@ function OperatingCosts({ admin }) {
     if (!confirm(`Delete the folder "${folder.name}"?`)) return;
     try {
       await api.delete(`/costs/folders/${folder.id}`);
-      if (open === folder.id) setOpen(null);
+      setOpenIds(ids => ids.filter(id => id !== folder.id));
       load();
     } catch (err) { alert(err.response?.data?.error || 'Could not delete'); }
   }
+
+  async function addSubfolder(parent) {
+    const sub = prompt(`New subfolder inside "${parent.name}"`);
+    if (!sub?.trim()) return;
+    try {
+      await api.post('/costs/folders', { name: sub.trim(), parent_id: parent.id });
+      setOpenIds(ids => (ids.includes(parent.id) ? ids : [...ids, parent.id]));
+      load();
+    } catch (err) { alert(err.response?.data?.error || 'Could not create the subfolder'); }
+  }
+
+  const toggle = id => setOpenIds(ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]));
 
   if (loading) return <div className={styles.loading}>Loading…</div>;
 
@@ -225,28 +245,19 @@ function OperatingCosts({ admin }) {
       )}
 
       <div className={styles.folderList}>
-        {folders.map(f => (
-          <div key={f.id} className={styles.folderCard}>
-            <div className={styles.folderRow}>
-              <button
-                className={styles.folderMain}
-                onClick={() => setOpen(o => (o === f.id ? null : f.id))}
-              >
-                <span className={styles.folderIcon}>{open === f.id ? '📂' : '📁'}</span>
-                <span className={styles.folderName}>{f.name}</span>
-                <span className={styles.folderCount}>
-                  {f.document_count} document{f.document_count === 1 ? '' : 's'}
-                </span>
-              </button>
-              {admin && (
-                <div className={styles.folderActions}>
-                  <button className={styles.smallBtn} onClick={() => rename(f)}>Rename</button>
-                  <button className={styles.smallBtnDanger} onClick={() => remove(f)}>Delete</button>
-                </div>
-              )}
-            </div>
-            {open === f.id && <FolderContents folderId={f.id} onChanged={load} />}
-          </div>
+        {buildTree(folders).map(f => (
+          <FolderNode
+            key={f.id}
+            folder={f}
+            depth={0}
+            admin={admin}
+            openIds={openIds}
+            onToggle={toggle}
+            onRename={rename}
+            onRemove={remove}
+            onAddSub={addSubfolder}
+            onChanged={load}
+          />
         ))}
       </div>
 
@@ -272,7 +283,56 @@ function OperatingCosts({ admin }) {
   );
 }
 
-function FolderContents({ folderId, onChanged }) {
+// Renders itself for its own children, so nesting has no fixed depth. Indent is
+// capped so a deep tree stays readable on a phone instead of marching off-screen.
+function FolderNode({ folder, depth, admin, openIds, onToggle, onRename, onRemove, onAddSub, onChanged }) {
+  const isOpen = openIds.includes(folder.id);
+  const indent = Math.min(depth, 5) * 18;
+
+  return (
+    <div className={depth === 0 ? styles.folderCard : styles.subFolder}>
+      <div className={styles.folderRow} style={depth ? { paddingLeft: indent } : undefined}>
+        <button className={styles.folderMain} onClick={() => onToggle(folder.id)}>
+          <span className={styles.folderIcon}>{isOpen ? '📂' : '📁'}</span>
+          <span className={styles.folderName}>{folder.name}</span>
+          <span className={styles.folderCount}>
+            {folder.document_count} doc{folder.document_count === 1 ? '' : 's'}
+            {folder.children.length > 0 && ` · ${folder.children.length} folder${folder.children.length === 1 ? '' : 's'}`}
+          </span>
+        </button>
+        {admin && (
+          <div className={styles.folderActions}>
+            <button className={styles.smallBtn} onClick={() => onAddSub(folder)} title="Add a subfolder">+ Sub</button>
+            <button className={styles.smallBtn} onClick={() => onRename(folder)}>Rename</button>
+            <button className={styles.smallBtnDanger} onClick={() => onRemove(folder)}>Delete</button>
+          </div>
+        )}
+      </div>
+
+      {isOpen && (
+        <>
+          {folder.children.map(child => (
+            <FolderNode
+              key={child.id}
+              folder={child}
+              depth={depth + 1}
+              admin={admin}
+              openIds={openIds}
+              onToggle={onToggle}
+              onRename={onRename}
+              onRemove={onRemove}
+              onAddSub={onAddSub}
+              onChanged={onChanged}
+            />
+          ))}
+          <FolderContents folderId={folder.id} onChanged={onChanged} indent={indent} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function FolderContents({ folderId, onChanged, indent = 0 }) {
   const [docs, setDocs] = useState(null);
 
   const load = useCallback(() => {
@@ -291,11 +351,15 @@ function FolderContents({ folderId, onChanged }) {
     } catch (err) { alert(err.response?.data?.error || 'Could not delete'); }
   }
 
-  if (docs === null) return <div className={styles.folderLoading}>Loading…</div>;
-  if (docs.length === 0) return <div className={styles.folderEmpty}>Nothing filed here yet.</div>;
+  if (docs === null) {
+    return <div className={styles.folderLoading} style={{ paddingLeft: 18 + indent }}>Loading…</div>;
+  }
+  if (docs.length === 0) {
+    return <div className={styles.folderEmpty} style={{ paddingLeft: 18 + indent }}>Nothing filed here yet.</div>;
+  }
 
   return (
-    <div className={styles.docList}>
+    <div className={styles.docList} style={indent ? { paddingLeft: indent } : undefined}>
       {docs.map(d => {
         const items = Array.isArray(d.parsed_items) ? d.parsed_items : [];
         const total = items.reduce((s, i) => s + (i.unit_price || 0) * (i.quantity || 1), 0);

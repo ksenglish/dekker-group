@@ -68,6 +68,10 @@
   border: 1px solid var(--color-border); border-radius: 10px;
   background: var(--color-surface); overflow: hidden;
 }
+/* Nested folders sit inside their parent card rather than being cards of
+   their own, so the tree reads as one thing */
+.subFolder { border-top: 1px solid var(--color-border); }
+
 .folderRow { display: flex; align-items: center; gap: 10px; padding: 4px 14px 4px 4px; }
 .folderMain {
   flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0;
