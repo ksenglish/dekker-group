@@ -1,0 +1,129 @@
+.page { padding: 32px; max-width: 1100px; }
+
+.header { margin-bottom: 20px; }
+.backLink {
+  display: inline-block; margin-bottom: 6px; font-size: 13px;
+  color: var(--color-text-muted); text-decoration: none;
+}
+.backLink:hover { color: var(--color-text); }
+.title { font-size: 24px; font-weight: 700; margin: 0 0 6px; color: var(--color-text); }
+.subtitle { font-size: 14px; color: var(--color-text-muted); margin: 0; }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--color-border); margin-bottom: 18px; }
+.tab {
+  padding: 10px 18px; font-size: 14px; font-weight: 500; cursor: pointer;
+  border: none; background: none; color: var(--color-text-muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab:hover { color: var(--color-text); }
+.tabActive { color: var(--color-text); font-weight: 600; border-bottom-color: #1a1a1a; }
+
+.loading, .empty {
+  padding: 44px 20px; text-align: center; color: var(--color-text-muted); font-size: 14px;
+}
+
+.folderNote { font-size: 13px; color: var(--color-text-muted); margin: 0 0 14px; line-height: 1.6; }
+
+.error {
+  padding: 10px 14px; border-radius: 6px; margin-bottom: 12px;
+  background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; font-size: 13px;
+}
+
+.search {
+  width: 100%; padding: 9px 12px; margin-bottom: 14px;
+  border: 1px solid var(--color-border); border-radius: 6px;
+  font-size: 14px; background: var(--color-bg); color: var(--color-text);
+  outline: none; font-family: inherit;
+}
+.search:focus { border-color: var(--color-primary); }
+
+.summaryBar {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 14px; margin-bottom: 10px; border-radius: 8px;
+  background: var(--color-bg); border: 1px solid var(--color-border);
+  font-size: 13px; color: var(--color-text-muted);
+}
+
+.tableWrap {
+  border: 1px solid var(--color-border); border-radius: 10px;
+  overflow-x: auto; background: var(--color-surface);
+}
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th {
+  padding: 10px 14px; text-align: left; font-weight: 600; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted);
+  background: var(--color-bg); border-bottom: 1px solid var(--color-border); white-space: nowrap;
+}
+.table td { padding: 10px 14px; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+.table tr:last-child td { border-bottom: none; }
+.num { text-align: right !important; white-space: nowrap; }
+.muted { color: var(--color-text-muted); font-size: 12px; }
+
+.viewLink { color: var(--color-primary); cursor: pointer; text-decoration: none; font-weight: 500; }
+.viewLink:hover { text-decoration: underline; }
+
+/* Folders */
+.folderList { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.folderCard {
+  border: 1px solid var(--color-border); border-radius: 10px;
+  background: var(--color-surface); overflow: hidden;
+}
+.folderRow { display: flex; align-items: center; gap: 10px; padding: 4px 14px 4px 4px; }
+.folderMain {
+  flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 12px 10px; border: none; background: none; cursor: pointer;
+  text-align: left; font-family: inherit; font-size: 14px; color: var(--color-text);
+  border-radius: 8px;
+}
+.folderMain:hover { background: var(--color-bg); }
+.folderIcon { font-size: 18px; }
+.folderName { font-weight: 600; flex: 1; min-width: 0; }
+.folderCount { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
+.folderActions { display: flex; gap: 6px; }
+
+.smallBtn, .smallBtnDanger {
+  padding: 5px 10px; border-radius: 5px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--color-border); background: var(--color-bg);
+  color: var(--color-text); font-family: inherit;
+}
+.smallBtn:hover { background: var(--color-surface); }
+.smallBtnDanger { border-color: #fecaca; background: #fff5f5; color: #dc2626; }
+.smallBtnDanger:hover { background: #fee2e2; }
+
+.folderLoading, .folderEmpty {
+  padding: 14px 18px; font-size: 13px; color: var(--color-text-muted);
+  border-top: 1px solid var(--color-border);
+}
+
+.docList { border-top: 1px solid var(--color-border); }
+.docRow {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 18px; border-bottom: 1px solid var(--color-border); flex-wrap: wrap;
+}
+.docRow:last-child { border-bottom: none; }
+.docMain { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.docSupplier { font-size: 13px; font-weight: 500; }
+.docActions { display: flex; gap: 6px; }
+
+.newFolder { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.btnPrimary {
+  padding: 9px 16px; border-radius: 6px; border: none;
+  background: #1a1a1a; color: #fff; font-size: 14px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.btnPrimary:hover { background: #333; }
+.btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btnSecondary {
+  padding: 9px 16px; border-radius: 6px; border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text);
+  font-size: 14px; cursor: pointer; font-family: inherit;
+}
+.btnSecondary:hover { background: var(--color-bg); }
+
+@media (max-width: 640px) {
+  .page { padding: 16px; }
+  .folderRow { flex-wrap: wrap; }
+  .docRow { align-items: flex-start; }
+}

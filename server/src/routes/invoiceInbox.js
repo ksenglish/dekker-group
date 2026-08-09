@@ -92,6 +92,28 @@ router.post('/:id/link', authenticate, async (req, res) => {
   }
 });
 
+// File an unmatched scan into an operating-cost folder. It leaves PDF Check
+// and shows up under Reports → Costs → Operating Costs, keeping the line items
+// Claude parsed so the document isn't just a PDF with no figures behind it.
+router.post('/:id/file', authenticate, async (req, res) => {
+  const { folder_id } = req.body;
+  if (!folder_id) return res.status(400).json({ error: 'folder_id required' });
+  try {
+    const { rows: [folder] } = await pool.query('SELECT id FROM cost_folders WHERE id = $1', [folder_id]);
+    if (!folder) return res.status(404).json({ error: 'Folder not found' });
+
+    const { rows } = await pool.query(
+      `UPDATE job_cost_scans
+       SET folder_id = $1, status = 'filed'
+       WHERE id = $2 AND status = 'unmatched'
+       RETURNING id, supplier, invoice_number, folder_id`,
+      [folder_id, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Inbox item not found' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Bulk delete — declared before /:id so "bulk-delete" isn't read as an id
 router.post('/bulk-delete', authenticate, async (req, res) => {
   const { ids } = req.body;

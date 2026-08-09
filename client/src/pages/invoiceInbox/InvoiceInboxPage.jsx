@@ -1,11 +1,113 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 import styles from './InvoiceInbox.module.css';
 
 const fmtDate = d => new Date(d).toLocaleDateString('en-NZ', {
   day: 'numeric', month: 'short', year: 'numeric',
 });
 const fmtCurrency = cents => `$${((cents || 0) / 100).toFixed(2)}`;
+
+// Files a PDF under operating costs. Admins can mint a folder here rather than
+// having to break off and set one up under Reports first.
+function FolderPicker({ scan, onClose, onFiled }) {
+  const { user } = useAuth();
+  const [folders, setFolders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const loadFolders = useCallback(() => {
+    api.get('/costs/folders')
+      .then(r => setFolders(r.data))
+      .catch(() => setError('Could not load folders'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { loadFolders(); }, [loadFolders]);
+
+  async function createFolder(e) {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setBusy(true); setError('');
+    try {
+      const { data } = await api.post('/costs/folders', { name: newName.trim() });
+      setFolders(f => [...f, data].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewName(''); setCreating(false);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not create the folder');
+    } finally { setBusy(false); }
+  }
+
+  async function file(folder) {
+    setBusy(true); setError('');
+    try {
+      await api.post(`/invoice-inbox/${scan.id}/file`, { folder_id: folder.id });
+      onFiled();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not file that document');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={styles.pickerOverlay} onClick={onClose}>
+      <div className={styles.pickerPanel} onClick={e => e.stopPropagation()}>
+        <div className={styles.pickerHeader}>
+          <h2>Save to folder</h2>
+          <button className={styles.pickerClose} onClick={onClose}>✕</button>
+        </div>
+
+        <p className={styles.pickerHint}>
+          Files <strong>{scan.supplier || 'this PDF'}</strong> under operating costs,
+          with its line items. It will leave PDF Check.
+        </p>
+
+        {error && <div className={styles.linkError}>{error}</div>}
+
+        {loading ? (
+          <div className={styles.pickerEmpty}>Loading…</div>
+        ) : folders.length === 0 && !creating ? (
+          <div className={styles.pickerEmpty}>
+            No folders yet.{' '}
+            {user?.role === 'admin'
+              ? 'Create one below.'
+              : 'An admin needs to create one under Reports → Costs first.'}
+          </div>
+        ) : (
+          <div className={styles.pickerList}>
+            {folders.map(f => (
+              <button key={f.id} className={styles.pickerItem} onClick={() => file(f)} disabled={busy}>
+                <span>📁 {f.name}</span>
+                <span className={styles.pickerCount}>{f.document_count}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {user?.role === 'admin' && (
+          creating ? (
+            <form className={styles.pickerNew} onSubmit={createFolder}>
+              <input
+                className={styles.searchInput}
+                placeholder="Supplier name, e.g. Spark"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                autoFocus
+              />
+              <button type="submit" className={styles.btnConfirmLink} disabled={busy || !newName.trim()}>Add</button>
+              <button type="button" className={styles.btnCancel} onClick={() => setCreating(false)}>Cancel</button>
+            </form>
+          ) : (
+            <button className={styles.pickerNewBtn} onClick={() => setCreating(true)}>+ New folder</button>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function InvoiceInboxPage() {
   const [scans, setScans] = useState([]);
@@ -17,6 +119,7 @@ export default function InvoiceInboxPage() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [linkError, setLinkError] = useState('');
   const [pdfPreview, setPdfPreview] = useState(null); // scan being previewed
+  const [filing, setFiling] = useState(null);         // scan being filed to a folder
   const [selected, setSelected] = useState([]);       // ids ticked for bulk delete
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -101,13 +204,26 @@ export default function InvoiceInboxPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Invoice Inbox</h1>
+          <h1 className={styles.title}>PDF Check</h1>
           <p className={styles.subtitle}>
-            Supplier invoices that couldn't be automatically matched to a job.
-            Link each one to the correct job or delete it if it's not a cost.
+            Scanned supplier PDFs that couldn't be matched to a job automatically.
+            Link each one to the right job, file it under operating costs, or
+            delete it if it isn't a cost at all.
           </p>
         </div>
       </div>
+
+      {filing && (
+        <FolderPicker
+          scan={filing}
+          onClose={() => setFiling(null)}
+          onFiled={() => {
+            setFiling(null);
+            load();
+            window.dispatchEvent(new Event('invoice-inbox-updated'));
+          }}
+        />
+      )}
 
       {scans.length > 0 && (
         <div className={styles.toolbar}>
@@ -170,6 +286,9 @@ export default function InvoiceInboxPage() {
                   )}
                   <button className={styles.btnLink} onClick={() => openLink(scan)}>
                     Link to Job
+                  </button>
+                  <button className={styles.btnFile} onClick={() => setFiling(scan)}>
+                    Save to Folder
                   </button>
                   <button className={styles.btnDelete} onClick={() => handleDelete(scan.id)}>
                     Delete

@@ -26,13 +26,14 @@ import DekkerHub from '../../pages/hub/DekkerHub';
 import InvoiceInboxPage from '../../pages/invoiceInbox/InvoiceInboxPage';
 import TodosPage from '../../pages/todos/TodosPage';
 import StockPage from '../../pages/stock/StockPage';
+import CostsPage from '../../pages/costs/CostsPage';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '⊞', exact: true },
   { to: '/todos', label: 'To-Do List', icon: '☑', badge: 'todos' },
   { to: '/leads', label: 'New Leads', icon: '📥', officeOnly: true, badge: 'leads' },
-  { to: '/invoice-inbox', label: 'Invoice Inbox', icon: '🧾', officeOnly: true, badge: 'inbox' },
+  { to: '/invoice-inbox', label: 'PDF Check', icon: '🧾', officeOnly: true, badge: 'inbox' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/jobs', label: 'Jobs', icon: '🔧' },
   { to: '/schedule', label: 'Schedule', icon: '📅' },
@@ -210,6 +211,7 @@ export default function AppShell() {
           <Route path="/timesheets" element={<TimesheetsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/reports/stock" element={<StockPage />} />
+          <Route path="/reports/costs" element={<CostsPage />} />
           <Route path="/presenter" element={<SalesPresenter />} />
           <Route path="/presenter/admin" element={<PresenterAdmin />} />
           <Route path="/hub" element={<DekkerHub />} />
