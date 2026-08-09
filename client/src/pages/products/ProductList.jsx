@@ -229,11 +229,11 @@ function ImportModal({ onDone, onClose }) {
         fd.append('file', zipFile);
         const { data } = await api.post('/products/import-zip', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
         setResult(data);
-        if (data.imported > 0) onDone();
+        if (data.imported > 0 || data.updated > 0) onDone();
       } else {
         const { data } = await api.post('/products/import', { csv });
         setResult(data);
-        if (data.imported > 0) onDone();
+        if (data.imported > 0 || data.updated > 0) onDone();
       }
     } catch (e) { setResult({ imported: 0, errors: [e.response?.data?.error || 'Import failed'] }); }
     setLoading(false);
@@ -298,9 +298,16 @@ function ImportModal({ onDone, onClose }) {
 
           {result && (
             <div className={result.errors?.length ? styles.formError : styles.formSuccess}>
-              ✓ {result.imported} product{result.imported !== 1 ? 's' : ''} imported
-              {result.imagesFound !== undefined && ` · ${result.imagesFound} image${result.imagesFound !== 1 ? 's' : ''} found`}
+              ✓ {result.imported} added
+              {result.updated > 0 && ` · ${result.updated} updated`}
+              {result.imagesFound !== undefined && ` · ${result.imagesFound} file${result.imagesFound !== 1 ? 's' : ''} found`}
               {result.errors?.length > 0 && <div style={{ marginTop: 4 }}>{result.errors.slice(0,5).join(', ')}</div>}
+              {result.updated > 0 && (
+                <div style={{ marginTop: 4, fontWeight: 400 }}>
+                  Matched on product name — prices and any images or brochures in this
+                  upload were applied to the existing products.
+                </div>
+              )}
             </div>
           )}
 

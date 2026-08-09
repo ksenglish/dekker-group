@@ -78,6 +78,85 @@ async function remove(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+// Re-importing a price list should update what's there, not pile up copies.
+//
+// Products are matched on name, ignoring case and surrounding spaces, which is
+// the only thing identifying a product here — there is no SKU column. Anything
+// the file doesn't supply is left alone rather than blanked, so a CSV-only
+// re-import can't wipe the images and brochures a previous ZIP upload set.
+//
+// `fields` values of null/undefined/'' mean "not supplied".
+async function upsertProduct(fields) {
+  const name = (fields.name || '').trim();
+  if (!name) return 'skipped';
+
+  // Oldest first, so where earlier imports already left duplicates the original
+  // is the one kept up to date rather than an arbitrary copy.
+  const { rows: [existing] } = await pool.query(
+    `SELECT id FROM products
+     WHERE LOWER(TRIM(name)) = LOWER($1)
+     ORDER BY created_at
+     LIMIT 1`,
+    [name]
+  );
+
+  const supplied = value => value !== null && value !== undefined && value !== '';
+
+  if (!existing) {
+    await pool.query(
+      `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier, media_base64, brochure_base64)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        name,
+        supplied(fields.description) ? fields.description : null,
+        supplied(fields.category) ? fields.category : null,
+        supplied(fields.unit) ? fields.unit : 'each',
+        supplied(fields.unit_price) ? fields.unit_price : 0,
+        supplied(fields.cost_price) ? fields.cost_price : 0,
+        supplied(fields.supplier) ? fields.supplier : null,
+        supplied(fields.media_base64) ? fields.media_base64 : null,
+        supplied(fields.brochure_base64) ? fields.brochure_base64 : null,
+      ]
+    );
+    return 'imported';
+  }
+
+  // COALESCE leaves the stored value in place wherever the file said nothing,
+  // so a partial file only touches the columns it actually carries.
+  await pool.query(
+    `UPDATE products SET
+       description     = COALESCE($2, description),
+       category        = COALESCE($3, category),
+       unit            = COALESCE($4, unit),
+       unit_price      = COALESCE($5, unit_price),
+       cost_price      = COALESCE($6, cost_price),
+       supplier        = COALESCE($7, supplier),
+       media_base64    = COALESCE($8, media_base64),
+       brochure_base64 = COALESCE($9, brochure_base64),
+       updated_at      = NOW()
+     WHERE id = $1`,
+    [
+      existing.id,
+      supplied(fields.description) ? fields.description : null,
+      supplied(fields.category) ? fields.category : null,
+      supplied(fields.unit) ? fields.unit : null,
+      supplied(fields.unit_price) ? fields.unit_price : null,
+      supplied(fields.cost_price) ? fields.cost_price : null,
+      supplied(fields.supplier) ? fields.supplier : null,
+      supplied(fields.media_base64) ? fields.media_base64 : null,
+      supplied(fields.brochure_base64) ? fields.brochure_base64 : null,
+    ]
+  );
+  return 'updated';
+}
+
+// An absent or blank price means "leave it alone"; an explicit 0 is a real price.
+function parsePrice(raw) {
+  if (raw === null || raw === undefined || String(raw).trim() === '') return null;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+}
+
 async function importCsv(req, res) {
   // Expects: name, description, category, unit, unit_price (dollars)
   const lines = (req.body.csv || '').split('\n').map(l => l.trim()).filter(Boolean);
@@ -91,25 +170,24 @@ async function importCsv(req, res) {
 
   if (idx.name === -1) return res.status(400).json({ error: 'CSV must have a "name" column' });
 
-  const results = { imported: 0, errors: [] };
+  const results = { imported: 0, updated: 0, errors: [] };
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',').map(c => c.trim().replace(/"/g, ''));
     const name = cols[idx.name];
     if (!name) continue;
+    const at = key => (idx[key] > -1 ? cols[idx[key]] : '');
     try {
-      await pool.query(
-        `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT DO NOTHING`,
-        [name,
-         idx.description > -1 ? cols[idx.description] || null : null,
-         idx.category > -1 ? cols[idx.category] || null : null,
-         idx.unit > -1 ? cols[idx.unit] || 'each' : 'each',
-         Math.round(parseFloat(idx.unit_price > -1 ? cols[idx.unit_price] || 0 : 0) * 100),
-         Math.round(parseFloat(idx.cost_price > -1 ? cols[idx.cost_price] || 0 : 0) * 100),
-         idx.supplier > -1 ? cols[idx.supplier] || null : null]
-      );
-      results.imported++;
+      const outcome = await upsertProduct({
+        name,
+        description: at('description'),
+        category: at('category'),
+        unit: at('unit'),
+        unit_price: parsePrice(at('unit_price')),
+        cost_price: parsePrice(at('cost_price')),
+        supplier: at('supplier'),
+      });
+      if (outcome === 'imported') results.imported++;
+      else if (outcome === 'updated') results.updated++;
     } catch (e) { results.errors.push(`Row ${i}: ${e.message}`); }
   }
   res.json(results);
@@ -173,24 +251,22 @@ async function importZip(req, res) {
       const brochure_base64 = brochureFilename && images[brochureFilename] ? images[brochureFilename] : null;
 
       try {
-        const { rowCount } = await pool.query(
-          `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier, media_base64, brochure_base64)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-           ON CONFLICT DO NOTHING`,
-          [
-            name,
-            get('description') || null,
-            get('category') || null,
-            get('unit') || 'each',
-            Math.round(parseFloat(get('unit_price') || 0) * 100),
-            Math.round(parseFloat(get('cost_price') || 0) * 100),
-            get('supplier') || null,
-            media_base64,
-            brochure_base64,
-          ]
-        );
-        if (rowCount > 0) results.imported++;
-        else results.updated++;
+        const outcome = await upsertProduct({
+          name,
+          description: get('description'),
+          category: get('category'),
+          unit: get('unit'),
+          unit_price: parsePrice(get('unit_price')),
+          cost_price: parsePrice(get('cost_price')),
+          supplier: get('supplier'),
+          // Only replaces the stored file when this ZIP actually carried one —
+          // a named file that isn't in the ZIP leaves the existing image alone
+          // rather than clearing it.
+          media_base64,
+          brochure_base64,
+        });
+        if (outcome === 'imported') results.imported++;
+        else if (outcome === 'updated') results.updated++;
       } catch (e) {
         results.errors.push(`Row ${i}: ${e.message}`);
       }
