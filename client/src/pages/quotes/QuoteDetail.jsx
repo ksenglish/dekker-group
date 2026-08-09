@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import EmailComposeModal from './EmailComposeModal';
+import AttachJobModal from './AttachJobModal';
 import RichTextEditor from '../../components/RichTextEditor';
 import LineItemsEditor from '../jobs/LineItemsEditor';
 import SalesPresenter from '../presenter/SalesPresenter';
@@ -34,6 +35,7 @@ export default function QuoteDetail() {
   const [saving, setSaving] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
+  const [showAttachJob, setShowAttachJob] = useState(false);
   const [converting, setConverting] = useState(false);
   const [msg, setMsg] = useState(null); // { type: 'success'|'error', text }
   const [notes, setNotes] = useState('');
@@ -59,15 +61,19 @@ export default function QuoteDetail() {
       setQuoteDate(toDateInput(r.data.quote_date || r.data.created_at));
       setExpiresAt(toDateInput(r.data.expires_at));
       setAttachmentIds(r.data.attachment_ids || []);
-      if (r.data.job_id) {
-        api.get(`/jobs/${r.data.job_id}/attachments`)
-          .then(a => setJobAttachments(a.data.filter(x => (x.mime_type || '').startsWith('image/'))))
-          .catch(() => {});
-      }
     }).finally(() => setLoading(false));
     api.get('/settings/themes').then(r => setThemes(r.data.filter(t => !t.archived))).catch(() => {});
     loadActivity();
   }, [id]);
+
+  // Keyed on the job rather than loaded alongside the quote, so a quote that
+  // only gets its job later picks up that job's drawings straight away.
+  useEffect(() => {
+    if (!quote?.job_id) { setJobAttachments([]); return; }
+    api.get(`/jobs/${quote.job_id}/attachments`)
+      .then(a => setJobAttachments(a.data.filter(x => (x.mime_type || '').startsWith('image/'))))
+      .catch(() => {});
+  }, [quote?.job_id]);
 
   // Thumbnails come through the authenticated API, so they're fetched as
   // blobs rather than pointed at with a plain <img src>.
@@ -188,6 +194,13 @@ export default function QuoteDetail() {
     }
   }
 
+  function handleJobAttached(updated) {
+    setShowAttachJob(false);
+    setQuote(q => ({ ...q, ...updated }));
+    flash('success', `Quote linked to job ${formatJobNumber(updated)}`);
+    loadActivity();
+  }
+
   async function handleConvert() {
     if (!confirm('Convert this accepted quote to an invoice?')) return;
     setConverting(true);
@@ -260,6 +273,14 @@ export default function QuoteDetail() {
           customerEmail={quote.customer_email}
           onClose={() => setShowEmailModal(false)}
           onSent={handleEmailSent}
+        />
+      )}
+
+      {showAttachJob && (
+        <AttachJobModal
+          quote={quote}
+          onClose={() => setShowAttachJob(false)}
+          onAttached={handleJobAttached}
         />
       )}
 
@@ -387,7 +408,20 @@ export default function QuoteDetail() {
               <div className={styles.summaryRow}><span>Status</span>
                 <span className={styles.badge} style={{ background: STATUS_COLOURS[quote.status]+'18', color: STATUS_COLOURS[quote.status] }}>{quote.status}</span>
               </div>
-              {quote.job_number && <div className={styles.summaryRow}><span>Job</span><Link to={`/jobs/${quote.job_id}`}>{formatJobNumber(quote)}</Link></div>}
+              {quote.job_id
+                ? <div className={styles.summaryRow}><span>Job</span><Link to={`/jobs/${quote.job_id}`}>{formatJobNumber(quote) || 'View job'}</Link></div>
+                : (
+                  // Raised before any job existed. It stays that way until the
+                  // work is won — then it gets a job number, either from a new
+                  // job or from one that already covers this work.
+                  <div className={styles.summaryRow}>
+                    <span>Job</span>
+                    <button onClick={() => setShowAttachJob(true)}
+                      style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-primary)', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+                      + Add a job
+                    </button>
+                  </div>
+                )}
               <div className={styles.summaryRow}><span>Created</span><strong>{new Date(quote.created_at).toLocaleDateString('en-NZ')}</strong></div>
               {quote.sent_at && <div className={styles.summaryRow}><span>Sent</span><strong>{new Date(quote.sent_at).toLocaleDateString('en-NZ')}</strong></div>}
               {quote.expires_at && (

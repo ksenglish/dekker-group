@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import NewQuoteModal from './NewQuoteModal';
 import styles from './Quotes.module.css';
 
 const TABS = [
@@ -46,6 +47,7 @@ export default function QuoteList() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
+  const [showNewQuote, setShowNewQuote] = useState(false);
 
   // Admins can remove any quote; everyone else only their own.
   const canDelete = q => user?.role === 'admin' || q.created_by === user?.id;
@@ -99,7 +101,17 @@ export default function QuoteList() {
           <h1 className={styles.pageTitle}>Quotes</h1>
           <p className={styles.pageSubtitle}>{counts[''] || 0} total quotes</p>
         </div>
+        <div className={styles.headerActions}>
+          <button className={styles.btnPrimary} onClick={() => setShowNewQuote(true)}>+ New Quote</button>
+        </div>
       </div>
+
+      {showNewQuote && (
+        <NewQuoteModal
+          onClose={() => setShowNewQuote(false)}
+          onCreated={q => navigate(`/quotes/${q.id}`)}
+        />
+      )}
 
       {/* Status tabs */}
       <div className={styles.tabBar}>

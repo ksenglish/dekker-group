@@ -123,10 +123,19 @@ async function get(req, res) {
 
 async function create(req, res) {
   const { job_id, customer_id, notes, theme_id } = req.body;
-  if (!job_id) return res.status(400).json({ error: 'job_id is required' });
+  // A quote raised straight from the Quotes page has no job behind it yet —
+  // the customer is then the only thing identifying who it's for, so it can't
+  // be left out. (Quotes raised from a job inherit the job's customer, which
+  // that job is allowed to not have.)
+  if (!job_id && !customer_id) {
+    return res.status(400).json({ error: 'A customer is required for a quote that has no job' });
+  }
   try {
-    // Seed the quote from the job's current line items
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL', [job_id]);
+    // Seed the quote from the job's current line items — a job-less quote
+    // starts empty and is priced up in the line items editor.
+    const items = job_id
+      ? await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL', [job_id])
+      : { rows: [] };
     const { subtotal, gst, total } = calcTotals(items.rows);
     const theme = await getTheme();
     const expiryDays = theme.quoteExpiryDays ?? 30;
@@ -135,16 +144,18 @@ async function create(req, res) {
     const { rows } = await pool.query(
       `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by, theme_id, quote_date)
        VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,CURRENT_DATE) RETURNING *`,
-      [job_id, customer_id || null, subtotal, gst, total, sanitizeHtml(notes) || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id, docTheme?.id || null]
+      [job_id || null, customer_id || null, subtotal, gst, total, sanitizeHtml(notes) || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id, docTheme?.id || null]
     );
     // Take a copy of those items for the quote to own, so it can be priced
     // independently of the job and of any other quote on it.
-    await pool.query(
-      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name)
-       SELECT job_id, $1, description, quantity, unit_price, product_id, product_name
-       FROM line_items WHERE job_id=$2 AND quote_id IS NULL ORDER BY created_at`,
-      [rows[0].id, job_id]
-    );
+    if (job_id) {
+      await pool.query(
+        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name)
+         SELECT job_id, $1, description, quantity, unit_price, product_id, product_name
+         FROM line_items WHERE job_id=$2 AND quote_id IS NULL ORDER BY created_at`,
+        [rows[0].id, job_id]
+      );
+    }
     // Deliberately does NOT move the job to Quoted. A draft that never leaves
     // the office isn't a quote as far as the customer is concerned — the job
     // advances when the quote is actually emailed (see sendEmail).
@@ -245,6 +256,68 @@ async function updateLineItems(req, res) {
   }
 }
 
+// Gives a job-less quote its job, either by opening a new one for the quote's
+// customer or by pointing it at a job that already exists. Only ever fills a
+// gap — a quote already on a job is refused rather than moved, so this can't
+// silently detach a quote from the job its history and invoice refer to.
+async function attachJob(req, res) {
+  const { job_id, type, description, site_id } = req.body || {};
+  try {
+    const { rows: [quote] } = await pool.query(
+      'SELECT id, job_id, customer_id, status FROM quotes WHERE id=$1', [req.params.id]
+    );
+    if (!quote) return res.status(404).json({ error: 'Quote not found' });
+    if (quote.job_id) return res.status(409).json({ error: 'This quote is already linked to a job' });
+
+    let jobId = job_id;
+    if (jobId) {
+      const { rows: [job] } = await pool.query('SELECT id FROM jobs WHERE id=$1', [jobId]);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+    } else {
+      if (!type) return res.status(400).json({ error: 'Job type is required' });
+      if (!quote.customer_id) return res.status(400).json({ error: 'This quote has no customer to raise a job for' });
+      const { rows: [job] } = await pool.query(
+        `INSERT INTO jobs (customer_id, site_id, type, description, priority)
+         VALUES ($1,$2,$3,$4,'medium') RETURNING id`,
+        [quote.customer_id, site_id || null, type, sanitizeHtml(description) || null]
+      );
+      jobId = job.id;
+      // Mirrors jobController.create: a non-admin who raises a job is assigned
+      // to it, or the job list — which scopes them to their own work — would
+      // hide the job they just made.
+      if (normaliseRole(req.user.role) !== 'admin') {
+        await pool.query(
+          'INSERT INTO job_technicians (job_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+          [jobId, req.user.id]
+        );
+      }
+    }
+
+    await pool.query('UPDATE quotes SET job_id=$1, updated_at=NOW() WHERE id=$2', [jobId, quote.id]);
+    // The quote's own items carry the job too, matching how they'd look had
+    // the quote been raised from the job in the first place. quote_id still
+    // separates them from the job's own items, so nothing is confused for a
+    // job line item.
+    await pool.query('UPDATE line_items SET job_id=$1 WHERE quote_id=$2', [jobId, quote.id]);
+
+    // A quote accepted before it had a job never got to push its scope onto
+    // one. Do it now, so the job it lands on reflects what was signed off.
+    if (quote.status === 'accepted') {
+      await syncJobLineItemsFromQuote(quote.id, jobId);
+      await advanceToSale(jobId);
+    }
+
+    await logActivity({ type: 'quote_modified', entity_type: 'quote', entity_id: quote.id, user_id: req.user.id,
+      message: job_id ? 'Quote linked to an existing job' : 'Job created from quote' });
+    const { rows: [updated] } = await pool.query(
+      `SELECT q.*, j.job_number, j.external_ref
+       FROM quotes q LEFT JOIN jobs j ON j.id = q.job_id WHERE q.id=$1`,
+      [quote.id]
+    );
+    res.status(201).json(updated);
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+}
+
 // Internal sales-review step, ahead of actually sending — flips the badge
 // from DRAFT to APPROVED so a customer never sees "Draft" on a quote that
 // was in fact reviewed and sent to them.
@@ -304,7 +377,9 @@ async function convertToInvoice(req, res) {
        VALUES ($1,$2,$3,'draft',$4,$5,$6,$7,$8) RETURNING *`,
       [quote.job_id, quote.id, quote.customer_id, quote.subtotal, quote.gst, quote.total, dueDate.toISOString().split('T')[0], quote.theme_id]
     );
-    await pool.query(`UPDATE jobs SET status='invoiced', updated_at=NOW() WHERE id=$1`, [quote.job_id]);
+    if (quote.job_id) {
+      await pool.query(`UPDATE jobs SET status='invoiced', updated_at=NOW() WHERE id=$1`, [quote.job_id]);
+    }
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
@@ -733,4 +808,4 @@ async function getActivity(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, updateLineItems, remove, approve, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, getActivity };
+module.exports = { list, get, create, update, updateLineItems, remove, approve, attachJob, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, getActivity };
