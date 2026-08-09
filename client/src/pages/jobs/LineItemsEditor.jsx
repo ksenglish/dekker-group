@@ -4,6 +4,19 @@ import ProductSearch from '../../components/products/ProductSearch';
 
 const GST_RATE = 0.15;
 
+// Rows need a key that belongs to the row, not to its position.
+//
+// Keying by array index made deleting a middle row look like it deleted the
+// last one: React kept the component instance sitting at that index and handed
+// it the next row's data, but ProductSearch holds the description in its own
+// state and only reads the prop once, so it carried on showing the deleted
+// row's text. The state was right and the screen was wrong — and editing that
+// row then changed a different line from the one on screen.
+//
+// Saved rows have an id; new ones get a counter until they are saved.
+let rowSeq = 0;
+const nextRowKey = () => `new-${++rowSeq}`;
+
 export default function LineItemsEditor({ items: initialItems, onSave, readonly }) {
   const [items, setItems] = useState([]);
   const [dirty, setDirty] = useState(false);
@@ -12,6 +25,7 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
   useEffect(() => {
     setItems(initialItems.map(i => ({
       ...i,
+      _key: i.id || nextRowKey(),
       // Stored excl. GST (cents) — shown/edited here incl. GST, since that's
       // the figure the team quotes customers.
       unit_price: ((i.unit_price / 100) * (1 + GST_RATE)).toFixed(2),
@@ -20,7 +34,7 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
   }, [initialItems]);
 
   function addRow() {
-    setItems(i => [...i, { description: '', quantity: 1, unit_price: '0.00', product_id: null, product_name: '' }]);
+    setItems(i => [...i, { _key: nextRowKey(), description: '', quantity: 1, unit_price: '0.00', product_id: null, product_name: '' }]);
     setDirty(true);
   }
 
@@ -64,7 +78,7 @@ async function handleSave() {
       )}
 
       {items.map((item, idx) => (
-        <div key={idx} className={styles.lineItemRow}>
+        <div key={item._key} className={styles.lineItemRow}>
           {readonly ? (
             <>
               <span>{item.description}</span>
