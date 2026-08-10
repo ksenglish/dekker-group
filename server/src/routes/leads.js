@@ -4,15 +4,30 @@ const pool = require('../db/pool');
 const { authenticate, requireRole, requireRawRole } = require('../middleware/auth');
 const { sendMail } = require('../utils/email');
 
-const LEAD_STATUSES = ['new', 'contacted', 'converted', 'dismissed'];
+const LEAD_STATUSES = ['new', 'contacted', 'call_back', 'converted', 'not_interested'];
 const SALES_EMAIL = 'sales@dekkergroup.co.nz';
 
 // Timestamp column stamped the first time each status is reached.
-const RESULT_STAMP = { contacted: 'contacted_at', converted: 'converted_at', dismissed: 'dismissed_at' };
+const RESULT_STAMP = {
+  contacted: 'contacted_at', call_back: 'call_back_at',
+  converted: 'converted_at', not_interested: 'not_interested_at',
+};
+
+// What picking a call result does. Everything that isn't a win or a refusal
+// lands on 'contacted' — we rang, we got somewhere, it's still live.
+const CALL_RESULTS = {
+  left_voicemail: { label: 'Left Voice Mail', status: 'contacted' },
+  no_reply:       { label: 'No Reply',        status: 'contacted' },
+  emailed:        { label: 'Emailed',         status: 'contacted' },
+  texted:         { label: 'Texted',          status: 'contacted' },
+  call_back:      { label: 'Call Back',       status: 'call_back' },
+  booked:         { label: 'Booked',          status: 'converted' },
+  not_interested: { label: 'Not Interested',  status: 'not_interested' },
+};
 
 // A lead is "open" until it's either won or deliberately dropped — that's the
 // number the sidebar badge nags with.
-const OPEN_STATUSES = ['new', 'contacted'];
+const OPEN_STATUSES = ['new', 'contacted', 'call_back'];
 
 // Website forms send one address string; manual entry collects the same
 // structured parts as a customer. Keep `address` populated either way so
@@ -145,6 +160,52 @@ router.post('/webhook/wix', async (req, res) => {
 });
 
 // ── Authenticated endpoints (admin + office staff) ────────────────────────────
+// Once we've actually spoken to someone they're a contact worth keeping,
+// whatever the enquiry turns into — so the customer record is created the
+// moment a lead leaves 'new', not when it converts. Idempotent: a lead that
+// already has a customer keeps it.
+async function ensureCustomer(client, lead) {
+  if (lead.customer_id) return lead.customer_id;
+
+  const { rows } = await client.query(
+    `INSERT INTO customers (name, contact_name, company, email, phone, mobile, lead_source,
+                            address_street, address_city, address_region, address_postcode, address_country)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+    [lead.name, lead.contact_name, lead.company, lead.email, lead.phone, lead.mobile, lead.source,
+     lead.address_street, lead.address_city, lead.address_region, lead.address_postcode,
+     lead.address_country || 'New Zealand']
+  );
+  const customerId = rows[0].id;
+
+  if (lead.address) {
+    await client.query(
+      'INSERT INTO customer_sites (customer_id, address) VALUES ($1,$2)',
+      [customerId, lead.address]
+    );
+  }
+  await client.query('UPDATE leads SET customer_id = $1 WHERE id = $2', [customerId, lead.id]);
+  return customerId;
+}
+
+// Converting means the work is booked, so it opens a job. Idempotent for the
+// same reason — re-marking a lead as booked must not open a second job.
+async function ensureJob(client, lead, customerId) {
+  if (lead.job_id) return lead.job_id;
+
+  const { rows } = await client.query(
+    `INSERT INTO jobs (customer_id, type, description, priority, status)
+     VALUES ($1,$2,$3,'medium','new') RETURNING id`,
+    [
+      customerId,
+      lead.service_required || 'Enquiry',
+      [lead.service_required, lead.message].filter(Boolean).join(' — ') || null,
+    ]
+  );
+  const jobId = rows[0].id;
+  await client.query('UPDATE leads SET job_id = $1 WHERE id = $2', [jobId, lead.id]);
+  return jobId;
+}
+
 router.use(authenticate);
 
 router.get('/', requireRawRole('admin', 'office'), async (req, res) => {
@@ -181,8 +242,9 @@ router.get('/stats', requireRawRole('admin', 'office'), async (req, res) => {
         COUNT(*)                                                    AS total_count,
         COUNT(*) FILTER (WHERE status='new')                        AS new_count,
         COUNT(*) FILTER (WHERE status='contacted')                  AS contacted_count,
+        COUNT(*) FILTER (WHERE status='call_back')                  AS call_back_count,
         COUNT(*) FILTER (WHERE status='converted')                  AS converted_count,
-        COUNT(*) FILTER (WHERE status='dismissed')                  AS dismissed_count,
+        COUNT(*) FILTER (WHERE status='not_interested')             AS not_interested_count,
         COUNT(*) FILTER (WHERE status = ANY($1))                    AS open_count,
         COUNT(*) FILTER (WHERE entry_method='manual')               AS manual_count,
         COUNT(*) FILTER (WHERE entry_method='website')              AS website_count,
@@ -194,8 +256,9 @@ router.get('/stats', requireRawRole('admin', 'office'), async (req, res) => {
       total_count:      Number(s.total_count),
       new_count:        Number(s.new_count),
       contacted_count:  Number(s.contacted_count),
+      call_back_count:  Number(s.call_back_count),
       converted_count:  Number(s.converted_count),
-      dismissed_count:  Number(s.dismissed_count),
+      not_interested_count: Number(s.not_interested_count),
       open_count:       Number(s.open_count),
       manual_count:     Number(s.manual_count),
       website_count:    Number(s.website_count),
@@ -210,60 +273,140 @@ router.get('/stats', requireRawRole('admin', 'office'), async (req, res) => {
 router.patch('/:id/status', requireRawRole('admin', 'office'), async (req, res) => {
   const { status } = req.body;
   if (!LEAD_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  const client = await pool.connect();
   try {
+    await client.query('BEGIN');
+    const { rows: [lead] } = await client.query('SELECT * FROM leads WHERE id=$1 FOR UPDATE', [req.params.id]);
+    if (!lead) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Lead not found' }); }
+
+    // Moving a lead off 'new' by hand counts as contact just as much as
+    // recording a call result does, so the customer record is created here too.
+    let customerId = lead.customer_id;
+    let jobId = lead.job_id;
+    if (status !== 'new') customerId = await ensureCustomer(client, lead);
+    if (status === 'converted') jobId = await ensureJob(client, lead, customerId);
+
     // COALESCE everywhere so the stamps record the *first* time a lead reached
     // each stage — re-marking it later must not restart the clock.
     const sets = ['status=$1', 'updated_at=NOW()'];
     const params = [status, req.params.id];
     const stamp = RESULT_STAMP[status];
     if (stamp) sets.push(`${stamp} = COALESCE(${stamp}, NOW())`);
+    if (status !== 'call_back') sets.push('call_back_on = NULL');
     if (status !== 'new') {
       sets.push('resulted_at = COALESCE(resulted_at, NOW())');
       params.push(req.user.id);
       sets.push(`resulted_by = COALESCE(resulted_by, $${params.length})`);
     }
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `UPDATE leads SET ${sets.join(', ')} WHERE id=$2 RETURNING *`, params
+    );
+    await client.query('COMMIT');
+    res.json({ ...rows[0], customer_id: customerId, job_id: jobId });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err); res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
+});
+
+// Edit a lead's details after it's been saved. Available at any stage — a
+// phone number taken down wrong shouldn't need the lead converting first.
+router.put('/:id', requireRawRole('admin', 'office'), async (req, res) => {
+  const f = req.body || {};
+  if (!f.name?.trim()) return res.status(400).json({ error: 'Name is required' });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE leads SET
+         name=$1, contact_name=$2, company=$3, email=$4, phone=$5, mobile=$6,
+         service_required=$7, message=$8, source=COALESCE($9, source), address=$10,
+         address_street=$11, address_city=$12, address_region=$13,
+         address_postcode=$14, address_country=$15, updated_at=NOW()
+       WHERE id=$16 RETURNING *`,
+      [f.name.trim(), f.contact_name || null, f.company || null, f.email || null,
+       f.phone || null, f.mobile || null, f.service_required || null, f.message || null,
+       f.source || null, f.address || null, f.address_street || null, f.address_city || null,
+       f.address_region || null, f.address_postcode || null, f.address_country || 'New Zealand',
+       req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Lead not found' });
     res.json(rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
-// Convert a lead into a customer (links the new customer back to the lead)
+// Record the outcome of a call. This is the main way a lead moves: the result
+// picked decides the status, so nobody has to remember which status goes with
+// "left a voicemail".
+router.post('/:id/result', requireRawRole('admin', 'office'), async (req, res) => {
+  const { result, call_back_on } = req.body || {};
+  const mapped = CALL_RESULTS[result];
+  if (!mapped) return res.status(400).json({ error: 'Unknown call result' });
+  if (result === 'call_back' && !call_back_on) {
+    return res.status(400).json({ error: 'Pick a date to call back on' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [lead] } = await client.query('SELECT * FROM leads WHERE id=$1 FOR UPDATE', [req.params.id]);
+    if (!lead) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Lead not found' }); }
+
+    // Every outcome here means we've made contact, so the customer record is
+    // created now regardless of which way the lead goes.
+    const customerId = await ensureCustomer(client, lead);
+    const jobId = mapped.status === 'converted'
+      ? await ensureJob(client, lead, customerId)
+      : lead.job_id;
+
+    const stamp = RESULT_STAMP[mapped.status];
+    const sets = [
+      'status=$1', 'last_result=$2', 'updated_at=NOW()',
+      'resulted_at = COALESCE(resulted_at, NOW())',
+      'resulted_by = COALESCE(resulted_by, $3)',
+      // Cleared unless this result sets one, so a lead that moves on doesn't
+      // keep an old call-back date hanging off it.
+      `call_back_on = ${result === 'call_back' ? '$5::date' : 'NULL'}`,
+    ];
+    if (stamp) sets.push(`${stamp} = COALESCE(${stamp}, NOW())`);
+
+    const params = [mapped.status, result, req.user.id, req.params.id];
+    if (result === 'call_back') params.push(call_back_on);
+
+    const { rows } = await client.query(
+      `UPDATE leads SET ${sets.join(', ')} WHERE id=$4 RETURNING *`, params
+    );
+    await client.query('COMMIT');
+    res.json({ ...rows[0], customer_id: customerId, job_id: jobId });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
+});
+
+// Kept for the existing "convert" action — now opens a job rather than just a
+// customer, so converted means booked work.
 router.post('/:id/convert', requireRawRole('admin', 'office'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows: leadRows } = await client.query('SELECT * FROM leads WHERE id=$1', [req.params.id]);
-    if (!leadRows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Lead not found' }); }
-    const lead = leadRows[0];
-    if (lead.customer_id) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Lead already converted' }); }
+    const { rows: [lead] } = await client.query('SELECT * FROM leads WHERE id=$1 FOR UPDATE', [req.params.id]);
+    if (!lead) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Lead not found' }); }
+    if (lead.job_id) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'This lead already has a job' }); }
 
-    const { rows: custRows } = await client.query(
-      `INSERT INTO customers (name, contact_name, company, email, phone, mobile, lead_source,
-                              address_street, address_city, address_region, address_postcode, address_country)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-      [lead.name, lead.contact_name, lead.company, lead.email, lead.phone, lead.mobile, lead.source,
-       lead.address_street, lead.address_city, lead.address_region, lead.address_postcode,
-       lead.address_country || 'New Zealand']
-    );
-    if (lead.address) {
-      await client.query(
-        `INSERT INTO customer_sites (customer_id, address) VALUES ($1,$2)`,
-        [custRows[0].id, lead.address]
-      );
-    }
+    const customerId = await ensureCustomer(client, lead);
+    const jobId = await ensureJob(client, lead, customerId);
+
     await client.query(
-      `UPDATE leads SET status='converted', customer_id=$1, updated_at=NOW(),
+      `UPDATE leads SET status='converted', last_result='booked', updated_at=NOW(),
               converted_at = COALESCE(converted_at, NOW()),
               resulted_at  = COALESCE(resulted_at, NOW()),
-              resulted_by  = COALESCE(resulted_by, $3)
-       WHERE id=$2`,
-      [custRows[0].id, lead.id, req.user.id]
+              resulted_by  = COALESCE(resulted_by, $2),
+              call_back_on = NULL
+       WHERE id=$1`,
+      [lead.id, req.user.id]
     );
     await client.query('COMMIT');
-    res.json({ customer_id: custRows[0].id });
+    res.json({ customer_id: customerId, job_id: jobId });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);

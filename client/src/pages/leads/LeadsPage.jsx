@@ -5,9 +5,152 @@ import { useAuth } from '../../context/AuthContext';
 import styles from './Leads.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
-const STATUSES = ['new', 'contacted', 'converted', 'dismissed'];
-const STATUS_COLOURS = { new: '#1e40af', contacted: '#d97706', converted: '#16a34a', dismissed: '#6b7280' };
-const STATUS_LABEL = { new: 'New', contacted: 'Contacted', converted: 'Converted', dismissed: 'Dismissed' };
+const STATUSES = ['new', 'contacted', 'call_back', 'converted', 'not_interested'];
+const STATUS_COLOURS = {
+  new: '#1e40af', contacted: '#d97706', call_back: '#7c3aed',
+  converted: '#16a34a', not_interested: '#6b7280',
+};
+const STATUS_LABEL = {
+  new: 'New', contacted: 'Contacted', call_back: 'Call Back',
+  converted: 'Converted', not_interested: 'Not Interested',
+};
+
+// Picking a result is how a lead moves — the status follows from what actually
+// happened on the call, so nobody has to map one to the other in their head.
+const CALL_RESULTS = [
+  { value: 'left_voicemail', label: 'Left Voice Mail', to: 'contacted' },
+  { value: 'no_reply',       label: 'No Reply',        to: 'contacted' },
+  { value: 'emailed',        label: 'Emailed',         to: 'contacted' },
+  { value: 'texted',         label: 'Texted',          to: 'contacted' },
+  { value: 'call_back',      label: 'Call Back',       to: 'call_back' },
+  { value: 'booked',         label: 'Booked',          to: 'converted' },
+  { value: 'not_interested', label: 'Not Interested',  to: 'not_interested' },
+];
+
+// Strips spaces and NZ formatting so tel:/sms: links dial reliably
+const dialable = v => (v || '').replace(/[^\d+]/g, '');
+
+// Records what happened on the call and lets the result decide the status.
+function CallResultPicker({ lead, onRecorded }) {
+  const [result, setResult] = useState('');
+  const [callBackOn, setCallBackOn] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const needsDate = result === 'call_back';
+  const moveTo = CALL_RESULTS.find(r => r.value === result)?.to;
+
+  async function save() {
+    if (!result) return;
+    if (needsDate && !callBackOn) { setError('Pick a date to call back on'); return; }
+    setBusy(true); setError('');
+    try {
+      const { data } = await api.post(`/leads/${lead.id}/result`, {
+        result, call_back_on: needsDate ? callBackOn : null,
+      });
+      setResult(''); setCallBackOn('');
+      onRecorded(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not record that');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className={styles.resultBar}>
+      <label className={styles.resultLabel}>Call result</label>
+      <div className={styles.resultRow}>
+        <select
+          className={styles.resultSelect}
+          value={result}
+          onChange={e => { setResult(e.target.value); setError(''); }}
+        >
+          <option value="">— Select —</option>
+          {CALL_RESULTS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+        </select>
+
+        {needsDate && (
+          <input
+            type="date"
+            className={styles.resultSelect}
+            value={callBackOn}
+            onChange={e => setCallBackOn(e.target.value)}
+          />
+        )}
+
+        <button className={styles.btnPrimary} onClick={save} disabled={!result || busy}>
+          {busy ? 'Saving…' : 'Record'}
+        </button>
+      </div>
+
+      {moveTo && (
+        <div className={styles.resultHint}>
+          Moves this lead to <strong style={{ color: STATUS_COLOURS[moveTo] }}>{STATUS_LABEL[moveTo]}</strong>
+          {moveTo === 'converted' && ' and opens a job'}
+          {!lead.customer_id && ', and saves them to Customers'}.
+        </div>
+      )}
+      {error && <div className={styles.resultError}>{error}</div>}
+    </div>
+  );
+}
+
+// Details stay editable at any stage — a number taken down wrong shouldn't
+// need the lead converting first.
+function LeadEditForm({ lead, onCancel, onSaved }) {
+  const [f, setF] = useState({
+    name: lead.name || '', contact_name: lead.contact_name || '', company: lead.company || '',
+    email: lead.email || '', phone: lead.phone || '', mobile: lead.mobile || '',
+    service_required: lead.service_required || '', message: lead.message || '',
+    address: lead.address || '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  async function save(e) {
+    e.preventDefault();
+    if (!f.name.trim()) { setError('Name is required'); return; }
+    setBusy(true); setError('');
+    try {
+      const { data } = await api.put(`/leads/${lead.id}`, { ...lead, ...f });
+      onSaved(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not save');
+      setBusy(false);
+    }
+  }
+
+  const field = (key, label, type = 'text') => (
+    <label className={styles.editField}>
+      <span>{label}</span>
+      <input type={type} value={f[key]} onChange={e => set(key, e.target.value)} />
+    </label>
+  );
+
+  return (
+    <form className={styles.editForm} onSubmit={save}>
+      {field('name', 'Name')}
+      {field('contact_name', 'Contact name')}
+      {field('company', 'Company')}
+      {field('email', 'Email', 'email')}
+      {field('mobile', 'Mobile')}
+      {field('phone', 'Phone')}
+      {field('address', 'Address')}
+      {field('service_required', 'Service required')}
+      <label className={styles.editField}>
+        <span>Message</span>
+        <textarea rows={3} value={f.message} onChange={e => set('message', e.target.value)} />
+      </label>
+      {error && <div className={styles.resultError}>{error}</div>}
+      <div className={styles.editButtons}>
+        <button type="submit" className={styles.btnPrimary} disabled={busy}>
+          {busy ? 'Saving…' : 'Save changes'}
+        </button>
+        <button type="button" className={styles.btnSecondary} onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
 
 const EMPTY_LEAD = {
   name: '', contact_name: '', company: '', email: '', mobile: '', phone: '',
@@ -40,6 +183,7 @@ export default function LeadsPage() {
   const [filter, setFilter] = useState('new');
   const [selected, setSelected] = useState(null);
   const [converting, setConverting] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [stats, setStats] = useState(null);
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState(EMPTY_LEAD);
@@ -88,15 +232,17 @@ export default function LeadsPage() {
     announceChange();
   }
 
+  // Converting now means the work is booked, so it opens a job rather than
+  // just a customer record — the customer already exists by this point.
   async function convert(lead) {
-    if (!confirm(`Create a customer from ${lead.name}?`)) return;
+    if (!confirm(`Book ${lead.name} in as a job?`)) return;
     setConverting(true);
     try {
       const { data } = await api.post(`/leads/${lead.id}/convert`);
       announceChange();
-      navigate(`/customers/${data.customer_id}`);
+      navigate(`/jobs/${data.job_id}`);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to convert lead');
+      alert(err.response?.data?.error || 'Failed to book this lead');
     } finally { setConverting(false); }
   }
 
@@ -191,7 +337,7 @@ export default function LeadsPage() {
       )}
 
       {selected && (
-        <div className={styles.overlay} {...overlayClose(() => setSelected(null))}>
+        <div className={styles.overlay} {...overlayClose(() => { setSelected(null); setEditing(false); })}>
           <div className={styles.modal}>
             <div className={styles.modalHeader}>
               <h2>{selected.name}</h2>
@@ -209,12 +355,59 @@ export default function LeadsPage() {
               ))}
             </div>
 
+            {/* One tap to reach them, straight from the record being worked */}
+            <div className={styles.hotButtons}>
+              <a
+                className={`${styles.hotBtn} ${!(selected.mobile || selected.phone) ? styles.hotBtnOff : ''}`}
+                href={`tel:${dialable(selected.mobile || selected.phone)}`}
+                onClick={e => { if (!(selected.mobile || selected.phone)) e.preventDefault(); }}
+              >📞 Call</a>
+              <a
+                className={`${styles.hotBtn} ${!(selected.mobile || selected.phone) ? styles.hotBtnOff : ''}`}
+                href={`sms:${dialable(selected.mobile || selected.phone)}`}
+                onClick={e => { if (!(selected.mobile || selected.phone)) e.preventDefault(); }}
+              >💬 Text</a>
+              <a
+                className={`${styles.hotBtn} ${!selected.email ? styles.hotBtnOff : ''}`}
+                href={`mailto:${selected.email || ''}`}
+                onClick={e => { if (!selected.email) e.preventDefault(); }}
+              >✉ Email</a>
+            </div>
+
+            <CallResultPicker
+              lead={selected}
+              onRecorded={updated => {
+                setSelected(s => (s && s.id === updated.id ? { ...s, ...updated } : s));
+                load();
+              }}
+            />
+
+            {editing ? (
+              <LeadEditForm
+                lead={selected}
+                onCancel={() => setEditing(false)}
+                onSaved={updated => {
+                  setEditing(false);
+                  setSelected(s => (s && s.id === updated.id ? { ...s, ...updated } : s));
+                  load();
+                }}
+              />
+            ) : (
             <div className={styles.detailList}>
-              {selected.phone && <div className={styles.detailRow}><span>Phone</span><strong><a href={`tel:${selected.phone}`}>{selected.phone}</a></strong></div>}
+              {(selected.mobile || selected.phone) && <div className={styles.detailRow}><span>Phone</span><strong><a href={`tel:${dialable(selected.mobile || selected.phone)}`}>{selected.mobile || selected.phone}</a></strong></div>}
               {selected.email && <div className={styles.detailRow}><span>Email</span><strong><a href={`mailto:${selected.email}`}>{selected.email}</a></strong></div>}
               {selected.address && <div className={styles.detailRow}><span>Address</span><strong>{selected.address}</strong></div>}
               {selected.service_required && <div className={styles.detailRow}><span>Service Required</span><strong>{selected.service_required}</strong></div>}
               {selected.source && <div className={styles.detailRow}><span>Source</span><strong>{selected.source}</strong></div>}
+              {selected.call_back_on && (
+                <div className={styles.detailRow}>
+                  <span>Call back on</span>
+                  <strong style={{ color: '#7c3aed' }}>
+                    {new Date(String(selected.call_back_on).slice(0, 10) + 'T12:00:00')
+                      .toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'long' })}
+                  </strong>
+                </div>
+              )}
               <div className={styles.detailRow}>
                 <span>Received</span>
                 <strong>{fmtDateTime(selected.created_at)}{selected.entry_method === 'manual' ? ' (entered manually)' : ''}</strong>
@@ -241,25 +434,37 @@ export default function LeadsPage() {
                   </strong>
                 </div>
               )}
-              {selected.dismissed_at && !selected.converted_at && (
-                <div className={styles.detailRow}><span>Dismissed</span><strong>{fmtDateTime(selected.dismissed_at)}</strong></div>
+              {(selected.not_interested_at || selected.dismissed_at) && !selected.converted_at && (
+                <div className={styles.detailRow}>
+                  <span>Not interested</span>
+                  <strong>{fmtDateTime(selected.not_interested_at || selected.dismissed_at)}</strong>
+                </div>
               )}
               {selected.customer_name && <div className={styles.detailRow}><span>Customer</span><strong>{selected.customer_name}</strong></div>}
             </div>
+            )}
 
-            {selected.message && <div className={styles.messageBlock}>{selected.message}</div>}
+            {selected.message && !editing && <div className={styles.messageBlock}>{selected.message}</div>}
 
             <div className={styles.modalFooter}>
               {user?.role === 'admin' && (
                 <button className={styles.btnDanger} onClick={() => remove(selected)}>Delete</button>
               )}
-              {!selected.customer_id ? (
-                <button className={styles.btnPrimary} onClick={() => convert(selected)} disabled={converting}>
-                  {converting ? 'Converting…' : '→ Convert to Customer'}
-                </button>
-              ) : (
+              {!editing && (
+                <button className={styles.btnSecondary} onClick={() => setEditing(true)}>Edit details</button>
+              )}
+              {selected.customer_id && (
                 <button className={styles.btnSecondary} onClick={() => navigate(`/customers/${selected.customer_id}`)}>
                   View Customer
+                </button>
+              )}
+              {selected.job_id ? (
+                <button className={styles.btnSecondary} onClick={() => navigate(`/jobs/${selected.job_id}`)}>
+                  View Job
+                </button>
+              ) : (
+                <button className={styles.btnPrimary} onClick={() => convert(selected)} disabled={converting}>
+                  {converting ? 'Booking…' : '→ Book as Job'}
                 </button>
               )}
             </div>
