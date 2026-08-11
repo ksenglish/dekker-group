@@ -51,6 +51,7 @@ const NAV_ITEMS = [
 
 function visibleNavItems(items, role) {
   return items.filter(item =>
+    (!item.adminOnly || role === 'admin') &&
     (!item.officeOnly || ['admin', 'office'].includes(role)) &&
     (!item.hideForOperations || role !== 'operations')
   );
@@ -247,6 +248,10 @@ export default function AppShell() {
           { to: '/customers', icon: '👥', label: 'Customers' },
           { to: '/products',  icon: '🏷', label: 'Price List', hideForOperations: true },
           { to: '/timesheets', icon: '⏱', label: 'Timesheets' },
+          // Admin only, matching who can act on what's in here — mainly so
+          // receipts can be photographed and filed into Operating Costs on the
+          // phone rather than having to get back to a desktop.
+          { to: '/reports',   icon: '📊', label: 'Reports', adminOnly: true },
           { to: '/presenter', icon: '🎯', label: 'Presenter', hideForOperations: true },
           { to: '/hub',       icon: '🏢', label: 'Hub' },
         ], user?.role).map(item => (
