@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { extractLineItems } = require('../services/invoiceExtract');
 
 router.use(authenticate);
 
@@ -131,6 +132,44 @@ router.get('/operating', async (req, res) => {
       [folder_id || null]
     );
     res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Upload a PDF or a photo of a receipt straight into a folder. The scanner
+// reads the line items off it so a hand-filed document carries the same detail
+// as one that arrived through the mailbox. A scan that finds nothing still
+// files — the document is the point, the items are a bonus.
+router.post('/documents', requireRole('admin', 'office'), async (req, res) => {
+  const { folder_id, mime_type, data_base64 } = req.body;
+  if (!folder_id) return res.status(400).json({ error: 'Choose a folder to file this in' });
+  if (!data_base64 || !mime_type) return res.status(400).json({ error: 'File data required' });
+
+  try {
+    const { rows: [folder] } = await pool.query('SELECT id FROM cost_folders WHERE id = $1', [folder_id]);
+    if (!folder) return res.status(404).json({ error: 'That folder no longer exists' });
+
+    let scan = { items: [], gst_treatment: 'exclusive', supplier: null, invoice_number: null };
+    let scan_error = null;
+    try {
+      scan = await extractLineItems({ base64: data_base64, mimeType: mime_type });
+    } catch (err) {
+      scan_error = err.message || 'Could not read the line items off this document';
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO job_cost_scans
+         (folder_id, status, document_base64, mime_type, supplier, invoice_number,
+          gst_treatment, parsed_items)
+       VALUES ($1, 'filed', $2, $3, $4, $5, $6, $7)
+       RETURNING id, supplier, invoice_number, mime_type, created_at, folder_id, parsed_items`,
+      [
+        folder_id, data_base64, mime_type,
+        req.body.supplier?.trim() || scan.supplier,
+        req.body.invoice_number?.trim() || scan.invoice_number,
+        scan.gst_treatment, JSON.stringify(scan.items),
+      ]
+    );
+    res.status(201).json({ ...rows[0], scan_error });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

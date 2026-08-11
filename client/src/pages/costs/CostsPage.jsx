@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
@@ -168,6 +168,26 @@ function buildTree(folders, parentId = null) {
     .map(f => ({ ...f, children: buildTree(folders, f.id) }));
 }
 
+// The move picker is a flat <select>, so the tree is flattened back out with the
+// nesting shown as indentation — otherwise two subfolders called "Power" in
+// different parents are indistinguishable in the list.
+function flattenFolders(tree, depth = 0) {
+  return tree.flatMap(f => [
+    { id: f.id, label: `${'  '.repeat(depth)}${depth ? '└ ' : ''}${f.name}` },
+    ...flattenFolders(f.children, depth + 1),
+  ]);
+}
+
+// Files are sent as data URLs, the same shape the PDF Check scans are stored in.
+function readAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read that file'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function OperatingCosts({ admin }) {
   const [folders, setFolders] = useState([]);
   const [openIds, setOpenIds] = useState([]);
@@ -225,6 +245,7 @@ function OperatingCosts({ admin }) {
   }
 
   const toggle = id => setOpenIds(ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]));
+  const folderOptions = flattenFolders(buildTree(folders));
 
   if (loading) return <div className={styles.loading}>Loading…</div>;
 
@@ -232,7 +253,10 @@ function OperatingCosts({ admin }) {
     <>
       <p className={styles.folderNote}>
         Running costs that don't belong to any one job. Scanned PDFs are filed here
-        from PDF Check using <strong>Save to Folder</strong>.
+        from PDF Check using <strong>Save to Folder</strong>, or added straight to a
+        folder with <strong>+ Upload</strong> — a PDF or a photo of a receipt is
+        scanned for its line items on the way in. Filed in the wrong place? Use{' '}
+        <strong>Move</strong> on the document.
         {admin ? ' Add a folder per supplier.' : ' Only admins can add or rename folders.'}
       </p>
 
@@ -251,6 +275,7 @@ function OperatingCosts({ admin }) {
             folder={f}
             depth={0}
             admin={admin}
+            allFolders={folderOptions}
             openIds={openIds}
             onToggle={toggle}
             onRename={rename}
@@ -285,9 +310,47 @@ function OperatingCosts({ admin }) {
 
 // Renders itself for its own children, so nesting has no fixed depth. Indent is
 // capped so a deep tree stays readable on a phone instead of marching off-screen.
-function FolderNode({ folder, depth, admin, openIds, onToggle, onRename, onRemove, onAddSub, onChanged }) {
+function FolderNode({ folder, depth, admin, allFolders, openIds, onToggle, onRename, onRemove, onAddSub, onChanged }) {
   const isOpen = openIds.includes(folder.id);
   const indent = Math.min(depth, 5) * 18;
+  const [uploading, setUploading] = useState(false);
+  const [uploadNote, setUploadNote] = useState('');
+  // Bumped whenever this folder's contents change from up here, so the list
+  // below refetches — it keys its own load off the folder id alone otherwise.
+  const [contentsKey, setContentsKey] = useState(0);
+  const fileRef = useRef(null);
+
+  // Upload files the folder open, so the newly filed document is visible right
+  // where it landed rather than hidden behind a collapsed row.
+  async function upload(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    // Base64 inflates a file by about a third, and the server stops at 15MB.
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadNote('That file is over 10MB. Try a smaller scan or photo.');
+      return;
+    }
+    setUploading(true);
+    setUploadNote('');
+    try {
+      const data_base64 = await readAsDataUrl(file);
+      const { data } = await api.post('/costs/documents', {
+        folder_id: folder.id, mime_type: file.type || 'application/pdf', data_base64,
+      });
+      const count = Array.isArray(data.parsed_items) ? data.parsed_items.length : 0;
+      setUploadNote(
+        data.scan_error ? `Filed, but the scan failed: ${data.scan_error}`
+          : count ? `Filed — ${count} line item${count === 1 ? '' : 's'} read off it.`
+          : 'Filed, but no line items could be read off it.'
+      );
+      if (!isOpen) onToggle(folder.id);
+      setContentsKey(k => k + 1);
+      onChanged();
+    } catch (err) {
+      setUploadNote(err.response?.data?.error || 'Could not upload that file');
+    } finally { setUploading(false); }
+  }
 
   return (
     <div className={depth === 0 ? styles.folderCard : styles.subFolder}>
@@ -300,14 +363,35 @@ function FolderNode({ folder, depth, admin, openIds, onToggle, onRename, onRemov
             {folder.children.length > 0 && ` · ${folder.children.length} folder${folder.children.length === 1 ? '' : 's'}`}
           </span>
         </button>
-        {admin && (
-          <div className={styles.folderActions}>
-            <button className={styles.smallBtn} onClick={() => onAddSub(folder)} title="Add a subfolder">+ Sub</button>
-            <button className={styles.smallBtn} onClick={() => onRename(folder)}>Rename</button>
-            <button className={styles.smallBtnDanger} onClick={() => onRemove(folder)}>Delete</button>
-          </div>
-        )}
+        <div className={styles.folderActions}>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/pdf,image/*"
+            style={{ display: 'none' }}
+            onChange={upload}
+          />
+          <button
+            className={styles.smallBtn}
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            title="Add a PDF or a photo of a receipt — the line items are read off it"
+          >
+            {uploading ? 'Scanning…' : '+ Upload'}
+          </button>
+          {admin && (
+            <>
+              <button className={styles.smallBtn} onClick={() => onAddSub(folder)} title="Add a subfolder">+ Sub</button>
+              <button className={styles.smallBtn} onClick={() => onRename(folder)}>Rename</button>
+              <button className={styles.smallBtnDanger} onClick={() => onRemove(folder)}>Delete</button>
+            </>
+          )}
+        </div>
       </div>
+
+      {uploadNote && (
+        <div className={styles.folderEmpty} style={{ paddingLeft: 18 + indent }}>{uploadNote}</div>
+      )}
 
       {isOpen && (
         <>
@@ -317,6 +401,7 @@ function FolderNode({ folder, depth, admin, openIds, onToggle, onRename, onRemov
               folder={child}
               depth={depth + 1}
               admin={admin}
+              allFolders={allFolders}
               openIds={openIds}
               onToggle={onToggle}
               onRename={onRename}
@@ -325,21 +410,29 @@ function FolderNode({ folder, depth, admin, openIds, onToggle, onRename, onRemov
               onChanged={onChanged}
             />
           ))}
-          <FolderContents folderId={folder.id} onChanged={onChanged} indent={indent} />
+          <FolderContents
+            folderId={folder.id}
+            allFolders={allFolders}
+            refreshKey={contentsKey}
+            onChanged={onChanged}
+            indent={indent}
+          />
         </>
       )}
     </div>
   );
 }
 
-function FolderContents({ folderId, onChanged, indent = 0 }) {
+function FolderContents({ folderId, allFolders = [], refreshKey = 0, onChanged, indent = 0 }) {
   const [docs, setDocs] = useState(null);
+  // Which row is currently showing its folder picker — only ever one at a time.
+  const [movingId, setMovingId] = useState(null);
 
   const load = useCallback(() => {
     api.get('/costs/operating', { params: { folder_id: folderId } })
       .then(r => setDocs(r.data))
       .catch(() => setDocs([]));
-  }, [folderId]);
+  }, [folderId, refreshKey]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -349,6 +442,18 @@ function FolderContents({ folderId, onChanged, indent = 0 }) {
       await api.delete(`/costs/documents/${doc.id}`);
       load(); onChanged();
     } catch (err) { alert(err.response?.data?.error || 'Could not delete'); }
+  }
+
+  // Moving is how a document filed in the wrong place gets put right. The row
+  // leaves this list on success, so only the destination needs reloading — which
+  // onChanged handles by refreshing the counts and remounting the open folders.
+  async function move(doc, destinationId) {
+    setMovingId(null);
+    if (!destinationId || destinationId === folderId) return;
+    try {
+      await api.put(`/costs/documents/${doc.id}/folder`, { folder_id: destinationId });
+      load(); onChanged();
+    } catch (err) { alert(err.response?.data?.error || 'Could not move that document'); }
   }
 
   if (docs === null) {
@@ -377,6 +482,29 @@ function FolderContents({ folderId, onChanged, indent = 0 }) {
             </div>
             <div className={styles.docActions}>
               <button className={styles.smallBtn} onClick={() => openDocument(d.id)}>PDF</button>
+              {movingId === d.id ? (
+                <select
+                  className={styles.smallBtn}
+                  defaultValue=""
+                  autoFocus
+                  onChange={e => move(d, e.target.value)}
+                  onBlur={() => setMovingId(null)}
+                >
+                  <option value="">Move to…</option>
+                  {allFolders
+                    .filter(f => f.id !== folderId)
+                    .map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                </select>
+              ) : (
+                <button
+                  className={styles.smallBtn}
+                  onClick={() => setMovingId(d.id)}
+                  disabled={allFolders.length < 2}
+                  title={allFolders.length < 2 ? 'There is nowhere else to file this yet' : 'File this in another folder'}
+                >
+                  Move
+                </button>
+              )}
               <button className={styles.smallBtnDanger} onClick={() => remove(d)}>Delete</button>
             </div>
           </div>
