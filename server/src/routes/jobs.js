@@ -209,6 +209,27 @@ router.post('/:id/arcsite-sync', requireRole('admin', 'office'), async (req, res
   }
 });
 
+// Drawings are stored inline as base64, so a large one is a large query. Past
+// this the insert is the problem rather than the drawing, and it is better to
+// skip it with a reason than to push a payload that takes the connection down.
+const MAX_DRAWING_BYTES = 20 * 1024 * 1024;
+
+// A connection can be dropped between being handed out and being used — the far
+// end closed it and the socket had no way to say so. That failure lands on the
+// first query, so retrying it once on a fresh client is enough; a second
+// failure is a real one and is left to the caller.
+const DROPPED_CONNECTION = /Connection terminated|ECONNRESET|EPIPE|server closed the connection/i;
+
+async function queryRetryingDroppedConnection(pool, text, params) {
+  try {
+    return await pool.query(text, params);
+  } catch (err) {
+    if (!DROPPED_CONNECTION.test(err.message || '')) throw err;
+    console.warn('Database connection was dropped, retrying once:', err.message);
+    return pool.query(text, params);
+  }
+}
+
 // Pull every drawing currently on this job's ArcSite project into job_attachments
 router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async (req, res) => {
   try {
@@ -233,13 +254,19 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
         // ArcSite's asset URLs don't reliably report it, which was causing
         // PNG drawings to be stored with the wrong mime type.
         const { buffer } = await arcsite.downloadFile(fileUrl);
+        if (buffer.length > MAX_DRAWING_BYTES) {
+          const mb = (buffer.length / 1024 / 1024).toFixed(1);
+          skipped.push(`${drawing.name || summary.id} (${mb}MB — too large to store)`);
+          continue;
+        }
         const isPng = !!drawing.png_url;
         const contentType = isPng ? 'image/png' : 'application/pdf';
         const ext = isPng ? 'png' : 'pdf';
         const filename = `${drawing.name || 'Drawing'}.${ext}`;
         const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
 
-        await pool.query(
+        await queryRetryingDroppedConnection(
+          pool,
           `INSERT INTO job_attachments (job_id, uploaded_by, filename, mime_type, data_base64, arcsite_drawing_id)
            VALUES ($1,$2,$3,$4,$5,$6)
            ON CONFLICT (job_id, arcsite_drawing_id) WHERE arcsite_drawing_id IS NOT NULL DO UPDATE
@@ -250,7 +277,12 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
         pulled.push(filename);
       } catch (err) {
         console.error('ArcSite drawing pull failed for', summary.id, err);
-        skipped.push(`${summary.name || summary.id} (${err.message})`);
+        // "Connection terminated unexpectedly" means nothing to whoever clicked
+        // the button, and it reads like the drawing is broken when it isn't.
+        const reason = DROPPED_CONNECTION.test(err.message || '')
+          ? 'lost the database connection — try again'
+          : err.message;
+        skipped.push(`${summary.name || summary.id} (${reason})`);
       }
     }
 
