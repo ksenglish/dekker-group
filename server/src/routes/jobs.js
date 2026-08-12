@@ -209,10 +209,22 @@ router.post('/:id/arcsite-sync', requireRole('admin', 'office'), async (req, res
   }
 });
 
-// Drawings are stored inline as base64, so a large one is a large query. Past
-// this the insert is the problem rather than the drawing, and it is better to
-// skip it with a reason than to push a payload that takes the connection down.
-const MAX_DRAWING_BYTES = 20 * 1024 * 1024;
+// Drawings are stored inline as base64, which makes a big drawing a big single
+// statement — and base64 adds a third on top of the file itself. A managed
+// database on a small instance does not survive that: one oversized insert took
+// every connection in the pool down at once, which is a Postgres restart, not a
+// dropped socket.
+//
+// So a PNG over the soft limit is swapped for the PDF of the same drawing.
+// These are vector drawings, so the PDF is usually far smaller than a rendered
+// image of it, and a PDF attachment is already a path the app handles — it is
+// what a drawing with no PNG has always stored. Past the hard limit nothing is
+// worth attempting and the drawing is skipped with its size, so the number is
+// visible rather than guessed at.
+const SOFT_DRAWING_BYTES = 4 * 1024 * 1024;
+const MAX_DRAWING_BYTES = 8 * 1024 * 1024;
+
+const asMb = bytes => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 
 // A connection can be dropped between being handed out and being used — the far
 // end closed it and the socket had no way to say so. That failure lands on the
@@ -226,6 +238,9 @@ async function queryRetryingDroppedConnection(pool, text, params) {
   } catch (err) {
     if (!DROPPED_CONNECTION.test(err.message || '')) throw err;
     console.warn('Database connection was dropped, retrying once:', err.message);
+    // If every connection went at once the database is coming back up, and an
+    // immediate retry just lands on a server that is not listening yet.
+    await new Promise(resolve => setTimeout(resolve, 2000));
     return pool.query(text, params);
   }
 }
@@ -245,21 +260,37 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
     for (const summary of drawings) {
       try {
         const drawing = await arcsite.getDrawing(summary.id);
+        const label = drawing.name || summary.name || summary.id;
         // Prefer the image (PNG) so it can be viewed inline in the app and
         // merged straight into the quote PDF, same as product brochures.
-        const fileUrl = drawing.png_url || drawing.pdf_url;
-        if (!fileUrl) { skipped.push(`${drawing.name} (not ready yet — try again shortly)`); continue; }
+        if (!drawing.png_url && !drawing.pdf_url) {
+          skipped.push(`${label} (not ready yet — try again shortly)`);
+          continue;
+        }
 
         // Trust which endpoint we called, not the CDN's Content-Type header —
         // ArcSite's asset URLs don't reliably report it, which was causing
         // PNG drawings to be stored with the wrong mime type.
-        const { buffer } = await arcsite.downloadFile(fileUrl);
+        let isPng = !!drawing.png_url;
+        let { buffer } = await arcsite.downloadFile(isPng ? drawing.png_url : drawing.pdf_url);
+        console.log(`ArcSite drawing "${label}": ${isPng ? 'PNG' : 'PDF'} ${asMb(buffer.length)}`);
+
+        if (isPng && buffer.length > SOFT_DRAWING_BYTES && drawing.pdf_url) {
+          const pdf = await arcsite.downloadFile(drawing.pdf_url);
+          console.log(`ArcSite drawing "${label}": PNG too large, PDF is ${asMb(pdf.buffer.length)}`);
+          // Only worth taking if it is actually smaller — a raster-heavy drawing
+          // can export to a PDF that just wraps the same image.
+          if (pdf.buffer.length < buffer.length) {
+            buffer = pdf.buffer;
+            isPng = false;
+          }
+        }
+
         if (buffer.length > MAX_DRAWING_BYTES) {
-          const mb = (buffer.length / 1024 / 1024).toFixed(1);
-          skipped.push(`${drawing.name || summary.id} (${mb}MB — too large to store)`);
+          skipped.push(`${label} (${asMb(buffer.length)} — too large to store)`);
           continue;
         }
-        const isPng = !!drawing.png_url;
+
         const contentType = isPng ? 'image/png' : 'application/pdf';
         const ext = isPng ? 'png' : 'pdf';
         const filename = `${drawing.name || 'Drawing'}.${ext}`;
