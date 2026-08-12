@@ -8,6 +8,7 @@ const { logActivity } = require('../utils/activity');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
 const { advanceJobStatus, advanceJobStatusByLabel } = require('../utils/jobStatusFlow');
+const fileStore = require('../services/fileStore');
 
 // An accepted quote is a won job, so it moves to Sale. Forward-only — a job
 // already past Sale (e.g. install booked, second quote accepted later) stays.
@@ -428,14 +429,16 @@ function formatJobNumberDisplay(q) {
 // the job, or a drawing pulled later would appear on quotes already sent.
 async function getQuoteAttachmentImages(quoteId) {
   const { rows } = await pool.query(
-    `SELECT a.data_base64
+    `SELECT a.data_base64, a.storage_key, a.mime_type
      FROM quote_attachments qa
      JOIN job_attachments a ON a.id = qa.attachment_id
      WHERE qa.quote_id = $1
      ORDER BY a.arcsite_drawing_id IS NULL, a.created_at`,
     [quoteId]
   );
-  return rows.map(r => r.data_base64);
+  // Attachments stored in the bucket have to be fetched back and turned into
+  // data URLs, which is what the PDF builder embeds.
+  return Promise.all(rows.map(r => fileStore.readAttachmentDataUrl(r)));
 }
 
 async function getQuoteAttachmentIds(quoteId) {
@@ -570,13 +573,13 @@ async function sendEmail(req, res) {
     const { attachment_ids } = req.body || {};
     if (Array.isArray(attachment_ids) && attachment_ids.length) {
       const extra = await pool.query(
-        'SELECT filename, mime_type, data_base64 FROM job_attachments WHERE job_id=$1 AND id = ANY($2::uuid[])',
+        'SELECT filename, mime_type, data_base64, storage_key FROM job_attachments WHERE job_id=$1 AND id = ANY($2::uuid[])',
         [q.job_id, attachment_ids]
       );
       for (const a of extra.rows) {
         attachments.push({
           filename: a.filename,
-          content: Buffer.from(a.data_base64.replace(/^data:[^;]+;base64,/, ''), 'base64'),
+          content: await fileStore.readAttachmentBuffer(a),
           contentType: a.mime_type || 'application/octet-stream',
         });
       }

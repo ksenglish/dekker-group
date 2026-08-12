@@ -126,6 +126,11 @@ async function start() {
   }
   app.listen(PORT, () => {
     console.log(`Dekker Group server running on http://localhost:${PORT}`);
+    // Worth saying out loud — the fallback works, so a missing credential is
+    // otherwise invisible until a large drawing fails to store.
+    console.log(require('./services/fileStore').isConfigured()
+      ? 'Attachments: object storage configured'
+      : 'Attachments: no object storage configured, storing in the database (large files will fail)');
   });
 }
 

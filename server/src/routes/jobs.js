@@ -5,6 +5,7 @@ const { importTradify } = require('../controllers/importController');
 const { authenticate, requireRole, authenticateAutomation } = require('../middleware/auth');
 const arcsite = require('../utils/arcsite');
 const { htmlToText } = require('../utils/sanitizeHtml');
+const fileStore = require('../services/fileStore');
 
 // Automation endpoint — accepts X-API-Key or user JWT
 router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
@@ -209,20 +210,17 @@ router.post('/:id/arcsite-sync', requireRole('admin', 'office'), async (req, res
   }
 });
 
-// Drawings are stored inline as base64, which makes a big drawing a big single
-// statement — and base64 adds a third on top of the file itself. A managed
-// database on a small instance does not survive that: one oversized insert took
-// every connection in the pool down at once, which is a Postgres restart, not a
-// dropped socket.
-//
-// So a PNG over the soft limit is swapped for the PDF of the same drawing.
-// These are vector drawings, so the PDF is usually far smaller than a rendered
-// image of it, and a PDF attachment is already a path the app handles — it is
-// what a drawing with no PNG has always stored. Past the hard limit nothing is
-// worth attempting and the drawing is skipped with its size, so the number is
-// visible rather than guessed at.
+// With a bucket configured a drawing is just a file and its size stops being
+// interesting — 50MB is a sanity check, not a real ceiling. Without one the
+// bytes still go into the database as base64, where a big drawing is a very
+// large single statement: a 17MB export took every connection down at once,
+// which is Postgres restarting rather than a socket dropping. So the old limits
+// still apply on that path, including swapping an oversized PNG for the PDF of
+// the same drawing — these are vector drawings, so the PDF is usually far
+// smaller than a rendered image of one.
 const SOFT_DRAWING_BYTES = 4 * 1024 * 1024;
-const MAX_DRAWING_BYTES = 8 * 1024 * 1024;
+const MAX_DRAWING_DB_BYTES = 8 * 1024 * 1024;
+const MAX_DRAWING_BYTES = 50 * 1024 * 1024;
 
 const asMb = bytes => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 
@@ -275,7 +273,9 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
         let { buffer } = await arcsite.downloadFile(isPng ? drawing.png_url : drawing.pdf_url);
         console.log(`ArcSite drawing "${label}": ${isPng ? 'PNG' : 'PDF'} ${asMb(buffer.length)}`);
 
-        if (isPng && buffer.length > SOFT_DRAWING_BYTES && drawing.pdf_url) {
+        // Only worth trading resolution for size when the bytes have to fit in
+        // a database column.
+        if (!fileStore.isConfigured() && isPng && buffer.length > SOFT_DRAWING_BYTES && drawing.pdf_url) {
           const pdf = await arcsite.downloadFile(drawing.pdf_url);
           console.log(`ArcSite drawing "${label}": PNG too large, PDF is ${asMb(pdf.buffer.length)}`);
           // Only worth taking if it is actually smaller — a raster-heavy drawing
@@ -286,7 +286,8 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
           }
         }
 
-        if (buffer.length > MAX_DRAWING_BYTES) {
+        const ceiling = fileStore.isConfigured() ? MAX_DRAWING_BYTES : MAX_DRAWING_DB_BYTES;
+        if (buffer.length > ceiling) {
           skipped.push(`${label} (${asMb(buffer.length)} — too large to store)`);
           continue;
         }
@@ -294,17 +295,35 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
         const contentType = isPng ? 'image/png' : 'application/pdf';
         const ext = isPng ? 'png' : 'pdf';
         const filename = `${drawing.name || 'Drawing'}.${ext}`;
-        const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+
+        // The bucket holds the bytes where it can; the row keeps the record.
+        const storageKey = fileStore.isConfigured()
+          ? await fileStore.putObject({ prefix: `jobs/${job.id}/drawings`, filename, buffer, contentType })
+          : null;
+        const dataUrl = storageKey ? null : `data:${contentType};base64,${buffer.toString('base64')}`;
+
+        // Re-pulling a drawing replaces the row, which would leave the file it
+        // used to point at orphaned in the bucket. The old key has to be read
+        // before the upsert overwrites it.
+        const { rows: [existing] } = await pool.query(
+          'SELECT storage_key FROM job_attachments WHERE job_id=$1 AND arcsite_drawing_id=$2',
+          [job.id, drawing.id]
+        );
 
         await queryRetryingDroppedConnection(
           pool,
-          `INSERT INTO job_attachments (job_id, uploaded_by, filename, mime_type, data_base64, arcsite_drawing_id)
-           VALUES ($1,$2,$3,$4,$5,$6)
+          `INSERT INTO job_attachments
+             (job_id, uploaded_by, filename, mime_type, data_base64, arcsite_drawing_id, storage_key, size_bytes)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
            ON CONFLICT (job_id, arcsite_drawing_id) WHERE arcsite_drawing_id IS NOT NULL DO UPDATE
              SET filename=EXCLUDED.filename, mime_type=EXCLUDED.mime_type,
-                 data_base64=EXCLUDED.data_base64, created_at=NOW()`,
-          [job.id, req.user.id, filename, contentType, dataUrl, drawing.id]
+                 data_base64=EXCLUDED.data_base64, storage_key=EXCLUDED.storage_key,
+                 size_bytes=EXCLUDED.size_bytes, created_at=NOW()`,
+          [job.id, req.user.id, filename, contentType, dataUrl, drawing.id, storageKey, buffer.length]
         );
+        if (existing?.storage_key && existing.storage_key !== storageKey) {
+          await fileStore.deleteObject(existing.storage_key);
+        }
         pulled.push(filename);
       } catch (err) {
         console.error('ArcSite drawing pull failed for', summary.id, err);
@@ -350,28 +369,49 @@ router.get('/:id/attachments/:attId/data', async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM job_attachments WHERE id=$1 AND job_id=$2', [req.params.attId, req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
-    const buf = Buffer.from(rows[0].data_base64.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    // Bytes live in the bucket for anything stored since that was set up, and
+    // in the row itself for everything before it.
+    const buf = await fileStore.readAttachmentBuffer(rows[0]);
     res.set('Content-Type', rows[0].mime_type || 'image/jpeg');
     res.set('Content-Disposition', `inline; filename="${rows[0].filename}"`);
     res.send(buf);
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) {
+    console.error('Attachment read failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 router.post('/:id/attachments', async (req, res) => {
   const { filename, mime_type, data_base64, category } = req.body;
   if (!data_base64 || !filename) return res.status(400).json({ error: 'filename and data_base64 required' });
   try {
+    const contentType = mime_type || 'image/jpeg';
+    const buffer = Buffer.from(fileStore.stripDataUrl(data_base64), 'base64');
+    const storageKey = fileStore.isConfigured()
+      ? await fileStore.putObject({ prefix: `jobs/${req.params.id}/photos`, filename, buffer, contentType })
+      : null;
+
     const { rows } = await pool.query(
-      `INSERT INTO job_attachments (job_id, uploaded_by, filename, mime_type, data_base64, category)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, filename, mime_type, created_at, category`,
-      [req.params.id, req.user.id, filename, mime_type || 'image/jpeg', data_base64,
-       category === 'post_install' ? 'post_install' : 'pre_install']
+      `INSERT INTO job_attachments
+         (job_id, uploaded_by, filename, mime_type, data_base64, category, storage_key, size_bytes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, filename, mime_type, created_at, category`,
+      [req.params.id, req.user.id, filename, contentType, storageKey ? null : data_base64,
+       category === 'post_install' ? 'post_install' : 'pre_install', storageKey, buffer.length]
     );
     res.status(201).json(rows[0]);
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) {
+    console.error('Attachment upload failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 router.delete('/:id/attachments/:attId', async (req, res) => {
   try {
-    await pool.query('DELETE FROM job_attachments WHERE id=$1 AND job_id=$2', [req.params.attId, req.params.id]);
+    // Delete the row first — the record disappearing is what the user asked
+    // for, and a file left in the bucket is a tidy-up rather than a failure.
+    const { rows } = await pool.query(
+      'DELETE FROM job_attachments WHERE id=$1 AND job_id=$2 RETURNING storage_key',
+      [req.params.attId, req.params.id]
+    );
+    if (rows[0]?.storage_key) await fileStore.deleteObject(rows[0].storage_key);
     res.json({ message: 'Deleted' });
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
