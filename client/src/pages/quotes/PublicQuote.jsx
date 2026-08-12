@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import { isHtml, safeHtml } from '../../lib/richText';
 
 const API = '/api';
 
@@ -325,7 +326,15 @@ export default function PublicQuote() {
         {quote.terms && (
           <div style={s.notes}>
             <div style={s.label}>Terms & Conditions</div>
-            <p style={{ fontSize: 13, color: '#0f172a', whiteSpace: 'pre-wrap', margin: 0 }}>{quote.terms}</p>
+            {/* Formatted terms carry their own line breaks; terms written
+                before the editor existed are plain text and still need
+                pre-wrap to keep theirs. */}
+            {isHtml(quote.terms) ? (
+              <div style={{ fontSize: 13, color: '#0f172a' }}
+                dangerouslySetInnerHTML={{ __html: safeHtml(quote.terms) }} />
+            ) : (
+              <p style={{ fontSize: 13, color: '#0f172a', whiteSpace: 'pre-wrap', margin: 0 }}>{quote.terms}</p>
+            )}
           </div>
         )}
 

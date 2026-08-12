@@ -124,8 +124,16 @@ function parseDescriptionHtml(html) {
 // measuring the whole line and shifting the start x — fine for the short,
 // heading-like lines quote descriptions actually use that way; longer
 // wrapped lines fall back to left alignment rather than risk broken layout.
-function renderDescriptionHtml(doc, html, x, y, width, ensureSpace) {
-  const BASE_SIZE = 9;
+// Whether a value came out of the rich text editor or is plain text typed
+// before it existed. Both have to keep working: themes saved years ago are
+// still plain, and re-saving one through the editor turns it into HTML.
+function isHtml(value) {
+  return typeof value === 'string' && /<(p|div|br|ul|ol|li|b|strong|i|em|u|span)\b[^>]*>/i.test(value);
+}
+
+function renderDescriptionHtml(doc, html, x, y, width, ensureSpace, options = {}) {
+  const BASE_SIZE = options.baseSize || 9;
+  const TEXT_COLOUR = options.colour || TEXT;
   const fontFor = (bold, italic) => {
     if (bold && italic) return 'Helvetica-BoldOblique';
     if (bold) return 'Helvetica-Bold';
@@ -158,7 +166,7 @@ function renderDescriptionHtml(doc, html, x, y, width, ensureSpace) {
     else if (fits && para.align === 'right') startX = x + width - totalW;
 
     if (para.bullet) {
-      doc.fontSize(BASE_SIZE).font('Helvetica').fillColor(TEXT)
+      doc.fontSize(BASE_SIZE).font('Helvetica').fillColor(TEXT_COLOUR)
         .text(para.bullet + ' ', startX, y, { continued: true, width: width - indent, lineBreak: !fits });
     }
     runs.forEach((run, i) => {
@@ -170,7 +178,7 @@ function renderDescriptionHtml(doc, html, x, y, width, ensureSpace) {
         width: width - indent,
         lineBreak: !fits,
       };
-      doc.fontSize(size).font(fontFor(run.bold, run.italic)).fillColor(run.color || TEXT);
+      doc.fontSize(size).font(fontFor(run.bold, run.italic)).fillColor(run.color || TEXT_COLOUR);
       if (isFirst) doc.text(run.text, startX, y, opts);
       else doc.text(run.text, opts);
     });
@@ -566,7 +574,11 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       // ── Terms & Conditions ───────────────────────────────────────
       if (terms) {
         doc.fontSize(8).font('Helvetica-Bold').fillColor(MID_GREY).text('TERMS & CONDITIONS', 50, afterTotalsY);
-        doc.fontSize(8).font('Helvetica').fillColor(MID_GREY).text(terms, 50, afterTotalsY + 14, { width: W });
+        if (isHtml(terms)) {
+          renderDescriptionHtml(doc, terms, 50, afterTotalsY + 14, W, ensureSpace, { baseSize: 8, colour: MID_GREY });
+        } else {
+          doc.fontSize(8).font('Helvetica').fillColor(MID_GREY).text(terms, 50, afterTotalsY + 14, { width: W });
+        }
       }
 
       // ── Footer ───────────────────────────────────────────────────
@@ -625,7 +637,19 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       termsDoc.on('end', () => resolve(Buffer.concat(chunks)));
       termsDoc.on('error', reject);
       termsDoc.fontSize(16).font('Helvetica-Bold').fillColor(BRAND).text('Terms & Conditions', TERMS_MARGIN, TERMS_MARGIN);
-      termsDoc.fontSize(9).font('Helvetica').fillColor(TEXT).text(terms, TERMS_MARGIN, TERMS_MARGIN + 30, { width: termsW });
+      if (isHtml(terms)) {
+        // Terms run long, so this needs the same explicit pagination the main
+        // document uses — pdfkit's implicit auto-pagination is what produced
+        // stray blank pages elsewhere.
+        const bottom = termsDoc.page.height - TERMS_MARGIN;
+        const ensureTermsSpace = (y, needed) => {
+          if (y + needed > bottom) { termsDoc.addPage(); return TERMS_MARGIN; }
+          return y;
+        };
+        renderDescriptionHtml(termsDoc, terms, TERMS_MARGIN, TERMS_MARGIN + 30, termsW, ensureTermsSpace);
+      } else {
+        termsDoc.fontSize(9).font('Helvetica').fillColor(TEXT).text(terms, TERMS_MARGIN, TERMS_MARGIN + 30, { width: termsW });
+      }
       termsDoc.end();
     });
     const termsPdf = await PdfLib.load(termsBuf);

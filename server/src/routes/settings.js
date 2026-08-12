@@ -5,6 +5,10 @@ const { buildPDF } = require('../utils/pdf');
 const { testConnection, getEmailSettings } = require('../utils/email');
 const { getXeroConnection, saveXeroConnection } = require('../utils/xero');
 const { themeRowToJson, getDefaultTheme, getThemeById } = require('../utils/documentThemes');
+// Terms are written in the rich text editor now, so they arrive as HTML from a
+// client that could have been modified. Same allowlist the quote description
+// uses — it already covers exactly the tags that editor emits.
+const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const pool = require('../db/pool');
 
 router.get('/', authenticate, c.get);
@@ -28,7 +32,7 @@ router.post('/themes', authenticate, requireRole('admin', 'office'), async (req,
     const { rows } = await pool.query(
       `INSERT INTO document_themes (name, company_name, gst_number, contact_details, payment_terms, terms_and_conditions, brand_colour, logo_base64, logo_size, logo_position, contact_position, transparent_header, footer_line1, footer_line2)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions || null, brandColour || '#1e40af',
+      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null, brandColour || '#1e40af',
        logoBase64 || null, logoSize || 'medium', logoPosition || 'left', contactPosition || 'right', !!transparentHeader,
        footerLine1 || 'Thank you for your business.', footerLine2 || '']
     );
@@ -51,7 +55,7 @@ router.put('/themes/:id', authenticate, requireRole('admin', 'office'), async (r
          logo_base64=$8, logo_size=$9, logo_position=$10, contact_position=$11, transparent_header=$12,
          footer_line1=$13, footer_line2=$14, updated_at=NOW()
        WHERE id=$15 RETURNING *`,
-      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions || null, brandColour || '#1e40af',
+      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null, brandColour || '#1e40af',
        logoBase64 || null, logoSize || 'medium', logoPosition || 'left', contactPosition || 'right', !!transparentHeader,
        footerLine1 || 'Thank you for your business.', footerLine2 || '', req.params.id]
     );

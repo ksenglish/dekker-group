@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
@@ -8,6 +8,8 @@ import { useAuth } from '../../context/AuthContext';
 import { compressImage } from '../../lib/image';
 import styles from './Settings.module.css';
 import { overlayClose } from '../../lib/overlayClose';
+import RichTextEditor from '../../components/RichTextEditor';
+import { isHtml } from '../../lib/richText';
 
 const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
 
@@ -198,6 +200,25 @@ const EMPTY_DOC_THEME = {
   contactPosition: 'right', transparentHeader: false,
 };
 
+// Terms written before the editor existed are plain text, and dropping that
+// straight into a contentEditable would run every line together. Each line
+// becomes its own block so the wording survives the switch untouched; anything
+// already formatted is left exactly as it is.
+function termsToHtml(value) {
+  if (!value) return '';
+  if (isHtml(value)) return value;
+  return String(value)
+    .split(/\r?\n/)
+    .map(line => `<div>${line.trim() ? escapeHtml(line) : '<br>'}</div>`)
+    .join('');
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 // Full branding form for one theme — used both to create a new theme and to
 // edit an existing one. Quotes/invoices pick a theme by id at creation time.
 function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
@@ -212,6 +233,9 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
   const [err, setErr] = useState('');
   const fileRef = useRef();
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  // Converted once rather than on every render — the editor writes the value
+  // back as HTML, so after the first edit this passes straight through.
+  const termsHtml = useMemo(() => termsToHtml(form.termsAndConditions), [form.termsAndConditions]);
 
   // Logos only ever render at header size, so a large upload is downscaled
   // rather than rejected. compressImage keeps PNG (and its transparency) when
@@ -304,9 +328,11 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
 
           <div className={styles.field}>
             <label>Terms & Conditions</label>
-            <textarea rows={8} value={form.termsAndConditions || ''} onChange={e => set('termsAndConditions', e.target.value)}
+            <RichTextEditor
+              value={termsHtml}
+              onChange={html => set('termsAndConditions', html)}
               placeholder="Enter your standard terms and conditions…"
-              className={styles.termsArea} />
+            />
             <span className={styles.hint}>Shown at the very end of the quote (after brochures) and on invoice PDFs</span>
           </div>
 
