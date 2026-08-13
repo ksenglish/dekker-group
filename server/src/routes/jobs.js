@@ -95,6 +95,20 @@ router.post('/geocode', requireRole('admin', 'office'), async (req, res) => {
 // Bulk import jobs from a Tradify CSV export (admin only)
 router.post('/import/tradify', requireRole('admin'), importTradify);
 
+// The sweep runs hourly on its own. This is here so it can be run on demand
+// rather than waiting an hour to see whether it does what was intended, and so
+// a run can be forced after the pipeline's statuses are renamed.
+router.post('/maintenance/site-visit-sweep', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await require('../services/siteVisitSweep').runSiteVisitSweep();
+    res.json({
+      moved: result.moved.map(j => j.job_number),
+      count: result.moved.length,
+      skipped: result.skipped || null,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 router.get('/', c.list);
 router.post('/', requireRole('admin', 'office'), c.create);
 router.get('/:id', c.get);
