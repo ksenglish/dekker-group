@@ -7,6 +7,10 @@ import api from '../../lib/api';
 import styles from './SalesPresenter.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
+// A brochure held in the bucket arrives as a URL to fetch; one saved before
+// that is still a data URL on the record. Both work anywhere a src is wanted.
+const brochureSrc = p => p?.brochure_url || p?.brochure_base64 || null;
+
 // Use CDN worker so Vite doesn't need to bundle it
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
 
@@ -398,7 +402,7 @@ function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant }) {
               if (fullPriceProduct) { setShowBrochure(true); return; }
               api.get(`/products/${priceProduct.id}`).then(r => {
                 setFullPriceProduct(r.data);
-                if (r.data.brochure_base64) setShowBrochure(true);
+                if (brochureSrc(r.data)) setShowBrochure(true);
                 else alert('No brochure uploaded for this product.');
               }).catch(() => {});
             }}>
@@ -408,8 +412,8 @@ function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant }) {
         </div>
       )}
 
-      {showBrochure && fullPriceProduct?.brochure_base64 && (
-        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch?.name} onClose={() => setShowBrochure(false)} />
+      {showBrochure && brochureSrc(fullPriceProduct) && (
+        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch?.name} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -601,7 +605,7 @@ function HeatpumpCalculator({ onPick }) {
                 if (fullPriceProduct) { setShowBrochure(true); return; }
                 api.get(`/products/${priceProduct.id}`).then(r => {
                   setFullPriceProduct(r.data);
-                  if (r.data.brochure_base64) setShowBrochure(true);
+                  if (brochureSrc(r.data)) setShowBrochure(true);
                   else alert('No brochure uploaded for this product.');
                 }).catch(() => {});
               }}>
@@ -612,8 +616,8 @@ function HeatpumpCalculator({ onPick }) {
         </div>
       )}
 
-      {showBrochure && fullPriceProduct?.brochure_base64 && (
-        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch?.model} onClose={() => setShowBrochure(false)} />
+      {showBrochure && brochureSrc(fullPriceProduct) && (
+        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch?.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -731,7 +735,7 @@ function SmartVentLiteCalculator({ onPick }) {
               if (fullPriceProduct) { setShowBrochure(true); return; }
               api.get(`/products/${priceProduct.id}`).then(r => {
                 setFullPriceProduct(r.data);
-                if (r.data.brochure_base64) setShowBrochure(true);
+                if (brochureSrc(r.data)) setShowBrochure(true);
                 else alert('No brochure uploaded for this product.');
               }).catch(() => {});
             }}>
@@ -740,8 +744,8 @@ function SmartVentLiteCalculator({ onPick }) {
           )}
         </div>
       )}
-      {showBrochure && fullPriceProduct?.brochure_base64 && (
-        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
+      {showBrochure && brochureSrc(fullPriceProduct) && (
+        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -873,7 +877,7 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
               if (fullPriceProduct) { setShowBrochure(true); return; }
               api.get(`/products/${priceProduct.id}`).then(r => {
                 setFullPriceProduct(r.data);
-                if (r.data.brochure_base64) setShowBrochure(true);
+                if (brochureSrc(r.data)) setShowBrochure(true);
                 else alert('No brochure uploaded for this product.');
               }).catch(() => {});
             }}>
@@ -882,8 +886,8 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
           )}
         </div>
       )}
-      {showBrochure && fullPriceProduct?.brochure_base64 && (
-        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
+      {showBrochure && brochureSrc(fullPriceProduct) && (
+        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -987,7 +991,7 @@ function SmartVentBalancedPressureCalculator({ onPick }) {
               if (fullPriceProduct) { setShowBrochure(true); return; }
               api.get(`/products/${priceProduct.id}`).then(r => {
                 setFullPriceProduct(r.data);
-                if (r.data.brochure_base64) setShowBrochure(true);
+                if (brochureSrc(r.data)) setShowBrochure(true);
                 else alert('No brochure uploaded for this product.');
               }).catch(() => {});
             }}>
@@ -996,8 +1000,8 @@ function SmartVentBalancedPressureCalculator({ onPick }) {
           )}
         </div>
       )}
-      {showBrochure && fullPriceProduct?.brochure_base64 && (
-        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
+      {showBrochure && brochureSrc(fullPriceProduct) && (
+        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -1108,7 +1112,7 @@ function BDVAirPositivePressureCalculator({ onPick }) {
               if (fullPriceProduct) { setShowBrochure(true); return; }
               api.get(`/products/${priceProduct.id}`).then(r => {
                 setFullPriceProduct(r.data);
-                if (r.data.brochure_base64) setShowBrochure(true);
+                if (brochureSrc(r.data)) setShowBrochure(true);
                 else alert('No brochure uploaded for this product.');
               }).catch(() => {});
             }}>
@@ -1117,8 +1121,8 @@ function BDVAirPositivePressureCalculator({ onPick }) {
           )}
         </div>
       )}
-      {showBrochure && fullPriceProduct?.brochure_base64 && (
-        <BrochureModal src={fullPriceProduct.brochure_base64} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
+      {showBrochure && brochureSrc(fullPriceProduct) && (
+        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -1425,7 +1429,7 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
               + Add to Quote
             </button>
           )}
-          {product.brochure_base64 && (
+          {brochureSrc(product) && (
             <button className={styles.brochureBtn} onClick={() => setShowBrochure(true)}>
               📄 View Product Brochure
             </button>
@@ -1433,7 +1437,7 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
         </div>
       </div>
       {showBrochure && (
-        <BrochureModal src={product.brochure_base64} name={product.name} onClose={() => setShowBrochure(false)} />
+        <BrochureModal src={brochureSrc(product)} name={product.name} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );

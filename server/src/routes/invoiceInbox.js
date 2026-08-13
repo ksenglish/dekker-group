@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { authenticate, authenticateAutomation } = require('../middleware/auth');
+const fileStore = require('../services/fileStore');
 
 // Count unmatched (for sidebar badge)
 router.get('/count', authenticate, async (req, res) => {
@@ -16,9 +17,14 @@ router.get('/count', authenticate, async (req, res) => {
 // List all unmatched scans
 router.get('/', authenticate, async (req, res) => {
   try {
+    // Deliberately not the document itself. This list sent every unmatched
+    // PDF down with it, so opening PDF Check with a few dozen waiting meant
+    // downloading all of them to show a list of suppliers and totals. The
+    // client asks for one when someone actually clicks View PDF.
     const { rows } = await pool.query(
       `SELECT id, supplier, invoice_number, detected_job_number, parsed_items,
-              mime_type, document_base64, created_at
+              mime_type, created_at,
+              (document_base64 IS NOT NULL OR storage_key IS NOT NULL) AS has_document
        FROM job_cost_scans
        WHERE status = 'unmatched'
        ORDER BY created_at DESC`
@@ -31,18 +37,27 @@ router.get('/', authenticate, async (req, res) => {
 router.post('/', authenticateAutomation, async (req, res) => {
   const { document_base64, mime_type, supplier, invoice_number, detected_job_number, parsed_items } = req.body;
   try {
+    // Arrives from the Apps Script as a data URL; the bucket takes it from here.
+    const stored = await fileStore.storeDataUrl({
+      prefix: 'cost-scans/inbox',
+      filename: `${invoice_number || 'invoice'}.pdf`,
+      dataUrl: document_base64,
+    });
+
     const { rows: [row] } = await pool.query(
       `INSERT INTO job_cost_scans
-         (document_base64, mime_type, supplier, invoice_number, detected_job_number, parsed_items, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'unmatched')
+         (document_base64, mime_type, supplier, invoice_number, detected_job_number, parsed_items, status,
+          storage_key, size_bytes)
+       VALUES ($1, $2, $3, $4, $5, $6, 'unmatched', $7, $8)
        RETURNING id, supplier, invoice_number, detected_job_number, created_at`,
       [
-        document_base64,
+        stored ? null : document_base64,
         mime_type || 'application/pdf',
         supplier || null,
         invoice_number || null,
         detected_job_number || null,
         JSON.stringify(parsed_items || []),
+        stored?.key || null, stored?.size || null,
       ]
     );
     res.status(201).json(row);
@@ -119,10 +134,13 @@ router.post('/bulk-delete', authenticate, async (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
   try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM job_cost_scans WHERE id = ANY($1::uuid[]) AND status = 'unmatched'`,
+    const { rows, rowCount } = await pool.query(
+      `DELETE FROM job_cost_scans WHERE id = ANY($1::uuid[]) AND status = 'unmatched' RETURNING storage_key`,
       [ids]
     );
+    for (const row of rows) {
+      if (row.storage_key) await fileStore.deleteObject(row.storage_key);
+    }
     res.json({ message: `Deleted ${rowCount} invoice${rowCount === 1 ? '' : 's'}`, deleted: rowCount });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -130,11 +148,12 @@ router.post('/bulk-delete', authenticate, async (req, res) => {
 // Delete an inbox scan (not relevant to any job)
 router.delete('/:id', authenticate, async (req, res) => {
   try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM job_cost_scans WHERE id = $1 AND status = 'unmatched'`,
+    const { rows, rowCount } = await pool.query(
+      `DELETE FROM job_cost_scans WHERE id = $1 AND status = 'unmatched' RETURNING storage_key`,
       [req.params.id]
     );
     if (rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    if (rows[0].storage_key) await fileStore.deleteObject(rows[0].storage_key);
     res.json({ message: 'Deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

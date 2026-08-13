@@ -61,11 +61,17 @@ async function putObject({ prefix, filename, buffer, contentType }) {
   return key;
 }
 
-async function getObjectBuffer(key) {
+async function getObject(key) {
   const res = await s3().send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
   const chunks = [];
   for await (const chunk of res.Body) chunks.push(chunk);
-  return Buffer.concat(chunks);
+  // The content type comes back off the object, so nothing has to carry a
+  // second column recording what kind of file a key points at.
+  return { buffer: Buffer.concat(chunks), contentType: res.ContentType || 'application/octet-stream' };
+}
+
+async function getObjectBuffer(key) {
+  return (await getObject(key)).buffer;
 }
 
 // Deleting the record matters more than reclaiming the space, so a failure here
@@ -98,12 +104,49 @@ async function readAttachmentDataUrl(row) {
   return `data:${row.mime_type || 'application/octet-stream'};base64,${buffer.toString('base64')}`;
 }
 
+// ── Data-URL columns ─────────────────────────────────────────────────────────
+// Everything else in the app that holds a file — receipt scans, product images,
+// brochures — stores it as a data URL in its own differently-named column. The
+// helpers below work off a plain {key, inline} pair so each of those can move
+// to the bucket without fileStore needing to know the column names.
+
+const mimeOfDataUrl = value => (String(value).match(/^data:([^;]+);base64,/) || [])[1] || 'application/octet-stream';
+
+// Returns the key to store, or null when there is no bucket — in which case the
+// caller keeps writing the data URL into its column exactly as before.
+async function storeDataUrl({ prefix, filename, dataUrl }) {
+  if (!configured || !dataUrl) return null;
+  const contentType = mimeOfDataUrl(dataUrl);
+  const buffer = Buffer.from(stripDataUrl(dataUrl), 'base64');
+  const key = await putObject({ prefix, filename: filename || 'file', buffer, contentType });
+  return { key, size: buffer.length, contentType };
+}
+
+async function readBytes({ key, inline }) {
+  if (key) return getObjectBuffer(key);
+  if (inline) return Buffer.from(stripDataUrl(inline), 'base64');
+  throw new Error('No stored file');
+}
+
+// Several callers still want a data URL specifically — the PDF builder embeds
+// product images that way, and it decides brochure handling by looking at the
+// mime prefix. Rebuilt from the object's own content type.
+async function readDataUrl({ key, inline }) {
+  if (!key) return inline || null;
+  const { buffer, contentType } = await getObject(key);
+  return `data:${contentType};base64,${buffer.toString('base64')}`;
+}
+
 module.exports = {
   isConfigured,
   putObject,
+  getObject,
   getObjectBuffer,
   deleteObject,
   readAttachmentBuffer,
   readAttachmentDataUrl,
+  storeDataUrl,
+  readBytes,
+  readDataUrl,
   stripDataUrl,
 };

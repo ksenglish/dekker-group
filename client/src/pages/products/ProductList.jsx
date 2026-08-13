@@ -91,8 +91,11 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
     unit_price: product ? (product.unit_price / 100).toFixed(2) : '',
     cost_price: product ? (product.cost_price / 100).toFixed(2) : '',
     supplier: product?.supplier || '',
-    media_base64:    product?.media_base64    || '',
-    brochure_base64: product?.brochure_base64 || '',
+    // A product whose image is in the bucket comes back as a URL to fetch
+    // rather than the bytes. Both work as an <img src>, and posting the URL
+    // back on save is read as "unchanged" rather than as a new upload.
+    media_base64:    product?.media_url    || product?.media_base64    || '',
+    brochure_base64: product?.brochure_url || product?.brochure_base64 || '',
     is_active: product?.is_active !== false,
   });
   const [saving, setSaving] = useState(false);

@@ -1,5 +1,20 @@
 const pool = require('../db/pool');
 const AdmZip = require('adm-zip');
+const fileStore = require('../services/fileStore');
+
+// A product row on its way out. Media held in the bucket is handed over as a
+// URL to fetch rather than as bytes inline, so a product with a 10MB brochure
+// no longer means a 13MB JSON response. Rows from before the bucket still
+// carry their data URL, so both kinds display the same way.
+function productToJson(row) {
+  if (!row) return row;
+  const { media_key, brochure_key, ...rest } = row;
+  return {
+    ...rest,
+    media_url: media_key ? `/api/products/${row.id}/media` : null,
+    brochure_url: brochure_key ? `/api/products/${row.id}/brochure` : null,
+  };
+}
 
 async function list(req, res) {
   const { search, category, active } = req.query;
@@ -30,52 +45,126 @@ async function get(req, res) {
   try {
     const { rows } = await pool.query('SELECT * FROM products WHERE id=$1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    const product = productToJson(rows[0]);
     if (req.user.role !== 'admin') {
-      const { cost_price, ...rest } = rows[0];
+      const { cost_price, ...rest } = product;
       return res.json(rest);
     }
-    res.json(rows[0]);
+    res.json(product);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+// Deciding what a media field on an incoming request actually means.
+//
+// The edit form loads a product, shows its image, and posts the whole thing
+// back on save — so the value that arrives is often the same one we handed out.
+// Only a data: URL is a genuine new upload. A URL is what we gave the client to
+// display, and means "unchanged"; an explicit empty value means "remove it".
+// Getting this wrong would wipe an image every time a price was edited.
+async function resolveMediaWrite({ incoming, existingKey, existingInline, prefix, filename }) {
+  if (incoming === undefined) return { key: existingKey, inline: existingInline, unchanged: true };
+  if (!incoming) return { key: null, inline: null, removedKey: existingKey };
+
+  if (!String(incoming).startsWith('data:')) {
+    return { key: existingKey, inline: existingInline, unchanged: true };
+  }
+
+  const stored = await fileStore.storeDataUrl({ prefix, filename, dataUrl: incoming });
+  if (!stored) return { key: null, inline: incoming, removedKey: existingKey };
+  return { key: stored.key, inline: null, removedKey: existingKey };
 }
 
 async function create(req, res) {
   const { name, description, category, unit, unit_price, supplier, cost_price, media_base64, brochure_base64 } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   try {
+    const media = await resolveMediaWrite({ incoming: media_base64, prefix: 'products/media', filename: `${name}-image` });
+    const brochure = await resolveMediaWrite({ incoming: brochure_base64, prefix: 'products/brochures', filename: `${name}-brochure` });
+
     const { rows } = await pool.query(
-      `INSERT INTO products (name, description, category, unit, unit_price, supplier, cost_price, media_base64, brochure_base64)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO products (name, description, category, unit, unit_price, supplier, cost_price,
+         media_base64, brochure_base64, media_key, brochure_key)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [name, description || null, category || null, unit || 'each',
        Math.round((unit_price || 0) * 100), supplier || null,
-       Math.round((cost_price || 0) * 100), media_base64 || null, brochure_base64 || null]
+       Math.round((cost_price || 0) * 100), media.inline, brochure.inline, media.key, brochure.key]
     );
-    res.status(201).json(rows[0]);
+    res.status(201).json(productToJson(rows[0]));
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
 async function update(req, res) {
   const { name, description, category, unit, unit_price, is_active, supplier, cost_price, media_base64, brochure_base64 } = req.body;
   try {
+    const { rows: [current] } = await pool.query(
+      'SELECT media_key, brochure_key, media_base64, brochure_base64 FROM products WHERE id=$1', [req.params.id]
+    );
+    if (!current) return res.status(404).json({ error: 'Not found' });
+
+    const media = await resolveMediaWrite({
+      incoming: media_base64, existingKey: current.media_key, existingInline: current.media_base64,
+      prefix: 'products/media', filename: `${name}-image`,
+    });
+    const brochure = await resolveMediaWrite({
+      incoming: brochure_base64, existingKey: current.brochure_key, existingInline: current.brochure_base64,
+      prefix: 'products/brochures', filename: `${name}-brochure`,
+    });
+
     const { rows } = await pool.query(
       `UPDATE products SET name=$1, description=$2, category=$3, unit=$4,
-       unit_price=$5, is_active=$6, supplier=$7, cost_price=$8, media_base64=$9, brochure_base64=$10, updated_at=NOW()
-       WHERE id=$11 RETURNING *`,
+       unit_price=$5, is_active=$6, supplier=$7, cost_price=$8, media_base64=$9, brochure_base64=$10,
+       media_key=$11, brochure_key=$12, updated_at=NOW()
+       WHERE id=$13 RETURNING *`,
       [name, description || null, category || null, unit || 'each',
        Math.round((unit_price || 0) * 100), is_active !== false,
        supplier || null, Math.round((cost_price || 0) * 100),
-       media_base64 !== undefined ? media_base64 : null,
-       brochure_base64 !== undefined ? brochure_base64 : null, req.params.id]
+       media.inline, brochure.inline, media.key, brochure.key, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
+    // Only once the row is safely updated — otherwise a failed write would
+    // leave the product pointing at a file that had already been removed.
+    for (const gone of [media.removedKey, brochure.removedKey]) {
+      if (gone && gone !== media.key && gone !== brochure.key) await fileStore.deleteObject(gone);
+    }
+    res.json(productToJson(rows[0]));
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
 async function remove(req, res) {
   try {
-    await pool.query('DELETE FROM products WHERE id=$1', [req.params.id]);
+    const { rows } = await pool.query(
+      'DELETE FROM products WHERE id=$1 RETURNING media_key, brochure_key', [req.params.id]
+    );
+    for (const key of [rows[0]?.media_key, rows[0]?.brochure_key]) {
+      if (key) await fileStore.deleteObject(key);
+    }
     res.json({ message: 'Deleted' });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+// Serving a product's image or brochure. Both are public to any signed-in user
+// for the same reason the price list is.
+function serveMedia(column) {
+  return async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT ${column}_key AS key, ${column}_base64 AS inline FROM products WHERE id=$1`, [req.params.id]
+      );
+      if (!rows[0] || (!rows[0].key && !rows[0].inline)) return res.status(404).json({ error: 'Not found' });
+      if (rows[0].key) {
+        const { buffer, contentType } = await fileStore.getObject(rows[0].key);
+        res.set('Content-Type', contentType);
+        // Immutable in practice: replacing one writes a new key, so the URL
+        // only ever serves the same bytes.
+        res.set('Cache-Control', 'private, max-age=86400');
+        return res.send(buffer);
+      }
+      const inline = rows[0].inline;
+      const mime = (String(inline).match(/^data:([^;]+);base64,/) || [])[1] || 'application/octet-stream';
+      res.set('Content-Type', mime);
+      res.send(Buffer.from(fileStore.stripDataUrl(inline), 'base64'));
+    } catch (err) { res.status(500).json({ error: 'Server error' }); }
+  };
 }
 
 // Re-importing a price list should update what's there, not pile up copies.
@@ -93,7 +182,7 @@ async function upsertProduct(fields) {
   // Oldest first, so where earlier imports already left duplicates the original
   // is the one kept up to date rather than an arbitrary copy.
   const { rows: [existing] } = await pool.query(
-    `SELECT id FROM products
+    `SELECT id, media_key, brochure_key FROM products
      WHERE LOWER(TRIM(name)) = LOWER($1)
      ORDER BY created_at
      LIMIT 1`,
@@ -102,10 +191,23 @@ async function upsertProduct(fields) {
 
   const supplied = value => value !== null && value !== undefined && value !== '';
 
+  // A price list ZIP is where most images and brochures actually arrive, so
+  // this is the path that matters most for keeping them out of the database.
+  const media = supplied(fields.media_base64)
+    ? await fileStore.storeDataUrl({ prefix: 'products/media', filename: `${name}-image`, dataUrl: fields.media_base64 })
+    : null;
+  const brochure = supplied(fields.brochure_base64)
+    ? await fileStore.storeDataUrl({ prefix: 'products/brochures', filename: `${name}-brochure`, dataUrl: fields.brochure_base64 })
+    : null;
+  // Without a bucket these stay in their columns exactly as before.
+  const mediaInline = media ? null : (supplied(fields.media_base64) ? fields.media_base64 : null);
+  const brochureInline = brochure ? null : (supplied(fields.brochure_base64) ? fields.brochure_base64 : null);
+
   if (!existing) {
     await pool.query(
-      `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier, media_base64, brochure_base64)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier,
+         media_base64, brochure_base64, media_key, brochure_key)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [
         name,
         supplied(fields.description) ? fields.description : null,
@@ -114,8 +216,7 @@ async function upsertProduct(fields) {
         supplied(fields.unit_price) ? fields.unit_price : 0,
         supplied(fields.cost_price) ? fields.cost_price : 0,
         supplied(fields.supplier) ? fields.supplier : null,
-        supplied(fields.media_base64) ? fields.media_base64 : null,
-        supplied(fields.brochure_base64) ? fields.brochure_base64 : null,
+        mediaInline, brochureInline, media?.key || null, brochure?.key || null,
       ]
     );
     return 'imported';
@@ -123,6 +224,9 @@ async function upsertProduct(fields) {
 
   // COALESCE leaves the stored value in place wherever the file said nothing,
   // so a partial file only touches the columns it actually carries.
+  // Where a new file went to the bucket, the old inline copy is cleared as well
+  // as the key replaced — leaving it would keep the bytes in the database
+  // forever, which is the whole thing this is trying to stop.
   await pool.query(
     `UPDATE products SET
        description     = COALESCE($2, description),
@@ -131,8 +235,10 @@ async function upsertProduct(fields) {
        unit_price      = COALESCE($5, unit_price),
        cost_price      = COALESCE($6, cost_price),
        supplier        = COALESCE($7, supplier),
-       media_base64    = COALESCE($8, media_base64),
-       brochure_base64 = COALESCE($9, brochure_base64),
+       media_base64    = CASE WHEN $10::text IS NOT NULL THEN NULL ELSE COALESCE($8, media_base64) END,
+       brochure_base64 = CASE WHEN $11::text IS NOT NULL THEN NULL ELSE COALESCE($9, brochure_base64) END,
+       media_key       = COALESCE($10, media_key),
+       brochure_key    = COALESCE($11, brochure_key),
        updated_at      = NOW()
      WHERE id = $1`,
     [
@@ -143,10 +249,13 @@ async function upsertProduct(fields) {
       supplied(fields.unit_price) ? fields.unit_price : null,
       supplied(fields.cost_price) ? fields.cost_price : null,
       supplied(fields.supplier) ? fields.supplier : null,
-      supplied(fields.media_base64) ? fields.media_base64 : null,
-      supplied(fields.brochure_base64) ? fields.brochure_base64 : null,
+      mediaInline, brochureInline, media?.key || null, brochure?.key || null,
     ]
   );
+  // Only after the row points at the new file — the keys were read before the
+  // update, since afterwards there is nothing left saying where the old one was.
+  if (media?.key && existing.media_key) await fileStore.deleteObject(existing.media_key);
+  if (brochure?.key && existing.brochure_key) await fileStore.deleteObject(existing.brochure_key);
   return 'updated';
 }
 
@@ -288,4 +397,8 @@ async function categories(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, remove, importCsv, importZip, categories };
+module.exports = {
+  list, get, create, update, remove, importCsv, importZip, categories,
+  serveMediaImage: serveMedia('media'),
+  serveMediaBrochure: serveMedia('brochure'),
+};

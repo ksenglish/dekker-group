@@ -463,8 +463,23 @@ async function getQuoteAttachmentIds(quoteId) {
 async function enrichItemsWithImages(items) {
   const ids = items.map(i => i.product_id).filter(Boolean);
   if (!ids.length) return items;
-  const { rows } = await pool.query(`SELECT id, media_base64, brochure_base64 FROM products WHERE id = ANY($1)`, [ids]);
-  const map = Object.fromEntries(rows.map(r => [r.id, r]));
+  const { rows } = await pool.query(
+    `SELECT id, media_base64, brochure_base64, media_key, brochure_key FROM products WHERE id = ANY($1)`,
+    [ids]
+  );
+
+  // The PDF builder wants data URLs, so bucket-stored media is fetched back
+  // here — one product at a time, and only for products actually on the quote.
+  // A brochure is as big as a drawing, so loading them all at once has the same
+  // memory cost that took the server down.
+  const map = {};
+  for (const row of rows) {
+    map[row.id] = {
+      media_base64: await fileStore.readDataUrl({ key: row.media_key, inline: row.media_base64 }),
+      brochure_base64: await fileStore.readDataUrl({ key: row.brochure_key, inline: row.brochure_base64 }),
+    };
+  }
+
   return items.map(i => ({
     ...i,
     media_base64:    i.product_id ? (map[i.product_id]?.media_base64    || null) : null,

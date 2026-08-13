@@ -38,10 +38,14 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
   try {
     let scanId = null;
     if (document_base64) {
+      const stored = await fileStore.storeDataUrl({
+        prefix: `cost-scans/${req.params.id}`, filename: 'invoice', dataUrl: document_base64,
+      });
       const { rows: [scan] } = await pool.query(
-        `INSERT INTO job_cost_scans (job_id, document_base64, mime_type, gst_treatment, status)
-         VALUES ($1,$2,$3,$4,'matched') RETURNING id`,
-        [req.params.id, document_base64, mime_type || 'image/jpeg', gst_treatment || 'exclusive']
+        `INSERT INTO job_cost_scans (job_id, document_base64, mime_type, gst_treatment, status, storage_key, size_bytes)
+         VALUES ($1,$2,$3,$4,'matched',$5,$6) RETURNING id`,
+        [req.params.id, stored ? null : document_base64, mime_type || 'image/jpeg',
+         gst_treatment || 'exclusive', stored?.key || null, stored?.size || null]
       );
       scanId = scan.id;
     }
@@ -452,11 +456,13 @@ router.get('/:id/cost-scans', async (req, res) => {
 router.get('/:id/cost-scans/:scanId/document', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT document_base64, mime_type FROM job_cost_scans WHERE id=$1 AND job_id=$2',
+      'SELECT document_base64, storage_key, mime_type FROM job_cost_scans WHERE id=$1 AND job_id=$2',
       [req.params.scanId, req.params.id]
     );
-    if (!rows[0] || !rows[0].document_base64) return res.status(404).json({ error: 'Not found' });
-    const buf = Buffer.from(rows[0].document_base64.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    if (!rows[0] || (!rows[0].document_base64 && !rows[0].storage_key)) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    const buf = await fileStore.readBytes({ key: rows[0].storage_key, inline: rows[0].document_base64 });
     res.set('Content-Type', rows[0].mime_type || 'image/jpeg');
     res.send(buf);
   } catch (err) { res.status(500).json({ error: err.message }); }

@@ -134,6 +134,31 @@ export default function InvoiceInboxPage() {
   const [selectedJob, setSelectedJob] = useState(null);
   const [linkError, setLinkError] = useState('');
   const [pdfPreview, setPdfPreview] = useState(null); // scan being previewed
+  // The list no longer carries the documents themselves — it used to send every
+  // waiting PDF down just to render a list of suppliers. One is fetched when
+  // it's actually asked for, and the object URL is released on the way out.
+  const [pdfUrl, setPdfUrl] = useState(null);
+
+  async function togglePdf(scanId) {
+    if (pdfPreview === scanId) {
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+      setPdfUrl(null);
+      setPdfPreview(null);
+      return;
+    }
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    setPdfUrl(null);
+    setPdfPreview(scanId);
+    try {
+      const res = await api.get(`/costs/documents/${scanId}`, { responseType: 'blob' });
+      setPdfUrl(URL.createObjectURL(res.data));
+    } catch {
+      setPdfPreview(null);
+      alert('Could not open that document');
+    }
+  }
+
+  useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
   const [filing, setFiling] = useState(null);         // scan being filed to a folder
   const [selected, setSelected] = useState([]);       // ids ticked for bulk delete
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -291,11 +316,8 @@ export default function InvoiceInboxPage() {
                   <span className={styles.date}>{fmtDate(scan.created_at)}</span>
                 </div>
                 <div className={styles.cardActions}>
-                  {scan.document_base64 && (
-                    <button
-                      className={styles.btnPreview}
-                      onClick={() => setPdfPreview(pdfPreview === scan.id ? null : scan.id)}
-                    >
+                  {scan.has_document && (
+                    <button className={styles.btnPreview} onClick={() => togglePdf(scan.id)}>
                       {pdfPreview === scan.id ? 'Hide PDF' : 'View PDF'}
                     </button>
                   )}
@@ -347,10 +369,10 @@ export default function InvoiceInboxPage() {
                 <div className={styles.noItems}>No line items could be extracted from this invoice</div>
               )}
 
-              {pdfPreview === scan.id && scan.document_base64 && (
+              {pdfPreview === scan.id && (
                 <div className={styles.pdfFrame}>
                   <iframe
-                    src={scan.document_base64}
+                    src={pdfUrl || undefined}
                     title="Invoice PDF"
                     className={styles.iframe}
                   />

@@ -109,7 +109,7 @@ router.get('/direct', async (req, res) => {
        FROM job_cost_scans s
        JOIN jobs j ON j.id = s.job_id
        LEFT JOIN customers c ON c.id = j.customer_id
-       WHERE s.job_id IS NOT NULL AND s.document_base64 IS NOT NULL
+       WHERE s.job_id IS NOT NULL AND (s.document_base64 IS NOT NULL OR s.storage_key IS NOT NULL)
        ORDER BY s.created_at DESC`
     );
     res.json(rows);
@@ -156,17 +156,23 @@ router.post('/documents', requireRole('admin', 'office'), async (req, res) => {
       scan_error = err.message || 'Could not read the line items off this document';
     }
 
+    // Bytes to the bucket where there is one; the column stays the fallback.
+    const stored = await fileStore.storeDataUrl({
+      prefix: `cost-scans/${folder_id}`, filename: `receipt.${mime_type.split('/')[1] || 'bin'}`, dataUrl: data_base64,
+    });
+
     const { rows } = await pool.query(
       `INSERT INTO job_cost_scans
          (folder_id, status, document_base64, mime_type, supplier, invoice_number,
-          gst_treatment, parsed_items)
-       VALUES ($1, 'filed', $2, $3, $4, $5, $6, $7)
+          gst_treatment, parsed_items, storage_key, size_bytes)
+       VALUES ($1, 'filed', $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id, supplier, invoice_number, mime_type, created_at, folder_id, parsed_items`,
       [
-        folder_id, data_base64, mime_type,
+        folder_id, stored ? null : data_base64, mime_type,
         req.body.supplier?.trim() || scan.supplier,
         req.body.invoice_number?.trim() || scan.invoice_number,
         scan.gst_treatment, JSON.stringify(scan.items),
+        stored?.key || null, stored?.size || null,
       ]
     );
     res.status(201).json({ ...rows[0], scan_error });
@@ -178,10 +184,12 @@ router.post('/documents', requireRole('admin', 'office'), async (req, res) => {
 router.get('/documents/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT document_base64, mime_type FROM job_cost_scans WHERE id = $1', [req.params.id]
+      'SELECT document_base64, storage_key, mime_type FROM job_cost_scans WHERE id = $1', [req.params.id]
     );
-    if (!rows[0]?.document_base64) return res.status(404).json({ error: 'Not found' });
-    const buf = Buffer.from(rows[0].document_base64.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    if (!rows[0] || (!rows[0].document_base64 && !rows[0].storage_key)) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    const buf = await fileStore.readBytes({ key: rows[0].storage_key, inline: rows[0].document_base64 });
     res.set('Content-Type', rows[0].mime_type || 'application/pdf');
     res.send(buf);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -203,10 +211,11 @@ router.put('/documents/:id/folder', requireRole('admin', 'office'), async (req, 
 
 router.delete('/documents/:id', requireRole('admin', 'office'), async (req, res) => {
   try {
-    const { rowCount } = await pool.query(
-      `DELETE FROM job_cost_scans WHERE id = $1 AND status = 'filed'`, [req.params.id]
+    const { rows, rowCount } = await pool.query(
+      `DELETE FROM job_cost_scans WHERE id = $1 AND status = 'filed' RETURNING storage_key`, [req.params.id]
     );
     if (rowCount === 0) return res.status(404).json({ error: 'Document not found' });
+    if (rows[0].storage_key) await fileStore.deleteObject(rows[0].storage_key);
     res.json({ message: 'Deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
