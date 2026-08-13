@@ -203,7 +203,7 @@ export default function CustomerDetail() {
     setShowTemplates(true);
   }
 
-  function useTemplate(tpl) {
+  function applyTemplate(tpl) {
     const params = new URLSearchParams({
       customer: id,
       template_type:        tpl.type || '',
@@ -581,7 +581,7 @@ export default function CustomerDetail() {
                 <div className={styles.templateList}>
                   {templates.map(tpl => (
                     <button key={tpl.id} className={styles.templateCard}
-                      onClick={() => { setShowTemplates(false); useTemplate(tpl); }}>
+                      onClick={() => { setShowTemplates(false); applyTemplate(tpl); }}>
                       <div className={styles.templateName}>{tpl.name}</div>
                       {tpl.type && <div className={styles.templateMeta}>{tpl.type}</div>}
                       {tpl.description && <div className={styles.templateDesc}>{tpl.description}</div>}

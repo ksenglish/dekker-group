@@ -2,7 +2,11 @@ services:
   - type: web
     name: dekker-group
     runtime: node
-    buildCommand: npm install && cd client && npm install && npm run build && cd .. && cd server && npm install && cd ..
+    # Lint before anything is built. Errors are reserved for code that is
+    # actually broken — an undefined variable, a misused hook — so a failure
+    # here means the deploy would have shipped a fault. Warnings do not fail
+    # the build.
+    buildCommand: npm install && npm run lint && cd client && npm install && npm run build && cd .. && cd server && npm install && cd ..
     startCommand: node server/src/index.js
     healthCheckPath: /api/health
     envVars:

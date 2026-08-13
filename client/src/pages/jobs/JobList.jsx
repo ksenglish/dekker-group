@@ -160,7 +160,7 @@ export default function JobList() {
     setShowTemplates(true);
   }
 
-  function useTemplate(tpl) {
+  function applyTemplate(tpl) {
     const params = new URLSearchParams({
       template_type:        tpl.type || '',
       template_description: tpl.description || '',
@@ -328,7 +328,7 @@ export default function JobList() {
               ) : (
                 <div className={styles.templateList}>
                   {templates.map(tpl => (
-                    <button key={tpl.id} className={styles.templateCard} onClick={() => { setShowTemplates(false); useTemplate(tpl); }}>
+                    <button key={tpl.id} className={styles.templateCard} onClick={() => { setShowTemplates(false); applyTemplate(tpl); }}>
                       <div className={styles.templateName}>{tpl.name}</div>
                       {tpl.type && <div className={styles.templateMeta}>{tpl.type}</div>}
                       {tpl.description && <div className={styles.templateDesc}>{tpl.description}</div>}
