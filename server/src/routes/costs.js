@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { extractLineItems } = require('../services/invoiceExtract');
+const fileStore = require('../services/fileStore');
 
 router.use(authenticate);
 
