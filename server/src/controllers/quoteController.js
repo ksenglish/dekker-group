@@ -661,7 +661,18 @@ async function publicGet(req, res) {
     }
     const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
-    const arcsiteDrawings = await getQuoteAttachmentImages(q.id);
+    // Links, not bytes. These are the same drawings the PDF embeds, and putting
+    // them inline meant a customer opening the quote on a phone downloaded
+    // several megabytes of base64 inside the JSON before anything rendered.
+    const { rows: drawingRows } = await pool.query(
+      `SELECT a.id
+       FROM quote_attachments qa
+       JOIN job_attachments a ON a.id = qa.attachment_id
+       WHERE qa.quote_id = $1
+       ORDER BY a.arcsite_drawing_id IS NULL, a.created_at`,
+      [q.id]
+    );
+    const arcsiteDrawings = drawingRows.map(r => `/api/quotes/public/${req.params.token}/drawings/${r.id}`);
     const docTheme = await getThemeById(q.theme_id);
     res.json({
       id: q.id,
@@ -835,6 +846,33 @@ async function trackOpen(req, res) {
   res.send(TRACKING_PIXEL);
 }
 
+// A drawing on the customer-facing quote. Unauthenticated like the rest of the
+// public quote, but the join ties the attachment to the quote the token belongs
+// to — the id alone gets you nothing, so a token cannot be used to read files
+// from anyone else's job.
+async function publicDrawing(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.data_base64, a.storage_key, a.mime_type, a.filename
+       FROM quotes q
+       JOIN quote_attachments qa ON qa.quote_id = q.id
+       JOIN job_attachments a ON a.id = qa.attachment_id
+       WHERE q.public_token = $1 AND a.id = $2`,
+      [req.params.token, req.params.attachmentId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+
+    const buf = await fileStore.readAttachmentBuffer(rows[0]);
+    res.set('Content-Type', rows[0].mime_type || 'image/png');
+    res.set('Content-Disposition', `inline; filename="${rows[0].filename || 'drawing'}"`);
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(buf);
+  } catch (err) {
+    console.error('Public drawing fetch failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 async function getActivity(req, res) {
   try {
     const { rows } = await pool.query(
@@ -848,4 +886,4 @@ async function getActivity(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, updateLineItems, remove, approve, attachJob, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, getActivity };
+module.exports = { list, get, create, update, updateLineItems, remove, approve, attachJob, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, publicDrawing, getActivity };
