@@ -9,6 +9,7 @@ const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
 const { advanceJobStatus, advanceJobStatusByLabel } = require('../utils/jobStatusFlow');
 const fileStore = require('../services/fileStore');
+const { shrinkForPage } = require('../utils/imageForPrint');
 
 // An accepted quote is a won job, so it moves to Sale. Forward-only — a job
 // already past Sale (e.g. install booked, second quote accepted later) stays.
@@ -436,9 +437,22 @@ async function getQuoteAttachmentImages(quoteId) {
      ORDER BY a.arcsite_drawing_id IS NULL, a.created_at`,
     [quoteId]
   );
-  // Attachments stored in the bucket have to be fetched back and turned into
-  // data URLs, which is what the PDF builder embeds.
-  return Promise.all(rows.map(r => fileStore.readAttachmentDataUrl(r)));
+
+  // One at a time, and shrunk before the next is fetched. Loading them all at
+  // once held every full-size drawing in memory simultaneously, which is what
+  // ran the server out of memory on a quote carrying two 17MB ArcSite exports.
+  // Buffers rather than data URLs for the same reason — a base64 string is a
+  // third larger again, and the builder only decoded it straight back.
+  const images = [];
+  for (const row of rows) {
+    try {
+      const full = await fileStore.readAttachmentBuffer(row);
+      images.push(await shrinkForPage(full, row.mime_type));
+    } catch (err) {
+      console.error('Could not load quote attachment for the PDF:', err.message);
+    }
+  }
+  return images;
 }
 
 async function getQuoteAttachmentIds(quoteId) {
@@ -576,12 +590,20 @@ async function sendEmail(req, res) {
         'SELECT filename, mime_type, data_base64, storage_key FROM job_attachments WHERE job_id=$1 AND id = ANY($2::uuid[])',
         [q.job_id, attachment_ids]
       );
+      // Same one-at-a-time handling as the embedded drawings, and shrunk for
+      // the same second reason: most mail providers bounce anything over 25MB,
+      // so two full-size ArcSite exports would not have arrived regardless.
       for (const a of extra.rows) {
-        attachments.push({
-          filename: a.filename,
-          content: await fileStore.readAttachmentBuffer(a),
-          contentType: a.mime_type || 'application/octet-stream',
-        });
+        try {
+          const full = await fileStore.readAttachmentBuffer(a);
+          attachments.push({
+            filename: a.filename,
+            content: await shrinkForPage(full, a.mime_type),
+            contentType: a.mime_type || 'application/octet-stream',
+          });
+        } catch (err) {
+          console.error('Could not attach file to quote email:', a.filename, err.message);
+        }
       }
     }
 

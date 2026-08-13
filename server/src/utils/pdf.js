@@ -457,10 +457,14 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       // page between the Proposal and the brochures. The quote ends here;
       // Terms & Conditions still gets its own page, appended after
       // brochures below.
-      for (const dataUrl of appendixImages || []) {
+      for (const image of appendixImages || []) {
         try {
-          const raw = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-          const buf = Buffer.from(raw, 'base64');
+          // Buffers are what the quote path passes now — decoding a data URL
+          // here meant holding the string and the bytes at the same time, twice
+          // over. Still accepted so any other caller keeps working.
+          const buf = Buffer.isBuffer(image)
+            ? image
+            : Buffer.from(String(image).replace(/^data:image\/\w+;base64,/, ''), 'base64');
           doc.addPage();
           doc.fontSize(18).font('Helvetica-Bold').fillColor(BRAND).text('Proposal', MARGIN, MARGIN);
           const imgTop = MARGIN + 18 + 16;
