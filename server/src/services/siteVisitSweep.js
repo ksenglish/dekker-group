@@ -6,10 +6,13 @@
 // Visit indefinitely, long after the visit happened.
 //
 // This sweeps up the ones the timer never covered: the visit day has been and
-// gone, no quote exists, so the job is waiting on one.
+// gone and nothing has been sent to the customer, so the job is waiting on a
+// quote. A draft sitting on the job does not count, matching what the rep is
+// told when they stop a timer without having sent one.
 
 const pool = require('../db/pool');
 const { getStatusConfig, findStatusByLabel } = require('../utils/jobStatusFlow');
+const { quoteDeliveredSql } = require('../utils/quoteDelivery');
 
 const isSiteVisit     = l => l.includes('site visit');
 const isAwaitingQuote = l => l.includes('awaiting') && l.includes('quote');
@@ -36,7 +39,10 @@ async function runSiteVisitSweep() {
              AND s.appointment_type = 'sales'
              AND s.scheduled_date < (NOW() AT TIME ZONE 'Pacific/Auckland')::date
         )
-        AND NOT EXISTS (SELECT 1 FROM quotes q WHERE q.job_id = j.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM quotes q
+           WHERE q.job_id = j.id AND ${quoteDeliveredSql('q')}
+        )
       RETURNING j.id, j.job_number`,
     [to.key, from.key]
   );

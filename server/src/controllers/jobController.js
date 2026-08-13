@@ -4,6 +4,7 @@ const { getTheme } = require('./settingsController');
 const { buildElectricalCocPDF } = require('../utils/electricalCocPdf');
 const { sendMail } = require('../utils/email');
 const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
+const { quoteDeliveredSql } = require('../utils/quoteDelivery');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 
 async function list(req, res) {
@@ -457,16 +458,11 @@ async function getQuoteDelivery(req, res) {
   try {
     const { rows } = await pool.query(
       `SELECT q.id, q.quote_number, q.status, q.sent_at, q.delivery_status,
-              EXISTS (
-                SELECT 1 FROM activity_log a
-                WHERE a.entity_type='quote' AND a.entity_id=q.id AND a.type='quote_sent'
-              ) AS has_sent_activity
+              ${quoteDeliveredSql('q')} AS delivered
        FROM quotes q WHERE q.job_id=$1 ORDER BY q.created_at DESC`,
       [req.params.id]
     );
-    const isDelivered = q =>
-      !!q.sent_at || (q.delivery_status && q.delivery_status !== 'unsent') || q.has_sent_activity;
-    const delivered = rows.filter(isDelivered);
+    const delivered = rows.filter(q => q.delivered);
     res.json({
       quote_count: rows.length,
       delivered_count: delivered.length,
