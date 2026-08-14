@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "Dekker Air Website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "../dekkerair-website", "run", "dev", "--", "--port", "5174", "--strictPort"],
+      "port": 5174
     }
   ]
 }

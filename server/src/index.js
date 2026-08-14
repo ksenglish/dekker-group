@@ -30,6 +30,7 @@ const invoiceInboxRoutes = require('./routes/invoiceInbox');
 const todoRoutes = require('./routes/todos');
 const stockRoutes = require('./routes/stock');
 const costRoutes = require('./routes/costs');
+const publicRoutes = require('./routes/public');
 
 const app = express();
 // SERVER_PORT takes priority so a PORT already exported for the client dev
@@ -59,9 +60,12 @@ const restrictedCors = cors({
 });
 // The lead webhook is a public contact-form endpoint hit from external websites
 // (e.g. the Dekker Air site), so it allows any origin; everything else stays restricted.
+// /api/public is the same deal — read-only marketing-site data.
 const publicCors = cors();
 app.use((req, res, next) => {
-  if (req.path.startsWith('/api/leads/webhook')) return publicCors(req, res, next);
+  if (req.path.startsWith('/api/leads/webhook') || req.path.startsWith('/api/public/')) {
+    return publicCors(req, res, next);
+  }
   return restrictedCors(req, res, next);
 });
 // Xero webhook needs the raw request bytes for HMAC signature verification,
@@ -95,6 +99,7 @@ app.use('/api/invoice-inbox', invoiceInboxRoutes);
 app.use('/api/todos', todoRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/costs', costRoutes);
+app.use('/api/public', publicRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {
