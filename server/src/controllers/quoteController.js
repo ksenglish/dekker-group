@@ -487,6 +487,80 @@ async function enrichItemsWithImages(items) {
   }));
 }
 
+// The customer-facing page, unlike the PDF, wants a link to the brochure
+// rather than the bytes of one.
+//
+// A brochure sent inline as a data: URL cannot be displayed: Chrome refuses to
+// render a PDF from a data: URL in a frame, so the block came out blank while
+// the same brochure appeared correctly in the downloaded PDF. Served from a URL
+// it renders normally — and a customer on a phone no longer downloads every
+// brochure on the quote before the page appears.
+//
+// Thumbnails stay inline. They are small, and an <img> renders a data: URL
+// without complaint.
+async function enrichItemsForPublic(items, token) {
+  const ids = items.map(i => i.product_id).filter(Boolean);
+  if (!ids.length) return items;
+
+  const { rows } = await pool.query(
+    `SELECT id, media_base64, media_key,
+            (brochure_key IS NOT NULL OR brochure_base64 IS NOT NULL) AS has_brochure
+       FROM products WHERE id = ANY($1)`,
+    [ids]
+  );
+
+  const map = {};
+  for (const row of rows) {
+    map[row.id] = {
+      media_base64: await fileStore.readDataUrl({ key: row.media_key, inline: row.media_base64 }),
+      brochure_url: row.has_brochure ? `/api/quotes/public/${token}/brochures/${row.id}` : null,
+    };
+  }
+
+  return items.map(i => ({
+    ...i,
+    media_base64: i.product_id ? (map[i.product_id]?.media_base64 || null) : null,
+    brochure_url: i.product_id ? (map[i.product_id]?.brochure_url || null) : null,
+  }));
+}
+
+// Unauthenticated like the rest of the public quote, but joined through the
+// quote the token belongs to and its line items — so a product id on its own
+// gets nothing, and a token only reaches brochures for products actually on
+// that quote.
+async function publicBrochure(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.brochure_base64, p.brochure_key, p.name
+         FROM quotes q
+         JOIN line_items li ON li.quote_id = q.id
+         JOIN products p ON p.id = li.product_id
+        WHERE q.public_token = $1 AND p.id = $2
+        LIMIT 1`,
+      [req.params.token, req.params.productId]
+    );
+    const row = rows[0];
+    if (!row || (!row.brochure_key && !row.brochure_base64)) return res.status(404).json({ error: 'Not found' });
+
+    let buffer, contentType;
+    if (row.brochure_key) {
+      ({ buffer, contentType } = await fileStore.getObject(row.brochure_key));
+    } else {
+      contentType = (String(row.brochure_base64).match(/^data:([^;]+);base64,/) || [])[1] || 'application/pdf';
+      buffer = Buffer.from(fileStore.stripDataUrl(row.brochure_base64), 'base64');
+    }
+
+    res.set('Content-Type', contentType);
+    // inline so the browser displays it in the page rather than downloading it.
+    res.set('Content-Disposition', `inline; filename="${(row.name || 'brochure').replace(/[^\w.\- ]+/g, '_')}"`);
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(buffer);
+  } catch (err) {
+    console.error('Public brochure fetch failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 async function downloadPdf(req, res) {
   try {
     const q = await getQuoteFull({ id: req.params.id });
@@ -660,7 +734,7 @@ async function publicGet(req, res) {
       await logActivity({ type: 'quote_viewed', entity_type: 'quote', entity_id: q.id, message: 'Quote viewed by customer' });
     }
     const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
-    const enrichedItems = await enrichItemsWithImages(items.rows);
+    const enrichedItems = await enrichItemsForPublic(items.rows, req.params.token);
     // Links, not bytes. These are the same drawings the PDF embeds, and putting
     // them inline meant a customer opening the quote on a phone downloaded
     // several megabytes of base64 inside the JSON before anything rendered.
@@ -886,4 +960,4 @@ async function getActivity(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, updateLineItems, remove, approve, attachJob, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, publicDrawing, getActivity };
+module.exports = { list, get, create, update, updateLineItems, remove, approve, attachJob, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, publicDrawing, publicBrochure, getActivity };

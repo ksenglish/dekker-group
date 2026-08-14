@@ -9,6 +9,7 @@ router.post('/public/:token/accept', c.publicAccept);
 router.post('/public/:token/decline', c.publicDecline);
 router.get('/public/:token/pixel.gif', c.trackOpen);
 router.get('/public/:token/drawings/:attachmentId', c.publicDrawing);
+router.get('/public/:token/brochures/:productId', c.publicBrochure);
 
 router.use(authenticate);
 router.use(requireRole('admin', 'office'));

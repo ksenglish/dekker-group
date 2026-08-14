@@ -76,13 +76,15 @@ export default function PublicQuote() {
   const isExpired = quote.is_expired;
   const hasThumb = quote.line_items?.some(i => i.media_base64);
   const jobNumber = jobNumberDisplay(quote);
+  // Two line items for the same product share a brochure, so it is shown once.
+  // Deduped on the URL, which is per product — previously on the first 80
+  // characters of the data URL, which amounted to the same thing.
   const brochures = (() => {
     const seen = new Set();
     return (quote.line_items || []).filter(i => {
-      if (!i.brochure_base64) return false;
-      const key = i.brochure_base64.slice(0, 80);
-      if (seen.has(key)) return false;
-      seen.add(key); return true;
+      if (!i.brochure_url) return false;
+      if (seen.has(i.brochure_url)) return false;
+      seen.add(i.brochure_url); return true;
     });
   })();
 
@@ -308,15 +310,16 @@ export default function PublicQuote() {
             {brochures.map((item, i) => (
               <div key={i} style={s.brochureBlock}>
                 <div style={s.brochureTitle}>{item.description}</div>
-                {item.brochure_base64.startsWith('data:application/pdf') ? (
-                  <iframe
-                    src={item.brochure_base64}
-                    style={s.brochurePdf}
-                    title={item.description}
-                  />
-                ) : (
-                  <img src={item.brochure_base64} alt={item.description} style={s.brochureImg} />
-                )}
+                {/* <object> rather than an iframe or an img: the browser picks
+                    how to display it from the content type the server sends,
+                    so a PDF brochure and an image one both work without the
+                    page having to know which it is. Anything it cannot show
+                    falls back to the link. */}
+                <object data={item.brochure_url} style={s.brochurePdf} aria-label={item.description}>
+                  <a href={item.brochure_url} target="_blank" rel="noreferrer">
+                    View the {item.description} brochure
+                  </a>
+                </object>
               </div>
             ))}
           </div>
