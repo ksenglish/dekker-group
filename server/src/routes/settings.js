@@ -14,6 +14,28 @@ const pool = require('../db/pool');
 router.get('/', authenticate, c.get);
 router.put('/', authenticate, requireRole('admin', 'office'), c.update);
 
+// ── Website Pricing ──────────────────────────────────────────────────────
+// Whether dekkerair.co.nz may show prices from the price list, and the
+// installation charge added to each unit. Admin only — turning this on
+// publishes those prices on the open internet.
+const { getPublicPricing, savePublicPricing } = require('../utils/publicPricing');
+
+router.get('/website-pricing', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    res.json(await getPublicPricing());
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/website-pricing', authenticate, requireRole('admin'), async (req, res) => {
+  const { enabled, installCents } = req.body || {};
+  if (installCents != null && (!Number.isFinite(Number(installCents)) || Number(installCents) < 0)) {
+    return res.status(400).json({ error: 'Installation cost must be zero or more' });
+  }
+  try {
+    res.json(await savePublicPricing({ enabled, installCents }));
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 // ── Document Themes ──────────────────────────────────────────────────────
 // Quotes and invoices each pick a theme (logo, trading name, brand colour,
 // free-text contact details) instead of a single global company profile.

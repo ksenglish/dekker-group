@@ -4,25 +4,9 @@
 const router = require('express').Router();
 const pool = require('../db/pool');
 const { RINNAI_HEATPUMP_TABLE } = require('../utils/heatpumpSizing');
+const { getPublicPricing } = require('../utils/publicPricing');
 
-const SETTINGS_KEY = 'public_heatpump_pricing';
 const GST_MULTIPLIER = 1.15;
-
-// Pricing is OFF until someone turns it on and sets an install cost — deploying
-// this route must not publish the price list by itself. To enable:
-//
-//   INSERT INTO settings (key, value) VALUES
-//     ('public_heatpump_pricing', '{"enabled":true,"installCents":XXXXX}')
-//   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
-//
-// installCents is the installation charge added to each unit's supply price,
-// in cents, EXCLUDING GST — GST is applied to the combined figure below.
-const DEFAULTS = { enabled: false, installCents: 0 };
-
-async function getConfig() {
-  const { rows } = await pool.query('SELECT value FROM settings WHERE key = $1', [SETTINGS_KEY]);
-  return { ...DEFAULTS, ...(rows[0]?.value || {}) };
-}
 
 const norm = s => (s || '').trim().toLowerCase();
 
@@ -31,9 +15,12 @@ const norm = s => (s || '').trim().toLowerCase();
 // Deliberately narrow: only the Rinnai highwall models the sizing calculator
 // can recommend, and only their installed retail price inc GST. cost_price,
 // supplier and every other product field stay private.
+//
+// Pricing stays off until it's switched on in Settings → Website Pricing, so
+// deploying this route does not publish the price list by itself.
 router.get('/heat-pumps', async (req, res) => {
   try {
-    const config = await getConfig();
+    const config = await getPublicPricing();
 
     let priceList = [];
     if (config.enabled) {

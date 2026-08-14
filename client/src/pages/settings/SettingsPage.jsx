@@ -11,7 +11,7 @@ import { overlayClose } from '../../lib/overlayClose';
 import RichTextEditor from '../../components/RichTextEditor';
 import { isHtml } from '../../lib/richText';
 
-const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Integrations'];
+const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Website Pricing', 'Integrations'];
 
 // ── Sortable job status row (drag to reorder) ─────────────────────────────────
 function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
@@ -169,6 +169,8 @@ export default function SettingsPage() {
           {activeTab === 'Email Templates' && <EmailTemplatesTab />}
 
           {activeTab === 'Billing Rates' && <BillingRatesTab />}
+
+          {activeTab === 'Website Pricing' && <WebsitePricingTab />}
 
           {activeTab === 'Integrations' && <IntegrationsTab />}
 
@@ -747,6 +749,119 @@ function SecurityTab() {
 
 function newRateId() {
   return 'rate_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// ── Website Pricing ───────────────────────────────────────────────────────────
+// Controls the heat pump prices shown by the calculator on dekkerair.co.nz.
+// Prices come from the Price List; this decides whether the public site is
+// allowed to show them and what installation charge is added on top.
+function WebsitePricingTab() {
+  const [enabled, setEnabled] = useState(false);
+  const [installDollars, setInstallDollars] = useState('0');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/website-pricing')
+      .then(r => {
+        setEnabled(!!r.data.enabled);
+        setInstallDollars(((r.data.installCents || 0) / 100).toFixed(2));
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const install = parseFloat(installDollars) || 0;
+  // Worked example so the effect of the install charge is obvious before saving.
+  const exampleSupply = 1190;
+  const exampleTotal = (exampleSupply + install) * 1.15;
+
+  async function save() {
+    setSaving(true);
+    try {
+      await api.put('/settings/website-pricing', {
+        enabled,
+        installCents: Math.round(install * 100),
+      });
+      setSaved(true); setTimeout(() => setSaved(false), 3000);
+    } catch (e) { alert(e.response?.data?.error || 'Save failed'); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Loading…</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600 }}>Website Pricing</h2>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Heat pump calculator on dekkerair.co.nz</p>
+        </div>
+
+        <div style={{ padding: 20 }}>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20, lineHeight: 1.7 }}>
+            The heat pump calculator on the website sizes a room and recommends a Rinnai high wall
+            model. Turn this on to let it show a price for that model, taken from your Price List.
+            Leave it off and the calculator still sizes the room and takes the enquiry, but shows
+            &ldquo;on request&rdquo; instead of a figure.
+          </p>
+
+          <label style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '14px 16px', background: '#f8fafc', borderRadius: 8, cursor: 'pointer', marginBottom: 16 }}>
+            <input type="checkbox" checked={enabled} style={{ marginTop: 3 }}
+              onChange={e => { setEnabled(e.target.checked); setSaved(false); }} />
+            <span>
+              <span style={{ fontSize: 14, fontWeight: 600, display: 'block' }}>Show prices on the website</span>
+              <span style={{ fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+                These prices become publicly visible to anyone on the internet. Only the seven
+                Rinnai high wall models are ever exposed — never cost prices, suppliers, or the
+                rest of the Price List.
+              </span>
+            </span>
+          </label>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#f8fafc', borderRadius: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Installation charge</div>
+              <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)' }}>Per unit, excl. GST</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>$</span>
+              <input type="number" min="0" step="1" value={installDollars}
+                onChange={e => { setInstallDollars(e.target.value); setSaved(false); }}
+                style={{ width: 160, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 14 }} />
+            </div>
+          </div>
+
+          <div style={{ marginTop: 16, padding: '14px 16px', border: '1px dashed var(--color-border)', borderRadius: 8, fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.8 }}>
+            <strong style={{ color: 'var(--color-text)' }}>How a price is worked out</strong><br />
+            Price List unit price (excl. GST) + installation charge, then GST added.<br />
+            A unit at ${exampleSupply.toLocaleString('en-NZ')} with a ${install.toLocaleString('en-NZ')} installation charge
+            shows on the website as{' '}
+            <strong style={{ color: 'var(--color-text)' }}>
+              ${exampleTotal.toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} incl. GST, installed
+            </strong>.
+          </div>
+
+          {enabled && (
+            <div style={{ marginTop: 16, padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, fontSize: 13, lineHeight: 1.7 }}>
+              Your Latest Deals page advertises the high wall &ldquo;from $1,695 installed&rdquo;. Check the
+              cheapest model here lands somewhere sensible against that, or the two pages will
+              quote different numbers for the same unit.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 20 }}>
+            <button onClick={save} disabled={saving}
+              style={{ padding: '9px 18px', background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            {saved && <span style={{ fontSize: 13, color: '#059669', fontWeight: 600 }}>Saved</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function BillingRatesTab() {
