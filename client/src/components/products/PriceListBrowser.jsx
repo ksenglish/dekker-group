@@ -3,7 +3,7 @@ import api from '../../lib/api';
 import ProductImage from './ProductImage';
 import { loadAuthedFile } from './authedFile';
 import { htmlToText } from '../../lib/richText';
-import { browseView } from './priceListTree';
+import { browseView, LEVELS } from './priceListTree';
 
 // Browsing the price list the way a shop does: pick a category, then a
 // subcategory, then look at the products. Used both as the Price List page's
@@ -13,7 +13,16 @@ import { browseView } from './priceListTree';
 // without their images is small, and having it all client-side makes search
 // and drilling around instant. Pictures load per tile through ProductImage.
 
-const money = cents => `$${(cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}`;
+const GST_RATE = 0.15;
+
+// Prices are stored excluding GST. This view is used in front of customers, so
+// it shows what they'd actually pay.
+const moneyIncGst = cents =>
+  `$${((cents * (1 + GST_RATE)) / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Big enough to feel like a full page of a catalogue, small enough that a
+// thousand-product category doesn't try to render at once.
+const PAGE_SIZE = 48;
 
 const card = {
   background: 'var(--color-surface)', border: '1px solid var(--color-border)',
@@ -59,7 +68,7 @@ function ProductTile({ product, onOpen }) {
         <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.35 }}>{product.name}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 15, fontWeight: 700 }}>
-            {product.unit_price > 0 ? money(product.unit_price) : 'POA'}
+            {product.unit_price > 0 ? moneyIncGst(product.unit_price) : 'POA'}
           </span>
           {product.unit && product.unit !== 'each' && (
             <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>per {product.unit}</span>
@@ -108,7 +117,7 @@ function ProductDetail({ product, onClose, onPick, picking }) {
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700 }}>{product.name}</h2>
             <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginTop: 3 }}>
-              {[product.category, product.subcategory_1, product.subcategory_2].filter(Boolean).join(' › ') || 'Uncategorised'}
+              {LEVELS.map(l => product[l]).filter(Boolean).join(' › ') || 'Uncategorised'}
             </div>
           </div>
           <button onClick={onClose} style={{
@@ -130,12 +139,12 @@ function ProductDetail({ product, onClose, onPick, picking }) {
 
           <div>
             <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>
-              {product.unit_price > 0 ? money(product.unit_price) : 'Price on application'}
+              {product.unit_price > 0 ? moneyIncGst(product.unit_price) : 'Price on application'}
             </div>
             {/* Supplier is deliberately not shown — this view is used in front
                 of customers and by the sales team. */}
             <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginBottom: 16 }}>
-              excl. GST{product.unit && product.unit !== 'each' ? ` · per ${product.unit}` : ''}
+              incl. GST{product.unit && product.unit !== 'each' ? ` · per ${product.unit}` : ''}
             </div>
 
             {description && (
@@ -198,6 +207,7 @@ export default function PriceListBrowser({ onPick, onClose, title = 'Price List'
   const [open, setOpen] = useState(null);
   const [picking, setPicking] = useState(false);
   const [toast, setToast] = useState(null);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     api.get('/products').then(r => setProducts(r.data)).catch(() => setProducts([]));
@@ -216,6 +226,16 @@ export default function PriceListBrowser({ onPick, onClose, title = 'Price List'
   }, [products, search, searching]);
 
   const view = useMemo(() => browseView(products, path), [products, path]);
+
+  // Whatever is being listed right now — search hits, or the products in this
+  // folder. Folders themselves aren't paged; there are never many at a level.
+  const listed = searching ? results : view.items;
+  const totalPages = Math.max(1, Math.ceil(listed.length / PAGE_SIZE));
+  const pageItems = listed.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  // Moving folder or changing the search starts again at the first page —
+  // otherwise you can land on page 4 of a category that only has one.
+  useEffect(() => { setPage(1); }, [path, search]);
 
   async function pick(product) {
     setPicking(true);
@@ -283,27 +303,40 @@ export default function PriceListBrowser({ onPick, onClose, title = 'Price List'
           <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
             No products yet — import a price list to get started.
           </div>
-        ) : searching ? (
-          results.length === 0 ? (
-            <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>Nothing matches “{search}”.</div>
-          ) : (
-            <>
-              <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginBottom: 12 }}>
-                {results.length} match{results.length === 1 ? '' : 'es'}
-              </div>
-              <div style={grid}>
-                {results.map(p => <ProductTile key={p.id} product={p} onOpen={setOpen} />)}
-              </div>
-            </>
-          )
+        ) : searching && results.length === 0 ? (
+          <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>Nothing matches “{search}”.</div>
         ) : (
-          <div style={grid}>
-            {view.folders.map(f => (
-              <FolderTile key={f.name} name={f.name} count={f.items.length}
-                onClick={() => setPath([...path, f.name])} />
-            ))}
-            {view.items.map(p => <ProductTile key={p.id} product={p} onOpen={setOpen} />)}
-          </div>
+          <>
+            {listed.length > 0 && (
+              <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginBottom: 12 }}>
+                {searching
+                  ? `${listed.length} match${listed.length === 1 ? '' : 'es'}`
+                  : `${listed.length} product${listed.length === 1 ? '' : 's'}`}
+                {totalPages > 1 && ` · showing ${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, listed.length)}`}
+              </div>
+            )}
+
+            <div style={grid}>
+              {!searching && view.folders.map(f => (
+                <FolderTile key={f.name} name={f.name} count={f.items.length}
+                  onClick={() => setPath([...path, f.name])} />
+              ))}
+              {pageItems.map(p => <ProductTile key={p.id} product={p} onOpen={setOpen} />)}
+            </div>
+
+            {totalPages > 1 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: 14, marginTop: 24, fontSize: 13.5,
+              }}>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  style={pagerBtn(page === 1)}>← Prev</button>
+                <span style={{ color: 'var(--color-text-muted)' }}>Page {page} of {totalPages}</span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                  style={pagerBtn(page === totalPages)}>Next →</button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -328,3 +361,10 @@ const grid = {
   gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
   gap: 16,
 };
+
+const pagerBtn = disabled => ({
+  padding: '7px 16px', borderRadius: 6, fontSize: 13.5, fontWeight: 600,
+  border: '1px solid var(--color-border)', background: 'var(--color-surface)',
+  color: disabled ? 'var(--color-text-muted)' : 'var(--color-text)',
+  cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
+});

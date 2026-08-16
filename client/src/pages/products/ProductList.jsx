@@ -94,6 +94,8 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
     supplier: product?.supplier || '',
     subcategory_1: product?.subcategory_1 || '',
     subcategory_2: product?.subcategory_2 || '',
+    subcategory_3: product?.subcategory_3 || '',
+    subcategory_4: product?.subcategory_4 || '',
     // A product whose image is in the bucket comes back as a URL to fetch
     // rather than the bytes. Both work as an <img src>, and posting the URL
     // back on save is read as "unchanged" rather than as a new upload.
@@ -170,6 +172,14 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
             <div className={styles.formGroup}>
               <label>Sub Category 2</label>
               <input value={form.subcategory_2} onChange={e => set('subcategory_2', e.target.value)} placeholder="e.g. Extraction" />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Sub Category 3</label>
+              <input value={form.subcategory_3} onChange={e => set('subcategory_3', e.target.value)} placeholder="e.g. Inline Fans" />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Sub Category 4</label>
+              <input value={form.subcategory_4} onChange={e => set('subcategory_4', e.target.value)} placeholder="e.g. 150mm" />
             </div>
             <div className={styles.formGroup}>
               <label>Supplier</label>

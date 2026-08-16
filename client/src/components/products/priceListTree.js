@@ -4,6 +4,10 @@
 
 export const UNCATEGORISED = 'Uncategorised';
 
+// The levels of the tree, outermost first. Adding another one is a matter of
+// adding the column and naming it here.
+export const LEVELS = ['category', 'subcategory_1', 'subcategory_2', 'subcategory_3', 'subcategory_4'];
+
 const label = v => (v || '').trim() || UNCATEGORISED;
 
 // Groups rows by a field, alphabetical, with the blank group last.
@@ -28,11 +32,12 @@ export function browseView(products, path) {
   if (!products) return { folders: [], items: [] };
 
   let rows = products;
-  if (path.length >= 1) rows = rows.filter(p => label(p.category) === path[0]);
-  if (path.length >= 2) rows = rows.filter(p => label(p.subcategory_1) === path[1]);
-  if (path.length >= 3) rows = rows.filter(p => label(p.subcategory_2) === path[2]);
+  path.forEach((chosen, depth) => {
+    const field = LEVELS[depth];
+    if (field) rows = rows.filter(p => label(p[field]) === chosen);
+  });
 
-  const field = ['category', 'subcategory_1', 'subcategory_2'][path.length];
+  const field = LEVELS[path.length];
   if (!field) return { folders: [], items: rows };
 
   const groups = groupBy(rows, field);
