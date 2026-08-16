@@ -22,6 +22,7 @@ import ReportsPage from '../../pages/reports/ReportsPage';
 import MapPage from '../../pages/map/MapPage';
 import SalesPresenter from '../../pages/presenter/SalesPresenter';
 import PresenterAdmin from '../../pages/presenter/PresenterAdmin';
+import WebsitePage from '../../pages/website/WebsitePage';
 import DekkerHub from '../../pages/hub/DekkerHub';
 import InvoiceInboxPage from '../../pages/invoiceInbox/InvoiceInboxPage';
 import TodosPage from '../../pages/todos/TodosPage';
@@ -60,6 +61,7 @@ function visibleNavItems(items, role) {
 const ADMIN_ITEMS = [
   { to: '/users', label: 'Users', icon: '👤' },
   { to: '/presenter/admin', label: 'Presenter Setup', icon: '🎛' },
+  { to: '/website', label: 'Website', icon: '🌐' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ];
 
@@ -230,6 +232,7 @@ export default function AppShell() {
           <Route path="/reports/marketing" element={<MarketingPage />} />
           <Route path="/presenter" element={<SalesPresenter />} />
           <Route path="/presenter/admin" element={<PresenterAdmin />} />
+          <Route path="/website" element={<WebsitePage />} />
           <Route path="/hub" element={<DekkerHub />} />
           <Route path="/invoice-inbox" element={<InvoiceInboxPage />} />
           <Route path="/todos" element={<TodosPage />} />

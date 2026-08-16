@@ -67,11 +67,21 @@ router.get('/content/:key', checkKey, async (req, res) => {
 });
 
 router.put('/content/:key', checkKey, requireRole('admin', 'office'), async (req, res) => {
+  // Validation problems are the editor's to fix and are worth reporting back
+  // verbatim. Anything the database objects to is ours, and gets a generic
+  // message rather than raw Postgres text.
+  let value;
   try {
-    const value = NORMALISERS[req.params.key](req.body?.value);
+    value = NORMALISERS[req.params.key](req.body?.value);
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'Could not save' });
+  }
+
+  try {
     res.json(shape(await content.saveDraft(req.params.key, value, req.user.id)));
   } catch (err) {
-    res.status(400).json({ error: err.message || 'Could not save' });
+    console.error('Saving website content failed:', err.message);
+    res.status(500).json({ error: 'Could not save — please try again' });
   }
 });
 
@@ -117,7 +127,7 @@ router.delete('/media/:id', requireRole('admin', 'office'), async (req, res) => 
   try {
     const ok = await media.remove(req.params.id);
     res.status(ok ? 204 : 404).end();
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { console.error('Website route failed:', err.message); res.status(500).json({ error: 'Server error' }); }
 });
 
 // ── Change requests ──────────────────────────────────────────────────────────
@@ -132,7 +142,7 @@ router.get('/requests', async (req, res) => {
                  r.created_at DESC`
     );
     res.json(rows);
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { console.error('Website route failed:', err.message); res.status(500).json({ error: 'Server error' }); }
 });
 
 router.post('/requests', async (req, res) => {
@@ -145,7 +155,7 @@ router.post('/requests', async (req, res) => {
       [clip(title, 255), clip(details, 5000), clip(page, 255), mediaId || null, req.user.id]
     );
     res.status(201).json(rows[0]);
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { console.error('Website route failed:', err.message); res.status(500).json({ error: 'Server error' }); }
 });
 
 router.patch('/requests/:id', async (req, res) => {
@@ -153,23 +163,31 @@ router.patch('/requests/:id', async (req, res) => {
   if (!['open', 'in_progress', 'done', 'dismissed'].includes(status)) {
     return res.status(400).json({ error: 'Unknown status' });
   }
+  // Worked out here rather than with a CASE in the statement: reusing one
+  // parameter as both a varchar assignment and a text comparison makes Postgres
+  // give up with "inconsistent types deduced for parameter $2".
+  const resolvedAt = ['done', 'dismissed'].includes(status) ? new Date() : null;
+
   try {
     const { rows } = await pool.query(
       `UPDATE website_requests
-          SET status = $2, resolved_at = CASE WHEN $2 IN ('done','dismissed') THEN NOW() ELSE NULL END
+          SET status = $2, resolved_at = $3
         WHERE id = $1 RETURNING *`,
-      [req.params.id, status]
+      [req.params.id, status, resolvedAt]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
     res.json(rows[0]);
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) {
+    console.error('Updating website request failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 router.delete('/requests/:id', requireRole('admin', 'office'), async (req, res) => {
   try {
     await pool.query('DELETE FROM website_requests WHERE id = $1', [req.params.id]);
     res.status(204).end();
-  } catch { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { console.error('Website route failed:', err.message); res.status(500).json({ error: 'Server error' }); }
 });
 
 module.exports = router;
