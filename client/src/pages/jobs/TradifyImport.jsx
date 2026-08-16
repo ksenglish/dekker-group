@@ -13,6 +13,8 @@ export default function TradifyImport() {
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const [backfill, setBackfill] = useState(null);
+  const [backfilling, setBackfilling] = useState(false);
 
   if (user?.role !== 'admin') {
     return (
@@ -52,6 +54,21 @@ export default function TradifyImport() {
     }
   }
 
+  // Jobs imported before the importer handled labour hours still have their
+  // Tradify time sitting unread on the job. This converts what's already in the
+  // database — no fresh export needed.
+  async function runTimeBackfill(dryRun) {
+    setBackfilling(true); setError(''); setBackfill(null);
+    try {
+      const { data } = await api.post(`/jobs/import/tradify-time${dryRun ? '?dryRun=true' : ''}`);
+      setBackfill(data);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not import labour hours.');
+    } finally {
+      setBackfilling(false);
+    }
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.breadcrumb}>
@@ -75,6 +92,8 @@ export default function TradifyImport() {
           <li>Team members already in the app are linked to their jobs.</li>
           <li>Any team member <strong>not</strong> in the app is added to <strong>Users</strong> as
             <strong> Inactive</strong> with role <strong>Undefined</strong> — ready to invite later.</li>
+          <li>Labour hours from the <strong>Time</strong> column become timesheet entries on each
+            job's <strong>Time</strong> tab, credited to the person who logged them.</li>
           <li>Running the import again is safe: jobs already imported are skipped, not duplicated.</li>
         </ul>
 
@@ -112,6 +131,80 @@ export default function TradifyImport() {
           </div>
         )}
 
+        {/* Labour hours for jobs imported before the importer handled them. */}
+        <div style={{ marginTop: 28, paddingTop: 24, borderTop: '1px solid var(--color-border)' }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Labour hours for jobs already imported</h2>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.7, marginBottom: 16 }}>
+            Jobs imported earlier kept their Tradify time as text on the job but never showed it on
+            the Time tab. This converts what's already stored — you don't need another export.
+            Check it first with a dry run; it reports what it would do without saving anything.
+            Running it more than once won't duplicate entries.
+          </p>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button className={styles.btnSecondary} onClick={() => runTimeBackfill(true)} disabled={backfilling}>
+              {backfilling ? 'Checking…' : 'Dry run'}
+            </button>
+            <button className={styles.btnPrimary} onClick={() => runTimeBackfill(false)} disabled={backfilling}>
+              {backfilling ? 'Importing…' : 'Import labour hours'}
+            </button>
+          </div>
+
+          {backfill && (
+            <div style={{ marginTop: 18, padding: '16px 20px', borderRadius: 'var(--radius)',
+              background: backfill.dryRun ? '#fffbeb' : '#f0fdf4',
+              border: `1px solid ${backfill.dryRun ? '#fde68a' : '#bbf7d0'}` }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>
+                {backfill.dryRun
+                  ? `Dry run — nothing saved. ${backfill.timeEntriesCreated} entries would be created.`
+                  : `${backfill.timeEntriesCreated} labour entries imported.`}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.8 }}>
+                <div>Jobs scanned: <strong>{backfill.jobsScanned}</strong> · with time recorded: <strong>{backfill.jobsWithTime}</strong></div>
+                <div>Labour hours: <strong>{backfill.labourHours}</strong></div>
+                {backfill.duplicatesSkipped > 0 && <div>Already imported: <strong>{backfill.duplicatesSkipped}</strong></div>}
+                {backfill.usersCreated > 0 && <div>New team members created: <strong>{backfill.usersCreated}</strong></div>}
+                {backfill.people?.length > 0 && <div>People: {backfill.people.join(', ')}</div>}
+              </div>
+
+              {backfill.mismatched?.length > 0 && (
+                <details style={{ marginTop: 12, fontSize: 12.5 }}>
+                  <summary style={{ cursor: 'pointer', color: '#92400e' }}>
+                    {backfill.mismatched.length} entr{backfill.mismatched.length === 1 ? 'y' : 'ies'} where the
+                    stated duration doesn't match the start and end times
+                  </summary>
+                  <ul style={{ margin: '8px 0 0 18px', lineHeight: 1.7 }}>
+                    {backfill.mismatched.slice(0, 30).map((m, i) => <li key={i}>{m}</li>)}
+                  </ul>
+                </details>
+              )}
+
+              {backfill.unparsed?.length > 0 && (
+                <details style={{ marginTop: 12, fontSize: 12.5 }}>
+                  <summary style={{ cursor: 'pointer', color: '#92400e' }}>
+                    {backfill.unparsed.length} bit{backfill.unparsed.length === 1 ? '' : 's'} of time text
+                    couldn't be read (click to view)
+                  </summary>
+                  <ul style={{ margin: '8px 0 0 18px', lineHeight: 1.7 }}>
+                    {backfill.unparsed.slice(0, 30).map((u, i) => <li key={i}>{u}</li>)}
+                  </ul>
+                </details>
+              )}
+
+              {backfill.errors?.length > 0 && (
+                <details style={{ marginTop: 12, fontSize: 12.5 }}>
+                  <summary style={{ cursor: 'pointer', color: '#dc2626' }}>
+                    {backfill.errors.length} job{backfill.errors.length === 1 ? '' : 's'} had problems
+                  </summary>
+                  <ul style={{ margin: '8px 0 0 18px', lineHeight: 1.7 }}>
+                    {backfill.errors.slice(0, 30).map((e, i) => <li key={i}>{e}</li>)}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+
         {result && (
           <div style={{ marginTop: 24 }}>
             <div style={{ padding: '16px 20px', background: '#f0fdf4', border: '1px solid #bbf7d0',
@@ -126,6 +219,8 @@ export default function TradifyImport() {
                 <Stat label="Scheduled appointments" value={result.schedulesCreated} />
                 <Stat label="Team members added" value={result.usersCreated} />
                 <Stat label="Job assignments" value={result.techsLinked} />
+                <Stat label="Labour entries" value={result.timeEntriesCreated ?? 0} />
+                <Stat label="Labour hours" value={Math.round((result.labourHoursImported ?? 0) * 10) / 10} />
               </div>
             </div>
 

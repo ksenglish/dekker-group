@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const c = require('../controllers/jobController');
-const { importTradify } = require('../controllers/importController');
+const { importTradify, backfillTradifyTime } = require('../controllers/importController');
 const { authenticate, requireRole, authenticateAutomation } = require('../middleware/auth');
 const arcsite = require('../utils/arcsite');
 const { htmlToText } = require('../utils/sanitizeHtml');
@@ -94,6 +94,9 @@ router.post('/geocode', requireRole('admin', 'office'), async (req, res) => {
 
 // Bulk import jobs from a Tradify CSV export (admin only)
 router.post('/import/tradify', requireRole('admin'), importTradify);
+// Converts jobs.time_log into timesheet entries for jobs imported before the
+// importer did that itself. ?dryRun=true reports without writing.
+router.post('/import/tradify-time', requireRole('admin'), backfillTradifyTime);
 
 // The sweep runs hourly on its own. This is here so it can be run on demand
 // rather than waiting an hour to see whether it does what was intended, and so

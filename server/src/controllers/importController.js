@@ -1,6 +1,115 @@
 const pool = require('../db/pool');
 const bcrypt = require('bcryptjs');
 const { randomUUID } = require('crypto');
+const { parseTimeLog } = require('../utils/tradifyTime');
+
+// Resolves a team-member token (a name, or an email) to a user id, creating an
+// inactive 'undefined' placeholder account when we don't already have them.
+// Shared by the CSV import and the labour-hours backfill so both land on the
+// same person rather than each inventing their own account.
+async function makeUserResolver(client, counters) {
+  const cache = new Map(); // lowercased token -> user id
+  const placeholderHash = await bcrypt.hash(randomUUID(), 10);
+
+  async function resolveUser(token) {
+    const key = clean(token).toLowerCase();
+    if (!key) return null;
+    if (cache.has(key)) return cache.get(key);
+
+    let userId = null;
+    if (isEmail(key)) {
+      const { rows: found } = await client.query('SELECT id FROM users WHERE LOWER(email)=$1', [key]);
+      if (found[0]) userId = found[0].id;
+      else {
+        const { rows: created } = await client.query(
+          `INSERT INTO users (name, email, password_hash, role, is_active)
+           VALUES ($1,$2,$3,'undefined',false) RETURNING id`,
+          [nameFromEmail(key), key, placeholderHash]
+        );
+        userId = created[0].id; counters.usersCreated++;
+      }
+    } else {
+      // Match an existing user by name (real staff like Kyle English, etc.)
+      const { rows: found } = await client.query('SELECT id FROM users WHERE LOWER(name)=$1', [key]);
+      if (found[0]) userId = found[0].id;
+      else {
+        const email = slugEmail(token);
+        const { rows: created } = await client.query(
+          `INSERT INTO users (name, email, password_hash, role, is_active)
+           VALUES ($1,$2,$3,'undefined',false)
+           ON CONFLICT (email) DO UPDATE SET email=EXCLUDED.email RETURNING id`,
+          [clean(token), email, placeholderHash]
+        );
+        userId = created[0].id; counters.usersCreated++;
+      }
+    }
+    cache.set(key, userId);
+    return userId;
+  }
+
+  return { resolveUser, cache };
+}
+
+// Writes one job's Tradify "Time" cell into timesheets.
+//
+// The times in the export are New Zealand wall-clock, so they're handed to
+// Postgres as a naive timestamp and converted with AT TIME ZONE — doing it in
+// JavaScript would bake in whatever timezone the server happens to run in,
+// which is UTC in production and NZ on a dev machine.
+//
+// Entries are tagged source='tradify' and covered by a partial unique index,
+// so running this twice over the same job changes nothing the second time.
+async function importTimeLogForJob(client, { jobId, timeLog, resolveUser }) {
+  const { entries, unparsed } = parseTimeLog(timeLog);
+  const stats = { created: 0, duplicates: 0, people: new Set(), hours: 0, unparsed, mismatched: [] };
+
+  for (const entry of entries) {
+    const userId = await resolveUser(entry.who);
+    if (!userId) continue;
+
+    // Tradify's own duration is what gets imported; a disagreement with the
+    // start/end span is reported rather than quietly picking one.
+    if (entry.statedHours !== entry.elapsedHours) {
+      stats.mismatched.push(
+        `${entry.who} ${entry.date} ${entry.start}-${entry.end}: says ${entry.statedHours}h, span is ${entry.elapsedHours}h`
+      );
+    }
+
+    const endDate = entry.crossesMidnight
+      ? `(DATE '${entry.date}' + 1)::text`
+      : `'${entry.date}'`;
+
+    const { rowCount } = await client.query(
+      `INSERT INTO timesheets (job_id, user_id, date, hours, description, start_time, end_time, source)
+       VALUES ($1, $2, $3::date, $4,
+               $5,
+               ($3 || ' ' || $6)::timestamp AT TIME ZONE 'Pacific/Auckland',
+               (${endDate} || ' ' || $7)::timestamp AT TIME ZONE 'Pacific/Auckland',
+               'tradify')
+       ON CONFLICT DO NOTHING`,
+      [jobId, userId, entry.date, entry.hours, 'Imported from Tradify', entry.start, entry.end]
+    );
+
+    if (rowCount) {
+      stats.created++;
+      stats.hours += entry.hours;
+      stats.people.add(entry.who);
+    } else {
+      stats.duplicates++;
+    }
+
+    // Whoever logged time on a job belongs on its team.
+    await client.query(
+      'INSERT INTO job_technicians (job_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+      [jobId, userId]
+    );
+  }
+
+  if (entries.length) {
+    await client.query('UPDATE jobs SET time_log_imported_at = NOW() WHERE id = $1', [jobId]);
+  }
+  return stats;
+}
 
 // ── CSV parser ──────────────────────────────────────────────────────────────
 // Tradify exports contain quoted fields that span multiple lines (notes,
@@ -150,52 +259,13 @@ async function importTradify(req, res) {
 
   const result = {
     jobsImported: 0, jobsSkipped: 0, customersCreated: 0,
-    usersCreated: 0, schedulesCreated: 0, techsLinked: 0, errors: [],
+    usersCreated: 0, schedulesCreated: 0, techsLinked: 0,
+    timeEntriesCreated: 0, labourHoursImported: 0, errors: [],
   };
 
   const client = await pool.connect();
-  // Caches keyed by lowercased token, valid for this import run
-  const userCache = new Map();      // token -> user id
   const customerCache = new Map();  // name|email -> customer id
-  const placeholderHash = await bcrypt.hash(randomUUID(), 10);
-
-  // Resolve a team-member token (name or email) to a user id, creating an
-  // inactive 'undefined' placeholder account when we don't already have them.
-  async function resolveUser(token) {
-    const key = clean(token).toLowerCase();
-    if (!key) return null;
-    if (userCache.has(key)) return userCache.get(key);
-
-    let userId = null;
-    if (isEmail(key)) {
-      const { rows: found } = await client.query('SELECT id FROM users WHERE LOWER(email)=$1', [key]);
-      if (found[0]) userId = found[0].id;
-      else {
-        const { rows: created } = await client.query(
-          `INSERT INTO users (name, email, password_hash, role, is_active)
-           VALUES ($1,$2,$3,'undefined',false) RETURNING id`,
-          [nameFromEmail(key), key, placeholderHash]
-        );
-        userId = created[0].id; result.usersCreated++;
-      }
-    } else {
-      // Match an existing user by name (real staff like Kyle English, etc.)
-      const { rows: found } = await client.query('SELECT id FROM users WHERE LOWER(name)=$1', [key]);
-      if (found[0]) userId = found[0].id;
-      else {
-        const email = slugEmail(token);
-        const { rows: created } = await client.query(
-          `INSERT INTO users (name, email, password_hash, role, is_active)
-           VALUES ($1,$2,$3,'undefined',false)
-           ON CONFLICT (email) DO UPDATE SET email=EXCLUDED.email RETURNING id`,
-          [clean(token), email, placeholderHash]
-        );
-        userId = created[0].id; result.usersCreated++;
-      }
-    }
-    userCache.set(key, userId);
-    return userId;
-  }
+  const { resolveUser, cache: userCache } = await makeUserResolver(client, result);
 
   async function resolveCustomer(name, email, contact, phone, mobile) {
     const cname = clean(name);
@@ -330,6 +400,14 @@ async function importTradify(req, res) {
           );
         }
 
+        // Time entries → timesheets, so imported labour shows on the Time tab
+        // rather than sitting unread in time_log.
+        const timeStats = await importTimeLogForJob(client, {
+          jobId, timeLog: get(idx.time), resolveUser,
+        });
+        result.timeEntriesCreated += timeStats.created;
+        result.labourHoursImported += timeStats.hours;
+
         await client.query('COMMIT');
         result.jobsImported++;
       } catch (rowErr) {
@@ -347,4 +425,70 @@ async function importTradify(req, res) {
   }
 }
 
-module.exports = { importTradify };
+// ── Backfill labour hours for jobs imported before this existed ──────────────
+//
+// Earlier imports stored the export's Time column on jobs.time_log and stopped
+// there, so those jobs show no labour. This walks them and converts the text
+// that's already in the database — no re-export from Tradify needed.
+//
+// Safe to run as often as you like: entries are keyed on job, person, day and
+// start time, so a second run reports duplicates instead of creating them.
+// Pass ?dryRun=true to see what it would do without writing anything.
+async function backfillTradifyTime(req, res) {
+  const dryRun = req.query.dryRun === 'true';
+  const result = {
+    dryRun,
+    jobsScanned: 0, jobsWithTime: 0, timeEntriesCreated: 0, duplicatesSkipped: 0,
+    usersCreated: 0, labourHours: 0, people: [], unparsed: [], mismatched: [], errors: [],
+  };
+
+  const client = await pool.connect();
+  const people = new Set();
+
+  try {
+    const { rows: jobs } = await client.query(
+      `SELECT id, external_ref, time_log FROM jobs
+        WHERE time_log IS NOT NULL AND time_log <> ''
+        ORDER BY external_ref`
+    );
+    result.jobsScanned = jobs.length;
+
+    const { resolveUser } = await makeUserResolver(client, result);
+
+    for (const job of jobs) {
+      try {
+        await client.query('BEGIN');
+        const stats = await importTimeLogForJob(client, {
+          jobId: job.id, timeLog: job.time_log, resolveUser,
+        });
+
+        if (stats.created || stats.duplicates) result.jobsWithTime++;
+        result.timeEntriesCreated += stats.created;
+        result.duplicatesSkipped += stats.duplicates;
+        result.labourHours += stats.hours;
+        stats.people.forEach(p => people.add(p));
+        stats.unparsed.forEach(u => result.unparsed.push(`${job.external_ref}: ${u.slice(0, 120)}`));
+        stats.mismatched.forEach(m => result.mismatched.push(`${job.external_ref}: ${m}`));
+
+        // A dry run still needs the parsing and user lookups to be exercised,
+        // so it does the work and throws the transaction away.
+        await client.query(dryRun ? 'ROLLBACK' : 'COMMIT');
+      } catch (jobErr) {
+        await client.query('ROLLBACK').catch(() => {});
+        result.errors.push(`Job ${job.external_ref || job.id}: ${jobErr.message}`);
+      }
+    }
+
+    result.people = [...people].sort();
+    result.labourHours = Math.round(result.labourHours * 100) / 100;
+    if (dryRun) result.usersCreated = 0; // rolled back with everything else
+    res.json(result);
+  } catch (err) {
+    console.error('Tradify time backfill failed:', err);
+    res.status(500).json({ error: err.message || 'Backfill failed', ...result });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { importTradify, backfillTradifyTime, importTimeLogForJob };
