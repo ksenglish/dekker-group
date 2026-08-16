@@ -6,6 +6,7 @@ import { formatJobNumber } from '../../lib/formatJobNumber';
 import EmailComposeModal from './EmailComposeModal';
 import AttachJobModal from './AttachJobModal';
 import RichTextEditor from '../../components/RichTextEditor';
+import { appendDescription } from '../../lib/richText';
 import LineItemsEditor from '../jobs/LineItemsEditor';
 import SalesPresenter from '../presenter/SalesPresenter';
 import styles from './Quotes.module.css';
@@ -148,9 +149,10 @@ export default function QuoteDetail() {
         product_name: i.product_name,
       })),
       {
-        // The customer reads the product's description; its name is the
-        // supplier code, kept alongside for ordering.
-        description: (product.description || '').trim() || product.name,
+        // The product's description is quote wording now, not a line label —
+        // it goes onto the quote's description below. The line itself carries
+        // the product name.
+        description: product.name,
         // Measured products (the fence calculator) hand back their own
         // quantity — metres of run — rather than a single unit.
         quantity: product.quantity > 0 ? product.quantity : 1,
@@ -161,6 +163,26 @@ export default function QuoteDetail() {
     ];
     const { data } = await api.put(`/quotes/${id}/line-items`, { items: payload });
     setQuote(q => ({ ...q, line_items: data.line_items, subtotal: data.subtotal, gst: data.gst, total: data.total }));
+
+    // The product's own wording goes onto the quote's description, one line
+    // break below whatever is already there. Saved straight away rather than
+    // left sitting in the box — the line items have already been written, and
+    // a rep who adds three products and closes the tab shouldn't lose the
+    // wording that went with them.
+    const addition = (product.description || '').trim();
+    if (addition) {
+      const combined = appendDescription(notes, addition);
+      setNotes(combined);
+      try {
+        await api.put(`/quotes/${id}`, {
+          status: quote.status, notes: combined, theme_id: themeId || null,
+          quote_date: quoteDate || null, expires_at: expiresAt || null,
+          attachment_ids: attachmentIds,
+        });
+      } catch {
+        flash('error', 'Product added, but its description could not be saved — press Save Quote Details.');
+      }
+    }
   }
 
   async function handleSaveLineItems(lineItems) {

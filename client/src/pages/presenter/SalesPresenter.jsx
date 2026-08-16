@@ -1412,7 +1412,9 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
             {section.icon} {section.name}
           </div>
           <h2 className={styles.panelTitle}>{product.name}</h2>
-          {product.description && <p className={styles.panelDesc}>{product.description}</p>}
+          {/* The description isn't shown here on purpose — it's quote wording,
+              and gets appended to the quote's description when the product is
+              added. Key features are what the customer reads on screen. */}
           {product.features?.length > 0 && (
             <ul className={styles.panelFeatures}>
               {product.features.map((f, i) => <li key={i}>✓ {f}</li>)}
@@ -1654,7 +1656,7 @@ export default function SalesPresenter({ onPick, jobId }) {
             )}
             <div className={styles.productInfo}>
               <h3 className={styles.productName}>{p.name}</h3>
-              {p.description && <p className={styles.productDesc}>{p.description}</p>}
+              {/* Description deliberately omitted — see the detail panel. */}
               {showsFromPrice(p) && (
                 <div className={styles.productPrice} style={{ color: activeSection?.color }}>
                   From ${(p.price_from / 100).toLocaleString('en-NZ')} + GST

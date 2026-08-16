@@ -8,6 +8,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import api from '../../lib/api';
 import { compressImage } from '../../lib/image';
+import RichTextEditor from '../../components/RichTextEditor';
+import { htmlToText } from '../../lib/richText';
 import styles from './PresenterAdmin.module.css';
 
 const CALC_TYPES = [
@@ -212,7 +214,13 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
         </div>
         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
           <label>Description</label>
-          <textarea rows={2} value={form.description} onChange={e => set('description', e.target.value)} />
+          {/* Goes onto the quote's description rather than being shown in the
+              presenter, so it's written as rich text like the quote field. */}
+          <RichTextEditor
+            value={form.description}
+            onChange={v => set('description', v)}
+            placeholder="Wording to add to the quote description when this product is added…"
+          />
         </div>
         <div className={styles.field}>
           <label>Starting Price (ex GST)</label>
@@ -769,7 +777,8 @@ export default function PresenterAdmin() {
                     : <div className={styles.productThumbEmpty}>📦</div>}
                   <div className={styles.productRowInfo}>
                     <strong>{p.name}</strong>
-                    <span>{p.description || '—'}</span>
+                    {/* Flattened — this row would otherwise show literal tags */}
+                    <span>{htmlToText(p.description) || '—'}</span>
                     <span className={styles.productMeta}>
                       {p.price_from > 0 ? `From $${(p.price_from / 100).toFixed(2)} + GST` : 'No price'} · {CALC_TYPES.find(c => c.value === p.calculator_type)?.label}
                     </span>

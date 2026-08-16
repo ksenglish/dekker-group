@@ -48,13 +48,14 @@ router.get('/themes', authenticate, async (req, res) => {
 });
 
 router.post('/themes', authenticate, requireRole('admin', 'office'), async (req, res) => {
-  const { name, companyName, gstNumber, contactDetails, paymentTerms, termsAndConditions, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
+  const { name, companyName, gstNumber, contactDetails, paymentTerms, termsAndConditions, quoteDescription, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Theme name is required' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO document_themes (name, company_name, gst_number, contact_details, payment_terms, terms_and_conditions, brand_colour, logo_base64, logo_size, logo_position, contact_position, transparent_header, footer_line1, footer_line2)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null, brandColour || '#1e40af',
+      `INSERT INTO document_themes (name, company_name, gst_number, contact_details, payment_terms, terms_and_conditions, quote_description, brand_colour, logo_base64, logo_size, logo_position, contact_position, transparent_header, footer_line1, footer_line2)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null,
+       quoteDescription ? sanitizeHtml(quoteDescription) : null, brandColour || '#1e40af',
        logoBase64 || null, logoSize || 'medium', logoPosition || 'left', contactPosition || 'right', !!transparentHeader,
        footerLine1 || 'Thank you for your business.', footerLine2 || '']
     );
@@ -69,15 +70,16 @@ router.post('/themes', authenticate, requireRole('admin', 'office'), async (req,
 });
 
 router.put('/themes/:id', authenticate, requireRole('admin', 'office'), async (req, res) => {
-  const { name, companyName, gstNumber, contactDetails, paymentTerms, termsAndConditions, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
+  const { name, companyName, gstNumber, contactDetails, paymentTerms, termsAndConditions, quoteDescription, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Theme name is required' });
   try {
     const { rows } = await pool.query(
-      `UPDATE document_themes SET name=$1, company_name=$2, gst_number=$3, contact_details=$4, payment_terms=$5, terms_and_conditions=$6, brand_colour=$7,
-         logo_base64=$8, logo_size=$9, logo_position=$10, contact_position=$11, transparent_header=$12,
-         footer_line1=$13, footer_line2=$14, updated_at=NOW()
-       WHERE id=$15 RETURNING *`,
-      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null, brandColour || '#1e40af',
+      `UPDATE document_themes SET name=$1, company_name=$2, gst_number=$3, contact_details=$4, payment_terms=$5, terms_and_conditions=$6, quote_description=$7, brand_colour=$8,
+         logo_base64=$9, logo_size=$10, logo_position=$11, contact_position=$12, transparent_header=$13,
+         footer_line1=$14, footer_line2=$15, updated_at=NOW()
+       WHERE id=$16 RETURNING *`,
+      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null,
+       quoteDescription ? sanitizeHtml(quoteDescription) : null, brandColour || '#1e40af',
        logoBase64 || null, logoSize || 'medium', logoPosition || 'left', contactPosition || 'right', !!transparentHeader,
        footerLine1 || 'Thank you for your business.', footerLine2 || '', req.params.id]
     );

@@ -197,7 +197,7 @@ const THEME_COLOUR_PRESETS = [
 
 const EMPTY_DOC_THEME = {
   name: '', companyName: 'DEKKER GROUP', gstNumber: '', contactDetails: '',
-  paymentTerms: '', termsAndConditions: '',
+  paymentTerms: '', termsAndConditions: '', quoteDescription: '',
   brandColour: '#1e40af', logoBase64: '', logoSize: 'medium', logoPosition: 'left',
   contactPosition: 'right', transparentHeader: false,
 };
@@ -318,6 +318,19 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
               placeholder={'Dekker Group Limited\n15 Dekker Road, Omanawa, 3173, New Zealand\nEmail: office@dekkergroup.co.nz\nPhone: 0800 477 123'}
               className={styles.termsArea} style={{ minHeight: 100 }} />
             <span className={styles.hint}>Printed exactly as typed, one line at a time, in the document header</span>
+          </div>
+
+          <div className={styles.field}>
+            <label>Default Quote Description</label>
+            <RichTextEditor
+              value={form.quoteDescription || ''}
+              onChange={html => set('quoteDescription', html)}
+              placeholder="Wording that should start every quote on this theme…"
+            />
+            <span className={styles.hint}>
+              Fills the Description box on every new quote using this theme. Products added from the
+              Sales Presenter add their own wording underneath it.
+            </span>
           </div>
 
           <div className={styles.field}>

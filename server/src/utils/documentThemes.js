@@ -10,6 +10,7 @@ function themeRowToJson(row) {
     contactDetails: row.contact_details,
     paymentTerms: row.payment_terms,
     termsAndConditions: row.terms_and_conditions,
+    quoteDescription: row.quote_description,
     brandColour: row.brand_colour,
     logoBase64: row.logo_base64,
     logoSize: row.logo_size,

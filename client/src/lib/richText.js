@@ -35,6 +35,32 @@ export function htmlToText(value) {
   return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
 }
 
+const escapeHtml = s => String(s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Plain text from before the editor existed, in the div-per-line shape the
+// editor produces — so it can be concatenated without losing its line breaks.
+function textToHtml(text) {
+  return String(text)
+    .split(/\r?\n/)
+    .map(line => (line.trim() ? `<div>${escapeHtml(line)}</div>` : '<div><br></div>'))
+    .join('');
+}
+
+// Adds one description underneath another, separated by a single blank line.
+// Used when a product picked in the Sales Presenter contributes its wording to
+// a quote's description. Either side may still be plain text on older records,
+// so both are normalised to HTML first rather than welding markup onto text.
+export function appendDescription(existing, addition) {
+  const add = (addition || '').trim();
+  if (!add) return existing || '';
+  const base = (existing || '').trim();
+  if (!base) return isHtml(add) ? add : textToHtml(add);
+
+  const asHtml = v => (isHtml(v) ? v : textToHtml(v));
+  return `${asHtml(base)}<div><br></div>${asHtml(add)}`;
+}
+
 // Allowlist sanitizer mirroring the server's. Strips every element and
 // attribute the editor never emits, keeping only a filtered style attribute.
 export function safeHtml(value) {

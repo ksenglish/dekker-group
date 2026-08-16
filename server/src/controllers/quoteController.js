@@ -143,10 +143,14 @@ async function create(req, res) {
     const expiryDays = theme.quoteExpiryDays ?? 30;
     const expiresAt = expiryDays > 0 ? (() => { const d = new Date(); d.setDate(d.getDate() + expiryDays); return d; })() : null;
     const docTheme = theme_id ? await getThemeById(theme_id) : await getDefaultTheme();
+    // A new quote opens with its theme's standard description already in the
+    // box, so the wording that goes on every quote doesn't have to be retyped.
+    // Anything passed in explicitly wins — it's the caller being specific.
+    const description = sanitizeHtml(notes) || docTheme?.quoteDescription || null;
     const { rows } = await pool.query(
       `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by, theme_id, quote_date)
        VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,CURRENT_DATE) RETURNING *`,
-      [job_id || null, customer_id || null, subtotal, gst, total, sanitizeHtml(notes) || null, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id, docTheme?.id || null]
+      [job_id || null, customer_id || null, subtotal, gst, total, description, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id, docTheme?.id || null]
     );
     // Take a copy of those items for the quote to own, so it can be priced
     // independently of the job and of any other quote on it.

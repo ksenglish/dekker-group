@@ -2,8 +2,13 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
+// Product descriptions are written in the rich text editor now, so they arrive
+// as HTML from a client that could have been modified.
+const { sanitizeHtml } = require('../utils/sanitizeHtml');
 
 router.use(authenticate);
+
+const cleanDescription = d => (d ? sanitizeHtml(d) || null : null);
 
 // Merge price-list product fields into presenter product row
 function enrichProduct(r) {
@@ -253,7 +258,7 @@ router.post('/sections/:id/products', requireRole('admin', 'office'), async (req
       `INSERT INTO presenter_products
          (section_id, subcategory_id, name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, price_list_product_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-      [req.params.id, subcategory_id || null, name, description || null, image_base64 || null, brochure_base64 || null,
+      [req.params.id, subcategory_id || null, name, cleanDescription(description), image_base64 || null, brochure_base64 || null,
        price_from ? Math.round(price_from * 100) : 0,
        features || [], calculator_type || 'unit',
        calculator_config ? JSON.stringify(calculator_config) : '{}',
@@ -271,7 +276,7 @@ router.post('/subcategories/:id/products', requireRole('admin', 'office'), async
       `INSERT INTO presenter_products
          (section_id, subcategory_id, name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, price_list_product_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-      [section_id, req.params.id, name, description || null, image_base64 || null, brochure_base64 || null,
+      [section_id, req.params.id, name, cleanDescription(description), image_base64 || null, brochure_base64 || null,
        price_from ? Math.round(price_from * 100) : 0,
        features || [], calculator_type || 'unit',
        calculator_config ? JSON.stringify(calculator_config) : '{}',
@@ -287,7 +292,7 @@ router.put('/products/:id', requireRole('admin', 'office'), async (req, res) => 
     const { rows } = await pool.query(
       `UPDATE presenter_products SET name=$1,description=$2,image_base64=$3,brochure_base64=$4,price_from=$5,
        features=$6,calculator_type=$7,calculator_config=$8,sort_order=$9,subcategory_id=$10,price_list_product_id=$11 WHERE id=$12 RETURNING *`,
-      [name, description || null, image_base64 || null, brochure_base64 !== undefined ? brochure_base64 : null,
+      [name, cleanDescription(description), image_base64 || null, brochure_base64 !== undefined ? brochure_base64 : null,
        price_from ? Math.round(price_from * 100) : 0,
        features || [], calculator_type || 'unit',
        calculator_config ? JSON.stringify(calculator_config) : '{}',
