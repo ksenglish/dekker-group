@@ -1397,6 +1397,18 @@ function BrochureModal({ src, name, onClose }) {
 }
 
 function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVariant }) {
+  // Whatever ends up being picked — this product, the price list row it's
+  // linked to, or a variant a calculator worked out — carries this presenter
+  // product's description, because that's the wording destined for the quote.
+  // Without this the linked price list row's own description wins, which is
+  // usually just the product code repeated.
+  //
+  // The key is always set, even to null: a presenter product with no
+  // description should add nothing, not fall back to the price list's.
+  const pickWithDescription = onPick
+    ? picked => onPick(picked ? { ...picked, presenter_description: product.description || null } : picked)
+    : onPick;
+
   const [showBrochure, setShowBrochure] = useState(false);
   return (
     <div className={styles.panelOverlay} {...overlayClose(onClose)}>
@@ -1425,9 +1437,9 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
               From <strong>${(product.price_from / 100).toLocaleString('en-NZ')}</strong> <span>+ GST</span>
             </div>
           )}
-          <Calculator product={product} onPick={onPick} jobId={jobId} onSelectVariant={onSelectVariant} />
+          <Calculator product={product} onPick={pickWithDescription} jobId={jobId} onSelectVariant={onSelectVariant} />
           {onPick && !SELF_PICK_CALCULATORS.has(product.calculator_type) && (
-            <button className={styles.addToJobBtn} onClick={() => onPick(product.price_list_product || product)}>
+            <button className={styles.addToJobBtn} onClick={() => pickWithDescription(product.price_list_product || product)}>
               + Add to Quote
             </button>
           )}

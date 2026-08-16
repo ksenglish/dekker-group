@@ -169,7 +169,12 @@ export default function QuoteDetail() {
     // left sitting in the box — the line items have already been written, and
     // a rep who adds three products and closes the tab shouldn't lose the
     // wording that went with them.
-    const addition = (product.description || '').trim();
+    // The presenter attaches the wording from the product it was showing. When
+    // that key is present it's authoritative — including when it's null, which
+    // means that product has nothing to add. `description` is only consulted
+    // for picks that didn't come through the presenter panel.
+    const wording = 'presenter_description' in product ? product.presenter_description : product.description;
+    const addition = (wording || '').trim();
     if (addition) {
       const combined = appendDescription(notes, addition);
       setNotes(combined);
