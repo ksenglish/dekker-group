@@ -1,5 +1,6 @@
 const pool = require('../db/pool');
 const AdmZip = require('adm-zip');
+const sharp = require('sharp');
 const fileStore = require('../services/fileStore');
 
 // A product row on its way out. Media held in the bucket is handed over as a
@@ -30,10 +31,16 @@ async function list(req, res) {
   }
 
   try {
-    // Exclude large binary columns from list — fetched on demand via GET /products/:id
+    // Exclude large binary columns from list — fetched on demand via GET /products/:id.
+    // The has_* flags say whether there's anything to fetch, so the browse grid
+    // knows which tiles have a picture or a brochure without carrying the bytes.
     const { rows } = await pool.query(
-      `SELECT id, name, description, category, unit, unit_price, cost_price, supplier, is_active, created_at, updated_at
-       FROM products p WHERE ${conditions.join(' AND ')} ORDER BY p.category, p.name`,
+      `SELECT id, name, description, category, subcategory_1, subcategory_2,
+              unit, unit_price, cost_price, supplier, is_active, created_at, updated_at,
+              (media_key IS NOT NULL OR media_base64 IS NOT NULL)       AS has_image,
+              (brochure_key IS NOT NULL OR brochure_base64 IS NOT NULL) AS has_brochure
+       FROM products p WHERE ${conditions.join(' AND ')}
+       ORDER BY p.category, p.subcategory_1, p.subcategory_2, p.name`,
       params
     );
     const isAdmin = req.user.role === 'admin';
@@ -75,17 +82,17 @@ async function resolveMediaWrite({ incoming, existingKey, existingInline, prefix
 }
 
 async function create(req, res) {
-  const { name, description, category, unit, unit_price, supplier, cost_price, media_base64, brochure_base64 } = req.body;
+  const { name, description, category, subcategory_1, subcategory_2, unit, unit_price, supplier, cost_price, media_base64, brochure_base64 } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   try {
     const media = await resolveMediaWrite({ incoming: media_base64, prefix: 'products/media', filename: `${name}-image` });
     const brochure = await resolveMediaWrite({ incoming: brochure_base64, prefix: 'products/brochures', filename: `${name}-brochure` });
 
     const { rows } = await pool.query(
-      `INSERT INTO products (name, description, category, unit, unit_price, supplier, cost_price,
+      `INSERT INTO products (name, description, category, subcategory_1, subcategory_2, unit, unit_price, supplier, cost_price,
          media_base64, brochure_base64, media_key, brochure_key)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [name, description || null, category || null, unit || 'each',
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [name, description || null, category || null, subcategory_1 || null, subcategory_2 || null, unit || 'each',
        Math.round((unit_price || 0) * 100), supplier || null,
        Math.round((cost_price || 0) * 100), media.inline, brochure.inline, media.key, brochure.key]
     );
@@ -94,7 +101,7 @@ async function create(req, res) {
 }
 
 async function update(req, res) {
-  const { name, description, category, unit, unit_price, is_active, supplier, cost_price, media_base64, brochure_base64 } = req.body;
+  const { name, description, category, subcategory_1, subcategory_2, unit, unit_price, is_active, supplier, cost_price, media_base64, brochure_base64 } = req.body;
   try {
     const { rows: [current] } = await pool.query(
       'SELECT media_key, brochure_key, media_base64, brochure_base64 FROM products WHERE id=$1', [req.params.id]
@@ -111,11 +118,11 @@ async function update(req, res) {
     });
 
     const { rows } = await pool.query(
-      `UPDATE products SET name=$1, description=$2, category=$3, unit=$4,
-       unit_price=$5, is_active=$6, supplier=$7, cost_price=$8, media_base64=$9, brochure_base64=$10,
-       media_key=$11, brochure_key=$12, updated_at=NOW()
-       WHERE id=$13 RETURNING *`,
-      [name, description || null, category || null, unit || 'each',
+      `UPDATE products SET name=$1, description=$2, category=$3, subcategory_1=$4, subcategory_2=$5, unit=$6,
+       unit_price=$7, is_active=$8, supplier=$9, cost_price=$10, media_base64=$11, brochure_base64=$12,
+       media_key=$13, brochure_key=$14, updated_at=NOW()
+       WHERE id=$15 RETURNING *`,
+      [name, description || null, category || null, subcategory_1 || null, subcategory_2 || null, unit || 'each',
        Math.round((unit_price || 0) * 100), is_active !== false,
        supplier || null, Math.round((cost_price || 0) * 100),
        media.inline, brochure.inline, media.key, brochure.key, req.params.id]
@@ -167,6 +174,38 @@ function serveMedia(column) {
   };
 }
 
+// A small WebP for the browse grid, made from whichever image the product has.
+//
+// Product images arrive at whatever size the supplier's export happened to be,
+// and a grid of forty of them at full size is several megabytes. Resizing here
+// keeps that to a few KB each. Generated per request and left to the browser's
+// cache rather than stored — replacing an image writes a new key, so a stale
+// thumbnail can't outlive the picture it came from.
+async function serveThumb(req, res) {
+  try {
+    const { rows } = await pool.query(
+      'SELECT media_key AS key, media_base64 AS inline FROM products WHERE id=$1', [req.params.id]
+    );
+    if (!rows[0] || (!rows[0].key && !rows[0].inline)) return res.status(404).json({ error: 'Not found' });
+
+    const source = rows[0].key
+      ? await fileStore.getObjectBuffer(rows[0].key)
+      : Buffer.from(fileStore.stripDataUrl(rows[0].inline), 'base64');
+
+    const thumb = await sharp(source, { failOn: 'none' })
+      .resize({ width: 400, height: 400, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 78 })
+      .toBuffer();
+
+    res.set('Content-Type', 'image/webp');
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.send(thumb);
+  } catch (err) {
+    console.error('Product thumbnail failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 // Re-importing a price list should update what's there, not pile up copies.
 //
 // Products are matched on name, ignoring case and surrounding spaces, which is
@@ -205,13 +244,15 @@ async function upsertProduct(fields) {
 
   if (!existing) {
     await pool.query(
-      `INSERT INTO products (name, description, category, unit, unit_price, cost_price, supplier,
+      `INSERT INTO products (name, description, category, subcategory_1, subcategory_2, unit, unit_price, cost_price, supplier,
          media_base64, brochure_base64, media_key, brochure_key)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [
         name,
         supplied(fields.description) ? fields.description : null,
         supplied(fields.category) ? fields.category : null,
+        supplied(fields.subcategory_1) ? fields.subcategory_1 : null,
+        supplied(fields.subcategory_2) ? fields.subcategory_2 : null,
         supplied(fields.unit) ? fields.unit : 'each',
         supplied(fields.unit_price) ? fields.unit_price : 0,
         supplied(fields.cost_price) ? fields.cost_price : 0,
@@ -231,20 +272,24 @@ async function upsertProduct(fields) {
     `UPDATE products SET
        description     = COALESCE($2, description),
        category        = COALESCE($3, category),
-       unit            = COALESCE($4, unit),
-       unit_price      = COALESCE($5, unit_price),
-       cost_price      = COALESCE($6, cost_price),
-       supplier        = COALESCE($7, supplier),
-       media_base64    = CASE WHEN $10::text IS NOT NULL THEN NULL ELSE COALESCE($8, media_base64) END,
-       brochure_base64 = CASE WHEN $11::text IS NOT NULL THEN NULL ELSE COALESCE($9, brochure_base64) END,
-       media_key       = COALESCE($10, media_key),
-       brochure_key    = COALESCE($11, brochure_key),
+       subcategory_1   = COALESCE($4, subcategory_1),
+       subcategory_2   = COALESCE($5, subcategory_2),
+       unit            = COALESCE($6, unit),
+       unit_price      = COALESCE($7, unit_price),
+       cost_price      = COALESCE($8, cost_price),
+       supplier        = COALESCE($9, supplier),
+       media_base64    = CASE WHEN $12::text IS NOT NULL THEN NULL ELSE COALESCE($10, media_base64) END,
+       brochure_base64 = CASE WHEN $13::text IS NOT NULL THEN NULL ELSE COALESCE($11, brochure_base64) END,
+       media_key       = COALESCE($12, media_key),
+       brochure_key    = COALESCE($13, brochure_key),
        updated_at      = NOW()
      WHERE id = $1`,
     [
       existing.id,
       supplied(fields.description) ? fields.description : null,
       supplied(fields.category) ? fields.category : null,
+      supplied(fields.subcategory_1) ? fields.subcategory_1 : null,
+      supplied(fields.subcategory_2) ? fields.subcategory_2 : null,
       supplied(fields.unit) ? fields.unit : null,
       supplied(fields.unit_price) ? fields.unit_price : null,
       supplied(fields.cost_price) ? fields.cost_price : null,
@@ -272,8 +317,17 @@ async function importCsv(req, res) {
   if (lines.length < 2) return res.status(400).json({ error: 'CSV must have a header row and at least one product' });
 
   const headers = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
+  // Spreadsheets spell these however the person exporting them felt at the
+  // time, so each column accepts the obvious variants.
+  const firstOf = (...names) => {
+    for (const n of names) { const i = headers.indexOf(n); if (i > -1) return i; }
+    return -1;
+  };
   const idx = { name: headers.indexOf('name'), description: headers.indexOf('description'),
-    category: headers.indexOf('category'), unit: headers.indexOf('unit'),
+    category: headers.indexOf('category'),
+    subcategory_1: firstOf('sub category 1', 'subcategory 1', 'sub_category_1', 'subcategory1', 'sub category'),
+    subcategory_2: firstOf('sub category 2', 'subcategory 2', 'sub_category_2', 'subcategory2'),
+    unit: headers.indexOf('unit'),
     unit_price: headers.indexOf('unit_price'), cost_price: headers.indexOf('cost_price'),
     supplier: headers.indexOf('supplier') };
 
@@ -290,6 +344,8 @@ async function importCsv(req, res) {
         name,
         description: at('description'),
         category: at('category'),
+        subcategory_1: at('subcategory_1'),
+        subcategory_2: at('subcategory_2'),
         unit: at('unit'),
         unit_price: parsePrice(at('unit_price')),
         cost_price: parsePrice(at('cost_price')),
@@ -351,6 +407,8 @@ async function importZip(req, res) {
       cols.push(current.trim());
 
       const get = name => col(name) > -1 ? (cols[col(name)] || '').replace(/"/g, '').trim() : '';
+      // Same tolerance for header spelling as the plain CSV import.
+      const getAny = (...names) => { for (const n of names) { const v = get(n); if (v) return v; } return ''; };
       const name = get('name');
       if (!name) continue;
 
@@ -364,6 +422,8 @@ async function importZip(req, res) {
           name,
           description: get('description'),
           category: get('category'),
+          subcategory_1: getAny('sub category 1', 'subcategory 1', 'sub_category_1', 'subcategory1', 'sub category'),
+          subcategory_2: getAny('sub category 2', 'subcategory 2', 'sub_category_2', 'subcategory2'),
           unit: get('unit'),
           unit_price: parsePrice(get('unit_price')),
           cost_price: parsePrice(get('cost_price')),
@@ -401,4 +461,5 @@ module.exports = {
   list, get, create, update, remove, importCsv, importZip, categories,
   serveMediaImage: serveMedia('media'),
   serveMediaBrochure: serveMedia('brochure'),
+  serveThumb,
 };

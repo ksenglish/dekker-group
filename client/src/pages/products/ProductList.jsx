@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { compressImage } from '../../lib/image';
 import styles from './Products.module.css';
 import { overlayClose } from '../../lib/overlayClose';
+import PriceListBrowser from '../../components/products/PriceListBrowser';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const GST_RATE = 0.15;
@@ -91,6 +92,8 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
     unit_price: product ? (product.unit_price / 100).toFixed(2) : '',
     cost_price: product ? (product.cost_price / 100).toFixed(2) : '',
     supplier: product?.supplier || '',
+    subcategory_1: product?.subcategory_1 || '',
+    subcategory_2: product?.subcategory_2 || '',
     // A product whose image is in the bucket comes back as a URL to fetch
     // rather than the bytes. Both work as an <img src>, and posting the URL
     // back on save is read as "unchanged" rather than as a new upload.
@@ -147,7 +150,15 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
             </div>
             <div className={styles.formGroup}>
               <label>Category</label>
-              <input value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. Installation, Parts, Labour" />
+              <input value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. Dekker Air" />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Sub Category 1</label>
+              <input value={form.subcategory_1} onChange={e => set('subcategory_1', e.target.value)} placeholder="e.g. Ventilation" />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Sub Category 2</label>
+              <input value={form.subcategory_2} onChange={e => set('subcategory_2', e.target.value)} placeholder="e.g. Extraction" />
             </div>
             <div className={styles.formGroup}>
               <label>Supplier</label>
@@ -348,6 +359,7 @@ export default function ProductList() {
   const isSales = user?.role === 'sales';
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [view, setView] = useState('Browse');
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [loading, setLoading] = useState(true);
@@ -443,12 +455,27 @@ export default function ProductList() {
           <p className={styles.pageSubtitle}>{products.length} product{products.length !== 1 ? 's' : ''}</p>
         </div>
         <div className={styles.headerActions}>
+          {/* Browse is the default — the table is for editing, not for finding
+              something to quote. */}
+          <div style={{ display: 'flex', border: '1px solid var(--color-border)', borderRadius: 6, overflow: 'hidden', marginRight: 4 }}>
+            {['Browse', 'Manage'].map(v => (
+              <button key={v} onClick={() => setView(v)}
+                style={{
+                  padding: '8px 16px', fontSize: 13.5, fontWeight: 600, cursor: 'pointer', border: 'none',
+                  background: view === v ? 'var(--color-primary)' : 'var(--color-surface)',
+                  color: view === v ? '#fff' : 'var(--color-text)',
+                }}>{v}</button>
+            ))}
+          </div>
           {isAdmin && <button className={styles.btnSecondary} onClick={() => exportCsv(products)}>⬇ Export CSV</button>}
           {isAdmin && <button className={styles.btnSecondary} onClick={() => setImporting(true)}>⬆ Import</button>}
           {isAdmin && <button className={styles.btnPrimary} onClick={() => setAdding(true)}>+ Add Product</button>}
         </div>
       </div>
 
+      {view === 'Browse' && <PriceListBrowser />}
+
+      {view === 'Manage' && <>
       {selected.size > 0 && (
         <div className={styles.bulkBar}>
           <span className={styles.bulkCount}>{selected.size} selected</span>
@@ -559,6 +586,7 @@ export default function ProductList() {
           <button className={styles.pageBtn} disabled={prodPage === prodTotalPages} onClick={() => setProdPage(p => p + 1)}>Next →</button>
         </div>
       )}
+      </>}
 
       {(adding || editing) && (
         <ProductModal product={editing} onSave={onSaved} onClose={() => { setAdding(false); setEditing(null); }} isAdmin={isAdmin} />

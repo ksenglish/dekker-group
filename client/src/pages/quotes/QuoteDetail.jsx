@@ -7,6 +7,7 @@ import EmailComposeModal from './EmailComposeModal';
 import AttachJobModal from './AttachJobModal';
 import RichTextEditor from '../../components/RichTextEditor';
 import { appendDescription } from '../../lib/richText';
+import PriceListBrowser from '../../components/products/PriceListBrowser';
 import LineItemsEditor from '../jobs/LineItemsEditor';
 import SalesPresenter from '../presenter/SalesPresenter';
 import styles from './Quotes.module.css';
@@ -46,6 +47,7 @@ export default function QuoteDetail() {
   const [expiresAt, setExpiresAt] = useState('');
   const [activity, setActivity] = useState([]);
   const [showPresenter, setShowPresenter] = useState(false);
+  const [showPriceList, setShowPriceList] = useState(false);
   const [jobAttachments, setJobAttachments] = useState([]);
   const [attachmentIds, setAttachmentIds] = useState([]);
   const [thumbs, setThumbs] = useState({});
@@ -262,6 +264,11 @@ export default function QuoteDetail() {
               🎯 Sales Presenter
             </button>
           )}
+          {quote.status !== 'accepted' && (
+            <button className={styles.btnSecondary} onClick={() => setShowPriceList(true)}>
+              🏷 Price List
+            </button>
+          )}
           <button className={styles.btnSecondary} onClick={handleDownload}>⬇ Download PDF</button>
           {quote.public_token && (
             // ?preview=1 marks this as an internal staff look, so it isn't
@@ -314,6 +321,19 @@ export default function QuoteDetail() {
       {showPresenter && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 300 }}>
           <SalesPresenter jobId={quote.job_id} onPick={handlePresenterPick} />
+        </div>
+      )}
+
+      {showPriceList && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 300, background: 'var(--color-bg, #fff)',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          <PriceListBrowser
+            title="Add from Price List"
+            onPick={handlePresenterPick}
+            onClose={() => setShowPriceList(false)}
+          />
         </div>
       )}
 

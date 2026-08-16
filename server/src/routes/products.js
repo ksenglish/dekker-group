@@ -13,6 +13,7 @@ router.get('/:id', c.get);
 // Declared after /:id but they cannot collide — the extra segment makes them
 // distinct routes.
 router.get('/:id/media', c.serveMediaImage);
+router.get('/:id/thumb', c.serveThumb);
 router.get('/:id/brochure', c.serveMediaBrochure);
 router.post('/', requireRole('admin'), c.create);
 router.put('/:id', requireRole('admin'), c.update);
