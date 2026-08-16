@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../lib/api';
 import ProductImage from './ProductImage';
+import { loadAuthedFile } from './authedFile';
 import { htmlToText } from '../../lib/richText';
 import { browseView } from './priceListTree';
 
@@ -50,7 +51,8 @@ function ProductTile({ product, onOpen }) {
       }}>
         {product.has_image
           ? <ProductImage productId={product.id} alt={product.name}
-              style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              fallback={<span style={{ fontSize: 30, opacity: 0.35 }}>🏷</span>} />
           : <span style={{ fontSize: 30, opacity: 0.35 }}>🏷</span>}
       </div>
       <div style={{ padding: '12px 14px' }}>
@@ -72,16 +74,23 @@ function ProductTile({ product, onOpen }) {
 }
 
 function ProductDetail({ product, onClose, onPick, picking }) {
-  const [full, setFull] = useState(null);
+  // The brochure is fetched with authentication like the pictures are — the
+  // URL the server hands out needs a bearer token, which an <object data> or
+  // <img src> can't send, and it carries no extension to tell a PDF from an
+  // image. The blob's own MIME type settles both.
+  const [brochure, setBrochure] = useState(null);
+  const [brochureFailed, setBrochureFailed] = useState(false);
+  const description = htmlToText(product.description);
 
   useEffect(() => {
-    setFull(null);
-    api.get(`/products/${product.id}`).then(r => setFull(r.data)).catch(() => {});
-  }, [product.id]);
-
-  const brochure = full?.brochure_url || full?.brochure_base64 || null;
-  const isPdf = brochure && (/\.pdf($|\?)/i.test(brochure) || brochure.startsWith('data:application/pdf'));
-  const description = htmlToText(product.description);
+    if (!product.has_brochure) return undefined;
+    let cancelled = false;
+    setBrochure(null); setBrochureFailed(false);
+    loadAuthedFile(`/products/${product.id}/brochure`)
+      .then(f => { if (!cancelled) setBrochure(f); })
+      .catch(() => { if (!cancelled) setBrochureFailed(true); });
+    return () => { cancelled = true; };
+  }, [product.id, product.has_brochure]);
 
   return (
     <div style={{
@@ -123,9 +132,10 @@ function ProductDetail({ product, onClose, onPick, picking }) {
             <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>
               {product.unit_price > 0 ? money(product.unit_price) : 'Price on application'}
             </div>
+            {/* Supplier is deliberately not shown — this view is used in front
+                of customers and by the sales team. */}
             <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginBottom: 16 }}>
               excl. GST{product.unit && product.unit !== 'each' ? ` · per ${product.unit}` : ''}
-              {product.supplier ? ` · ${product.supplier}` : ''}
             </div>
 
             {description && (
@@ -149,18 +159,29 @@ function ProductDetail({ product, onClose, onPick, picking }) {
 
         {product.has_brochure && (
           <div style={{ padding: '0 22px 22px' }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Brochure</div>
-            {!full ? (
-              <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Loading…</div>
-            ) : !brochure ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8,
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>Brochure</div>
+              {brochure && (
+                <a href={brochure.url} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 12.5, color: 'var(--color-primary)' }}>
+                  Open in a new tab
+                </a>
+              )}
+            </div>
+
+            {brochureFailed ? (
               <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Couldn't load the brochure.</div>
-            ) : isPdf ? (
-              <object data={brochure} type="application/pdf"
+            ) : !brochure ? (
+              <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Loading…</div>
+            ) : brochure.type.includes('pdf') ? (
+              <object data={brochure.url} type="application/pdf"
                 style={{ width: '100%', height: 520, border: '1px solid var(--color-border)', borderRadius: 8 }}>
-                <a href={brochure} target="_blank" rel="noreferrer">Open the brochure</a>
+                <a href={brochure.url} target="_blank" rel="noreferrer">Open the brochure</a>
               </object>
             ) : (
-              <img src={brochure} alt={`${product.name} brochure`}
+              <img src={brochure.url} alt={`${product.name} brochure`}
                 style={{ width: '100%', borderRadius: 8, border: '1px solid var(--color-border)' }} />
             )}
           </div>

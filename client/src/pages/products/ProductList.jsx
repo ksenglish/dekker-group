@@ -103,6 +103,10 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  // What the media fields looked like when the form opened, so save can tell
+  // "untouched" from "cleared on purpose".
+  const initialMedia = useRef(product?.media_url || product?.media_base64 || '');
+  const initialBrochure = useRef(product?.brochure_url || product?.brochure_base64 || '');
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -118,7 +122,14 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
     if (!form.name.trim()) return setErr('Name is required');
     setSaving(true); setErr('');
     try {
+      // The image and brochure are only sent when they've actually been
+      // touched. The server reads an empty value as "remove it", so sending a
+      // field the form never knew the value of would delete the file — which
+      // is exactly what editing a product from the list used to do, since the
+      // list carries no image data to populate the form with.
       const payload = { ...form };
+      if (form.media_base64 === initialMedia.current) delete payload.media_base64;
+      if (form.brochure_base64 === initialBrochure.current) delete payload.brochure_base64;
       if (product) {
         const { data } = await api.put(`/products/${product.id}`, payload);
         onSave(data);
@@ -359,6 +370,18 @@ export default function ProductList() {
   const isSales = user?.role === 'sales';
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
+  // The list deliberately carries no image data, so the full record is fetched
+  // before editing — otherwise the form opens with an empty image box and the
+  // existing picture isn't visible to keep or remove.
+  async function openEditor(p) {
+    try {
+      const { data } = await api.get(`/products/${p.id}`);
+      setEditing(data);
+    } catch {
+      setEditing(p);
+    }
+  }
+
   const [view, setView] = useState('Browse');
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
@@ -567,7 +590,7 @@ export default function ProductList() {
                     )}
                     {isAdmin && (
                       <div className={styles.rowActions}>
-                        <button className={styles.btnIcon} onClick={() => setEditing(p)} title="Edit">✏</button>
+                        <button className={styles.btnIcon} onClick={() => openEditor(p)} title="Edit">✏</button>
                         <button className={styles.btnIcon} onClick={() => deleteProduct(p)} title="Delete">🗑</button>
                       </div>
                     )}

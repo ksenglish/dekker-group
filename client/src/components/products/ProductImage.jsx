@@ -1,53 +1,42 @@
 import { useEffect, useState } from 'react';
-import api from '../../lib/api';
+import { loadAuthedFile, cachedAuthedFile } from './authedFile';
 
-// Product images sit behind the same authentication as everything else, and an
-// <img src> can't send a bearer token — so the bytes are fetched through the
-// API client and turned into an object URL.
-//
-// URLs are cached for the life of the page: a grid re-rendering, or the same
-// product opening in the detail view, reuses what was already fetched instead
-// of asking again. In-flight requests are cached too, so forty tiles mounting
-// at once can't fire forty duplicate requests for the same picture.
-const cache = new Map();   // key -> object URL
-const pending = new Map(); // key -> Promise<object URL>
-
-function load(productId, size) {
-  const key = `${productId}:${size}`;
-  if (cache.has(key)) return Promise.resolve(cache.get(key));
-  if (pending.has(key)) return pending.get(key);
-
-  const path = size === 'full' ? `/products/${productId}/media` : `/products/${productId}/thumb`;
-  const request = api.get(path, { responseType: 'blob' })
-    .then(res => {
-      const url = URL.createObjectURL(res.data);
-      cache.set(key, url);
-      return url;
-    })
-    .finally(() => pending.delete(key));
-
-  pending.set(key, request);
-  return request;
-}
-
+// A product picture, fetched with authentication (see authedFile).
+// `fallback` is rendered whenever there's nothing to show — a missing file, a
+// failed request, or bytes the browser can't decode — so a tile shows its
+// placeholder rather than a broken-image glyph.
 export default function ProductImage({ productId, size = 'thumb', alt = '', className, style, fallback = null }) {
-  const [url, setUrl] = useState(() => cache.get(`${productId}:${size}`) || null);
+  const path = size === 'full' ? `/products/${productId}/media` : `/products/${productId}/thumb`;
+  const [url, setUrl] = useState(() => cachedAuthedFile(path)?.url || null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
-    const cached = cache.get(`${productId}:${size}`);
-    if (cached) { setUrl(cached); return undefined; }
+
+    const cached = cachedAuthedFile(path);
+    if (cached) { setUrl(cached.url); return undefined; }
 
     setUrl(null);
-    load(productId, size)
-      .then(u => { if (!cancelled) setUrl(u); })
+    loadAuthedFile(path)
+      .then(f => { if (!cancelled) setUrl(f.url); })
       .catch(() => { if (!cancelled) setFailed(true); });
-    return () => { cancelled = true; };
-  }, [productId, size]);
 
-  if (failed || (!url && fallback)) return fallback;
+    return () => { cancelled = true; };
+  }, [path]);
+
+  if (failed) return fallback;
   if (!url) return <div className={className} style={{ ...style, background: '#f1f5f9' }} />;
-  return <img src={url} alt={alt} className={className} style={style} />;
+
+  return (
+    <img
+      src={url}
+      alt={alt}
+      className={className}
+      style={style}
+      // Bytes that arrived but won't decode land here rather than leaving the
+      // browser's broken-image icon sitting in the grid.
+      onError={() => setFailed(true)}
+    />
+  );
 }
