@@ -3,7 +3,7 @@ import api from '../../lib/api';
 import ProductImage from './ProductImage';
 import { loadAuthedFile } from './authedFile';
 import { htmlToText } from '../../lib/richText';
-import { browseView, LEVELS } from './priceListTree';
+import { browseView, LEVELS, showsGstInclusive } from './priceListTree';
 
 // Browsing the price list the way a shop does: pick a category, then a
 // subcategory, then look at the products. Used both as the Price List page's
@@ -15,10 +15,19 @@ import { browseView, LEVELS } from './priceListTree';
 
 const GST_RATE = 0.15;
 
-// Prices are stored excluding GST. This view is used in front of customers, so
-// it shows what they'd actually pay.
-const moneyIncGst = cents =>
-  `$${((cents * (1 + GST_RATE)) / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = cents =>
+  `$${(cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Prices are stored excluding GST. Some categories are quoted to customers
+// inclusive of it — see showsGstInclusive — so the figure and the label that
+// goes with it are worked out together and never drift apart.
+const priceOf = (product) => {
+  const inclusive = showsGstInclusive(product);
+  return {
+    text: money(inclusive ? product.unit_price * (1 + GST_RATE) : product.unit_price),
+    label: inclusive ? 'incl. GST' : 'excl. GST',
+  };
+};
 
 // Big enough to feel like a full page of a catalogue, small enough that a
 // thousand-product category doesn't try to render at once.
@@ -68,8 +77,13 @@ function ProductTile({ product, onOpen }) {
         <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.35 }}>{product.name}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 15, fontWeight: 700 }}>
-            {product.unit_price > 0 ? moneyIncGst(product.unit_price) : 'POA'}
+            {product.unit_price > 0 ? priceOf(product).text : 'POA'}
           </span>
+          {product.unit_price > 0 && (
+            // Which categories are inclusive varies, so the tile says which
+            // this one is rather than leaving it to be assumed.
+            <span style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>{priceOf(product).label}</span>
+          )}
           {product.unit && product.unit !== 'each' && (
             <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>per {product.unit}</span>
           )}
@@ -139,12 +153,12 @@ function ProductDetail({ product, onClose, onPick, picking }) {
 
           <div>
             <div style={{ fontSize: 26, fontWeight: 800, marginBottom: 4 }}>
-              {product.unit_price > 0 ? moneyIncGst(product.unit_price) : 'Price on application'}
+              {product.unit_price > 0 ? priceOf(product).text : 'Price on application'}
             </div>
             {/* Supplier is deliberately not shown — this view is used in front
                 of customers and by the sales team. */}
             <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginBottom: 16 }}>
-              incl. GST{product.unit && product.unit !== 'each' ? ` · per ${product.unit}` : ''}
+              {priceOf(product).label}{product.unit && product.unit !== 'each' ? ` · per ${product.unit}` : ''}
             </div>
 
             {description && (

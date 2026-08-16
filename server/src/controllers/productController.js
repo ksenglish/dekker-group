@@ -201,6 +201,10 @@ async function serveThumb(req, res) {
       : Buffer.from(fileStore.stripDataUrl(rows[0].inline), 'base64');
 
     const thumb = await sharp(source, { failOn: 'none' })
+      // Phone photos record their orientation in EXIF rather than in the pixels.
+      // Re-encoding drops that tag, so without applying it first every photo
+      // taken in portrait comes out on its side.
+      .rotate()
       .resize({ width: 400, height: 400, fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 78 })
       .toBuffer();

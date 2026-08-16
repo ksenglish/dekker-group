@@ -10,6 +10,16 @@ export const LEVELS = ['category', 'subcategory_1', 'subcategory_2', 'subcategor
 
 const label = v => (v || '').trim() || UNCATEGORISED;
 
+// ── How a price is shown ────────────────────────────────────────────────────
+// Prices are stored excluding GST and shown that way, except under these
+// top-level categories, where the figure quoted to a customer is the
+// GST-inclusive one. Matching on the category covers the whole branch beneath
+// it, however deep it goes.
+export const GST_INCLUSIVE_CATEGORIES = ['dekker air'];
+
+export const showsGstInclusive = product =>
+  GST_INCLUSIVE_CATEGORIES.includes((product?.category || '').trim().toLowerCase());
+
 // Groups rows by a field, alphabetical, with the blank group last.
 export function groupBy(rows, field) {
   const map = new Map();
