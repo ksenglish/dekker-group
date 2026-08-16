@@ -245,6 +245,9 @@ export default function AppShell() {
         {visibleNavItems([
           { to: '/',          icon: '⊞', label: 'Home',      exact: true },
           { to: '/todos',     icon: '☑', label: 'To-Do' },
+          // Admin only on mobile, so a new enquiry can be picked up and called
+          // back from the phone rather than waiting for someone at a desk.
+          { to: '/leads',     icon: '📥', label: 'New Leads', adminOnly: true },
           { to: '/jobs',      icon: '🔧', label: 'Jobs' },
           { to: '/schedule',  icon: '📅', label: 'Schedule' },
           { to: '/quotes',    icon: '📋', label: 'Quotes', hideForOperations: true },
