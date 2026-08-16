@@ -5,6 +5,8 @@ const router = require('express').Router();
 const pool = require('../db/pool');
 const { RINNAI_HEATPUMP_TABLE } = require('../utils/heatpumpSizing');
 const { getPublicPricing } = require('../utils/publicPricing');
+const content = require('../services/websiteContent');
+const media = require('../services/websiteMedia');
 
 const GST_MULTIPLIER = 1.15;
 
@@ -57,6 +59,43 @@ router.get('/heat-pumps', async (req, res) => {
   } catch (err) {
     console.error('GET /api/public/heat-pumps failed:', err.message);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Website content ──────────────────────────────────────────────────────────
+// The live site gets the published copy. Supplying the preview token — which
+// the Website section of the app hands out — returns the draft instead, so a
+// change can be looked at in place before anyone else sees it.
+router.get('/website/deals', async (req, res) => {
+  try {
+    const row = await content.getContent('deals');
+    const preview = await content.isValidPreviewToken(req.query.preview);
+    const deals = (preview ? row.draft : row.published) || [];
+
+    // A draft must never be cached, or a preview would go stale mid-edit.
+    res.set('Cache-Control', preview ? 'no-store' : 'public, max-age=120');
+    res.json({
+      preview,
+      publishedAt: preview ? null : row.published_at,
+      deals,
+    });
+  } catch (err) {
+    console.error('GET /api/public/website/deals failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/website/media/:id', async (req, res) => {
+  try {
+    const file = await media.readBuffer(req.params.id);
+    if (!file) return res.status(404).end();
+    // Bytes never change for a given id — a new upload gets a new one.
+    res.set('Content-Type', file.mime);
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(file.buffer);
+  } catch (err) {
+    console.error('GET website media failed:', err.message);
+    res.status(500).end();
   }
 });
 
