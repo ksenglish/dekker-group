@@ -6,6 +6,7 @@ const { sendMail } = require('../utils/email');
 const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
 const { quoteDeliveredSql } = require('../utils/quoteDelivery');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
+const { notifyJobNote, notifyTargets } = require('../utils/jobNoteNotify');
 
 async function list(req, res) {
   const { search = '', status, tech, customer, from, to, sort, page = 1, limit = 100 } = req.query;
@@ -328,7 +329,7 @@ async function listNotes(req, res) {
 }
 
 async function createNote(req, res) {
-  const { content } = req.body;
+  const { content, notify_office, notify_user_ids } = req.body;
   if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
   try {
     const { rows } = await pool.query(
@@ -338,7 +339,28 @@ async function createNote(req, res) {
     );
     const note = rows[0];
     note.author_name = req.user.name;
+
+    // Awaited so the response can report who was actually reached — but it
+    // never throws, so a mail failure can't lose a note that's already saved.
+    note.notified = await notifyJobNote({
+      jobId: req.params.id,
+      note,
+      author: req.user,
+      notifyOffice: !!notify_office,
+      userIds: Array.isArray(notify_user_ids) ? notify_user_ids.filter(Boolean) : [],
+    });
+
     res.status(201).json(note);
+  } catch (err) {
+    console.error('[job] create note failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// Lets the note form show who "Office" resolves to before anything is sent.
+async function getNotifyTargets(req, res) {
+  try {
+    res.json(await notifyTargets());
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -661,5 +683,5 @@ async function deleteElectricalCoc(req, res) {
 
 module.exports = {
   list, get, create, update, updateStatus, remove, updateLineItems, listNotes, createNote, updateNote, deleteNote,
-  getOpForm, saveOpForm, getQuoteDelivery, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf, emailElectricalCoc, deleteElectricalCoc,
+  getOpForm, saveOpForm, getQuoteDelivery, getNotifyTargets, getElectricalCoc, saveElectricalCoc, downloadElectricalCocPdf, emailElectricalCoc, deleteElectricalCoc,
 };

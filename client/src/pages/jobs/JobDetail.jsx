@@ -8,6 +8,7 @@ import { formatJobNumber } from '../../lib/formatJobNumber';
 import { toLocalDateStr } from '../../lib/date';
 import { isHtml, safeHtml } from '../../lib/richText';
 import { compressImage } from '../../lib/image';
+import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import { isBillable } from '../../lib/billing';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
@@ -912,6 +913,12 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(!isNew);
   const [editMode, setEditMode] = useState(isNew);
   const [noteText, setNoteText] = useState('');
+  const [notifyOffice, setNotifyOffice] = useState(false);
+  const [notifyUserIds, setNotifyUserIds] = useState([]);
+  const [notifyOptions, setNotifyOptions] = useState([]);
+  const [notifyTargets, setNotifyTargets] = useState(null);
+  const [addingNote, setAddingNote] = useState(false);
+  const [noteFlash, setNoteFlash] = useState('');
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editNoteText, setEditNoteText] = useState('');
   const [editNoteError, setEditNoteError] = useState('');
@@ -1006,11 +1013,44 @@ export default function JobDetail() {
     }
   }
 
+  // Team member list and who "Office" resolves to, for the note Notify controls.
+  useEffect(() => {
+    if (isNew) return;
+    api.get('/users').then(r => setNotifyOptions(r.data || [])).catch(() => {});
+    api.get('/jobs/notify-targets').then(r => setNotifyTargets(r.data)).catch(() => {});
+  }, [isNew]);
+
   async function handleAddNote() {
     if (!noteText.trim()) return;
-    const { data } = await api.post(`/jobs/${id}/notes`, { content: noteText });
-    setJob(j => ({ ...j, notes: [data, ...(j.notes || [])] }));
-    setNoteText('');
+    setAddingNote(true);
+    setNoteFlash('');
+    try {
+      const { data } = await api.post(`/jobs/${id}/notes`, {
+        content: noteText,
+        notify_office: notifyOffice,
+        notify_user_ids: notifyUserIds,
+      });
+      setJob(j => ({ ...j, notes: [data, ...(j.notes || [])] }));
+      setNoteText('');
+      setNotifyOffice(false);
+      setNotifyUserIds([]);
+
+      // Say what actually happened rather than assuming it worked — email can
+      // fail long after the note itself is safely saved.
+      const n = data.notified;
+      if (n?.emailed?.length || n?.assigned?.length) {
+        const bits = [];
+        if (n.emailed?.length) bits.push(`emailed ${n.emailed.length} recipient${n.emailed.length === 1 ? '' : 's'}`);
+        if (n.assigned?.length) bits.push(`added to ${n.assigned.join(', ')}'s to-do list`);
+        setNoteFlash(`Note saved — ${bits.join(' and ')}.`);
+      } else if (n?.errors?.length) {
+        setNoteFlash(`Note saved, but ${n.errors.join('; ')}.`);
+      }
+    } catch {
+      setNoteFlash('Could not save the note.');
+    } finally {
+      setAddingNote(false);
+    }
   }
 
   async function handleDeleteNote(noteId) {
@@ -1359,7 +1399,33 @@ export default function JobDetail() {
             <div className={styles.card}>
               <div className={styles.noteInput}>
                 <textarea rows={3} placeholder="Add a note…" value={noteText} onChange={e => setNoteText(e.target.value)} />
-                <button className={styles.btnPrimary} onClick={handleAddNote} disabled={!noteText.trim()}>Add Note</button>
+                <div className={styles.notifyRow}>
+                  <label className={styles.notifyCheck}>
+                    <input type="checkbox" checked={notifyOffice} onChange={e => setNotifyOffice(e.target.checked)} />
+                    Notify Office
+                    {notifyTargets && (
+                      <span className={styles.notifyHint}>
+                        {notifyTargets.office_users?.length
+                          ? `${notifyTargets.office_email} · to-do for ${notifyTargets.office_users.map(u => u.name).join(', ')}`
+                          : `${notifyTargets.office_email} · email only, no matching user account`}
+                      </span>
+                    )}
+                  </label>
+                  <div className={styles.notifyMembers}>
+                    <span className={styles.notifyLabel}>Notify team member</span>
+                    <TeamMemberMultiSelect
+                      options={notifyOptions}
+                      selected={notifyUserIds}
+                      onChange={setNotifyUserIds}
+                      placeholder="Nobody selected…"
+                    />
+                  </div>
+                </div>
+                {noteFlash && <div className={styles.notifyFlash}>{noteFlash}</div>}
+                <button className={styles.btnPrimary} onClick={handleAddNote}
+                  disabled={!noteText.trim() || addingNote}>
+                  {addingNote ? 'Saving…' : 'Add Note'}
+                </button>
               </div>
               {(!job.notes || job.notes.length === 0) && <p className={styles.emptySmall}>No notes yet.</p>}
               {job.notes?.map(note => {

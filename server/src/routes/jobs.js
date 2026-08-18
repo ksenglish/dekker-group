@@ -114,6 +114,8 @@ router.post('/maintenance/site-visit-sweep', requireRole('admin'), async (req, r
 
 router.get('/', c.list);
 router.post('/', requireRole('admin', 'office'), c.create);
+// Must stay above '/:id' or it gets read as a job id.
+router.get('/notify-targets', c.getNotifyTargets);
 router.get('/:id', c.get);
 router.put('/:id', requireRole('admin'), c.update);
 router.patch('/:id/status', requireRole('admin', 'office'), c.updateStatus);

@@ -1203,3 +1203,22 @@
 .richText { font-weight: 400; }
 .richText ul, .richText ol { margin: 0 0 0 20px; padding: 0; }
 .richText p, .richText div { margin: 0; }
+
+/* Notify controls on the job note form */
+.notifyRow {
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px;
+  padding: 12px 0 4px;
+}
+.notifyCheck {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13px; font-weight: 500; cursor: pointer;
+}
+.notifyCheck input { width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer; }
+.notifyHint { flex-basis: 100%; font-size: 11px; font-weight: 400; color: var(--color-text-muted); }
+.notifyMembers { display: flex; flex-direction: column; gap: 6px; min-width: 240px; flex: 1; }
+.notifyLabel { font-size: 12px; font-weight: 600; color: var(--color-text-muted); }
+.notifyFlash {
+  margin: 8px 0; padding: 8px 12px; border-radius: var(--radius);
+  background: #ecfdf5; border: 1px solid #a7f3d0; color: #047857;
+  font-size: 12px; font-weight: 500;
+}
