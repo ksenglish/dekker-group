@@ -197,14 +197,31 @@ function AreaCalculator({ product, jobId }) {
   const cfg = product.calculator_config || {};
   const [length, setLength] = useState('');
   const [width, setWidth] = useState('');
-  const [scannedArea, setScannedArea] = useState(null); // m² from AI scan
-  const [qty, setQty] = useState(1);
+  // Total m² is the figure the price is worked out from. It can be typed
+  // straight in, or filled by scanning a plan, or by entering length × width —
+  // three routes to one number, rather than the price depending on which of
+  // them happened to be used.
+  const [totalM2, setTotalM2] = useState('');
+  const [source, setSource] = useState(null); // 'scan' | 'dimensions' | null
   const pricePerM2 = (product.price_from / 100) || cfg.price_per_m2 || 0;
 
-  // Area: use scanned if available, else length × width
-  const manualArea = (parseFloat(length) || 0) * (parseFloat(width) || 0);
-  const area = scannedArea != null ? scannedArea : manualArea;
-  const total = area * pricePerM2 * qty;
+  const area = parseFloat(totalM2) || 0;
+  const total = area * pricePerM2;
+
+  // Only overwrite the total once both dimensions are real numbers, so
+  // half-finished typing can't wipe a figure entered by hand.
+  function setDimension(which, value) {
+    const nextLength = which === 'length' ? value : length;
+    const nextWidth  = which === 'width'  ? value : width;
+    if (which === 'length') setLength(value); else setWidth(value);
+
+    const l = parseFloat(nextLength);
+    const w = parseFloat(nextWidth);
+    if (l > 0 && w > 0) {
+      setTotalM2(String(Math.round(l * w * 100) / 100));
+      setSource('dimensions');
+    }
+  }
 
   return (
     <div className={styles.calc}>
@@ -214,27 +231,38 @@ function AreaCalculator({ product, jobId }) {
         jobId={jobId}
         mode="area"
         hint="Upload or photograph a floor plan with dimensions marked — AI will calculate the m²."
-        onResult={setScannedArea}
+        onResult={m2 => {
+          if (m2 == null) return;
+          setTotalM2(String(Math.round(m2 * 100) / 100));
+          setSource('scan');
+        }}
       />
-
-      {/* Manual entry (shown when no scan active) */}
-      {scannedArea == null && (
-        <div className={styles.calcGrid}>
-          <div className={styles.calcField}>
-            <label>Length (m)</label>
-            <input type="number" value={length} onChange={e => setLength(e.target.value)} placeholder="0" />
-          </div>
-          <div className={styles.calcField}>
-            <label>Width (m)</label>
-            <input type="number" value={width} onChange={e => setWidth(e.target.value)} placeholder="0" />
-          </div>
-        </div>
-      )}
 
       <div className={styles.calcGrid}>
         <div className={styles.calcField}>
-          <label>Quantity</label>
-          <input type="number" value={qty} min="1" onChange={e => setQty(parseInt(e.target.value) || 1)} />
+          <label>Length (m)</label>
+          <input type="number" value={length} onChange={e => setDimension('length', e.target.value)} placeholder="0" />
+        </div>
+        <div className={styles.calcField}>
+          <label>Width (m)</label>
+          <input type="number" value={width} onChange={e => setDimension('width', e.target.value)} placeholder="0" />
+        </div>
+      </div>
+
+      <div className={styles.calcGrid}>
+        <div className={styles.calcField}>
+          <label>Total m²</label>
+          <input
+            type="number"
+            value={totalM2}
+            onChange={e => { setTotalM2(e.target.value); setSource(null); }}
+            placeholder="0"
+          />
+          {source && (
+            <span className={styles.calcHint}>
+              {source === 'scan' ? 'From the scanned plan' : 'Length × width'} — edit to override
+            </span>
+          )}
         </div>
         <div className={styles.calcField}>
           <label>Price per m²</label>
