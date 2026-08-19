@@ -409,6 +409,134 @@ router.post('/commission-bci/send', async (req, res) => {
   }
 });
 
+// ── Sales performance ───────────────────────────────────────────────────────
+//
+// Which statuses count as a win is derived from the admin-ordered pipeline, not
+// a fixed list of keys, so renaming or reordering stages keeps working. Sale
+// and everything after it (Scheduled - Installation, In Progress, Invoiced,
+// Paid…) is won; Awaiting Quote and Quoted are still in play; anything before
+// Awaiting Quote — New, Scheduled - Site-Visit, Needs Follow Up — hasn't
+// reached a decision yet and is left out of the rate entirely. Cancelled sits
+// outside the pipeline and never counts either way.
+function salesStatusGroups(statuses) {
+  const pipeline = statuses.filter(s => s.key !== 'cancelled');
+  const norm = s => (s.label || '').toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+  const at = test => pipeline.findIndex(s => test(norm(s)));
+
+  const saleIdx = at(l => l === 'sale' || l.startsWith('sale ') || l.endsWith(' sale'));
+  const awaitingIdx = at(l => l.includes('awaiting') && l.includes('quote'));
+  const quotedIdx = at(l => l === 'quoted');
+
+  return {
+    won: saleIdx === -1 ? [] : pipeline.slice(saleIdx).map(s => s.key),
+    awaiting: awaitingIdx === -1 ? [] : [pipeline[awaitingIdx].key],
+    quoted: quotedIdx === -1 ? [] : [pipeline[quotedIdx].key],
+  };
+}
+
+router.get('/sales', async (req, res) => {
+  const { from, to } = req.query;
+  const isAdmin = req.user.role === 'admin';
+  try {
+    const { rows: settingsRows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
+    const statuses = settingsRows[0]?.value || DEFAULT_STATUSES;
+    const groups = salesStatusGroups(statuses);
+    const openKeys = [...groups.awaiting, ...groups.quoted];
+
+    // One sales visit per job — the earliest — so a job booked twice doesn't
+    // count twice, and the conversion is credited to whoever first went out.
+    const COHORT = `
+      SELECT DISTINCT ON (s.job_id) s.job_id, s.user_id
+      FROM schedules s
+      WHERE s.appointment_type = 'sales'
+        AND ($1::date IS NULL OR s.scheduled_date >= $1::date)
+        AND ($2::date IS NULL OR s.scheduled_date <= $2::date)
+      ORDER BY s.job_id, s.scheduled_date, s.start_time NULLS LAST`;
+
+    const params = [from || null, to || null, groups.won, openKeys, groups.awaiting];
+    const userClause = isAdmin ? '' : ' AND u.id = $6';
+    if (!isAdmin) params.push(req.user.id);
+
+    const { rows } = await pool.query(
+      `WITH cohort AS (${COHORT}),
+       appts AS (
+         SELECT s.user_id, COUNT(*)::int AS appointments
+         FROM schedules s
+         WHERE s.appointment_type = 'sales'
+           AND ($1::date IS NULL OR s.scheduled_date >= $1::date)
+           AND ($2::date IS NULL OR s.scheduled_date <= $2::date)
+         GROUP BY s.user_id
+       ),
+       -- Current backlog ignores the window on purpose: "how many quotes do I
+       -- still owe" is a question about now, not about the reporting period.
+       backlog AS (
+         SELECT c.user_id, COUNT(*)::int AS awaiting_now
+         FROM (
+           SELECT DISTINCT ON (s.job_id) s.job_id, s.user_id
+           FROM schedules s WHERE s.appointment_type = 'sales'
+           ORDER BY s.job_id, s.scheduled_date, s.start_time NULLS LAST
+         ) c
+         JOIN jobs j ON j.id = c.job_id
+         WHERE j.status = ANY($5)
+         GROUP BY c.user_id
+       )
+       SELECT u.id AS user_id, u.name,
+              COALESCE(a.appointments, 0)                            AS appointments,
+              COUNT(ch.job_id)::int                                  AS jobs,
+              COUNT(*) FILTER (WHERE j.status = ANY($3))::int        AS won,
+              COUNT(*) FILTER (WHERE j.status = ANY($4))::int        AS open_quotes,
+              COUNT(*) FILTER (WHERE j.status = ANY($5))::int        AS awaiting_quote,
+              COALESCE(b.awaiting_now, 0)                            AS awaiting_now
+       FROM users u
+       LEFT JOIN appts a    ON a.user_id  = u.id
+       LEFT JOIN backlog b  ON b.user_id  = u.id
+       LEFT JOIN cohort ch  ON ch.user_id = u.id
+       LEFT JOIN jobs j     ON j.id = ch.job_id
+       WHERE (a.appointments IS NOT NULL OR b.awaiting_now IS NOT NULL)${userClause}
+       GROUP BY u.id, u.name, a.appointments, b.awaiting_now
+       ORDER BY won DESC, jobs DESC, u.name`,
+      params
+    );
+
+    const users = rows.map(r => {
+      const decided = r.won + r.open_quotes;
+      return {
+        user_id: r.user_id, name: r.name,
+        appointments: r.appointments,
+        jobs: r.jobs,
+        won: r.won,
+        quoted: r.open_quotes - r.awaiting_quote,
+        awaiting_quote: r.awaiting_quote,
+        awaiting_now: r.awaiting_now,
+        // Undecided jobs are excluded, so a rep whose visits are all still at
+        // Site-Visit shows no rate rather than a misleading 0%.
+        conversion_rate: decided > 0 ? r.won / decided : null,
+      };
+    });
+
+    const sum = k => users.reduce((n, u) => n + u[k], 0);
+    const totalDecided = sum('won') + sum('awaiting_quote') + sum('quoted');
+    res.json({
+      from: from || null,
+      to: to || null,
+      status_groups: groups,
+      users,
+      totals: {
+        appointments: sum('appointments'),
+        jobs: sum('jobs'),
+        won: sum('won'),
+        quoted: sum('quoted'),
+        awaiting_quote: sum('awaiting_quote'),
+        awaiting_now: sum('awaiting_now'),
+        conversion_rate: totalDecided > 0 ? sum('won') / totalDecided : null,
+      },
+    });
+  } catch (err) {
+    console.error('Sales report failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Recent activity log — admin only
 router.get('/activity', async (req, res) => {
   if (req.user.role !== 'admin') return res.json([]);
