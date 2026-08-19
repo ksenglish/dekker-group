@@ -17,6 +17,7 @@ import SettingsPage from '../../pages/settings/SettingsPage';
 import ProductList from '../../pages/products/ProductList';
 import UsersPage from '../../pages/users/UsersPage';
 import LeadsPage from '../../pages/leads/LeadsPage';
+import LeadForm from '../../pages/leads/LeadForm';
 import TimesheetsPage from '../../pages/timesheets/TimesheetsPage';
 import ReportsPage from '../../pages/reports/ReportsPage';
 import MapPage from '../../pages/map/MapPage';
@@ -210,6 +211,8 @@ export default function AppShell() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/leads" element={<LeadsPage />} />
+          <Route path="/leads/new" element={<LeadForm />} />
+          <Route path="/leads/:id/edit" element={<LeadForm />} />
           <Route path="/customers" element={<CustomerList />} />
           <Route path="/customers/:id" element={<CustomerDetail />} />
           <Route path="/jobs" element={<JobList />} />

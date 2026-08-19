@@ -30,10 +30,23 @@ const CALL_RESULTS = [
 // Strips spaces and NZ formatting so tel:/sms: links dial reliably
 const dialable = v => (v || '').replace(/[^\d+]/g, '');
 
+// Local date, not UTC — see lib/date.js for why toISOString() is wrong here.
+const toDateStr = d =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const PERIODS = [
+  { value: 'day',   label: 'Today' },
+  { value: 'week',  label: 'Last 7 days' },
+  { value: 'month', label: 'Last 30 days' },
+  { value: 'all',   label: 'All time' },
+  { value: 'range', label: 'Date range' },
+];
+
 // Records what happened on the call and lets the result decide the status.
-function CallResultPicker({ lead, onRecorded }) {
+function CallResultPicker({ lead, onRecorded, onNoteAdded }) {
   const [result, setResult] = useState('');
   const [callBackOn, setCallBackOn] = useState('');
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -41,15 +54,23 @@ function CallResultPicker({ lead, onRecorded }) {
   const moveTo = CALL_RESULTS.find(r => r.value === result)?.to;
 
   async function save() {
-    if (!result) return;
+    // A note on its own is worth saving — not every call changes where the
+    // lead stands, but what was said still belongs on the record.
+    if (!result && !note.trim()) return;
     if (needsDate && !callBackOn) { setError('Pick a date to call back on'); return; }
     setBusy(true); setError('');
     try {
-      const { data } = await api.post(`/leads/${lead.id}/result`, {
-        result, call_back_on: needsDate ? callBackOn : null,
-      });
-      setResult(''); setCallBackOn('');
-      onRecorded(data);
+      if (result) {
+        const { data } = await api.post(`/leads/${lead.id}/result`, {
+          result, call_back_on: needsDate ? callBackOn : null, note: note.trim() || null,
+        });
+        if (data.note) onNoteAdded?.(data.note);
+        onRecorded(data);
+      } else {
+        const { data } = await api.post(`/leads/${lead.id}/notes`, { note: note.trim() });
+        onNoteAdded?.(data);
+      }
+      setResult(''); setCallBackOn(''); setNote('');
     } catch (err) {
       setError(err.response?.data?.error || 'Could not record that');
     } finally { setBusy(false); }
@@ -77,10 +98,21 @@ function CallResultPicker({ lead, onRecorded }) {
           />
         )}
 
-        <button className={styles.btnPrimary} onClick={save} disabled={!result || busy}>
+        <button className={styles.btnPrimary} onClick={save} disabled={(!result && !note.trim()) || busy}>
           {busy ? 'Saving…' : 'Record'}
         </button>
       </div>
+
+      <textarea
+        className={styles.noteBox}
+        rows={2}
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        placeholder="Call notes — what was said, what they asked for…"
+      />
+      {!result && note.trim() && (
+        <div className={styles.resultHint}>Saves as a note without changing the lead's status.</div>
+      )}
 
       {moveTo && (
         <div className={styles.resultHint}>
@@ -185,6 +217,10 @@ export default function LeadsPage() {
   const [converting, setConverting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [stats, setStats] = useState(null);
+  const [callNotes, setCallNotes] = useState([]);
+  const [report, setReport] = useState(null);
+  const [period, setPeriod] = useState('month'); // day | week | month | all | range
+  const [range, setRange] = useState({ from: '', to: '' });
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState(EMPTY_LEAD);
   const [saving, setSaving] = useState(false);
@@ -198,6 +234,33 @@ export default function LeadsPage() {
     api.get('/leads/stats').then(r => setStats(r.data)).catch(() => {});
   }
   useEffect(() => { load(); }, []);
+
+  // Report window. 'all' sends no bounds; the rest resolve to real dates here so
+  // the server stays a plain from/to filter.
+  const reportRange = (() => {
+    if (period === 'range') return { from: range.from || null, to: range.to || null };
+    if (period === 'all') return { from: null, to: null };
+    const now = new Date();
+    const to = toDateStr(now);
+    if (period === 'day') return { from: to, to };
+    const start = new Date(now);
+    if (period === 'week') start.setDate(start.getDate() - 6);
+    else start.setDate(start.getDate() - 29);
+    return { from: toDateStr(start), to };
+  })();
+
+  useEffect(() => {
+    const params = {};
+    if (reportRange.from) params.from = reportRange.from;
+    if (reportRange.to) params.to = reportRange.to;
+    api.get('/leads/report', { params }).then(r => setReport(r.data)).catch(() => {});
+  }, [period, range.from, range.to, leads.length]);
+
+  // Call history for whichever lead is open.
+  useEffect(() => {
+    if (!selected) { setCallNotes([]); return; }
+    api.get(`/leads/${selected.id}/notes`).then(r => setCallNotes(r.data || [])).catch(() => setCallNotes([]));
+  }, [selected?.id]);
   useEffect(() => {
     api.get('/customers/lead-sources').then(r => setSources(r.data || [])).catch(() => {});
   }, []);
@@ -262,9 +325,106 @@ export default function LeadsPage() {
           <h1 className={styles.pageTitle}>New Leads</h1>
           <p className={styles.pageSubtitle}>Website enquiries and manually entered leads</p>
         </div>
-        <button className={styles.btnPrimary} onClick={() => { setForm(EMPTY_LEAD); setFormError(''); setShowNew(true); }}>
+        <button className={styles.btnPrimary} onClick={() => navigate('/leads/new')}>
           + New Lead
         </button>
+      </div>
+
+      {/* Reporting — volume, conversions and averages over a chosen window,
+          with who booked what and which sources are producing. */}
+      <div className={styles.reportCard}>
+        <div className={styles.reportHead}>
+          <span className={styles.reportTitle}>Reporting</span>
+          <div className={styles.periodToggle}>
+            {PERIODS.map(p => (
+              <button key={p.value}
+                className={`${styles.periodBtn} ${period === p.value ? styles.periodBtnActive : ''}`}
+                onClick={() => setPeriod(p.value)}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {period === 'range' && (
+            <div className={styles.rangeRow}>
+              <input type="date" value={range.from} onChange={e => setRange(r => ({ ...r, from: e.target.value }))} />
+              <span className={styles.muted}>to</span>
+              <input type="date" value={range.to} onChange={e => setRange(r => ({ ...r, to: e.target.value }))} />
+            </div>
+          )}
+        </div>
+
+        {!report ? (
+          <div className={styles.emptySmall}>Loading…</div>
+        ) : (
+          <>
+            <div className={styles.statBar}>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{report.total}</span>
+                <span className={styles.statLabel}>Leads received</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue} style={{ color: STATUS_COLOURS.converted }}>{report.converted}</span>
+                <span className={styles.statLabel}>Booked</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>
+                  {report.conversion_rate == null ? '—' : `${Math.round(report.conversion_rate * 100)}%`}
+                </span>
+                <span className={styles.statLabel}>Conversion rate</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{formatDuration(report.avg_secs_to_result)}</span>
+                <span className={styles.statLabel}>Avg time to first result</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{formatDuration(report.avg_secs_to_convert)}</span>
+                <span className={styles.statLabel}>Avg time to book</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{report.website} / {report.manual}</span>
+                <span className={styles.statLabel}>Website / manual</span>
+              </div>
+            </div>
+
+            <div className={styles.breakdownGrid}>
+              <div className={styles.breakdown}>
+                <div className={styles.breakdownHead}>Leads booked by user</div>
+                {report.by_user.length === 0
+                  ? <div className={styles.emptySmall}>Nothing actioned in this period.</div>
+                  : report.by_user.map(u => (
+                    <div key={u.user_id} className={styles.breakdownRow}>
+                      <span>{u.name}</span>
+                      <span className={styles.breakdownBar}>
+                        <span className={styles.breakdownFill} style={{
+                          width: `${report.by_user[0].booked ? (u.booked / report.by_user[0].booked) * 100 : 0}%`,
+                        }} />
+                      </span>
+                      <strong>{u.booked}</strong>
+                      <span className={styles.muted}>of {u.actioned}</span>
+                    </div>
+                  ))}
+              </div>
+
+              <div className={styles.breakdown}>
+                <div className={styles.breakdownHead}>Leads by source</div>
+                {report.by_source.length === 0
+                  ? <div className={styles.emptySmall}>No leads in this period.</div>
+                  : report.by_source.map(s => (
+                    <div key={s.source} className={styles.breakdownRow}>
+                      <span title={s.source}>{s.source}</span>
+                      <span className={styles.breakdownBar}>
+                        <span className={styles.breakdownFill} style={{
+                          width: `${report.by_source[0].total ? (s.total / report.by_source[0].total) * 100 : 0}%`,
+                        }} />
+                      </span>
+                      <strong>{s.total}</strong>
+                      <span className={styles.muted}>{s.converted} booked</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {stats && stats.total_count > 0 && (
@@ -380,7 +540,31 @@ export default function LeadsPage() {
                 setSelected(s => (s && s.id === updated.id ? { ...s, ...updated } : s));
                 load();
               }}
+              onNoteAdded={n => setCallNotes(ns => [n, ...ns])}
             />
+
+            {callNotes.length > 0 && (
+              <div className={styles.noteList}>
+                {callNotes.map(n => (
+                  <div key={n.id} className={styles.noteItem}>
+                    <div className={styles.noteItemHead}>
+                      <strong>{n.author_name || 'Unknown'}</strong>
+                      {n.result && (
+                        <span className={styles.noteResult}>
+                          {CALL_RESULTS.find(r => r.value === n.result)?.label || n.result}
+                        </span>
+                      )}
+                      <span className={styles.muted}>
+                        {new Date(n.created_at).toLocaleString('en-NZ', {
+                          day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                    <div className={styles.noteItemBody}>{n.note}</div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {editing ? (
               <LeadEditForm

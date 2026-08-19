@@ -270,6 +270,107 @@ router.get('/stats', requireRawRole('admin', 'office'), async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
+// Volume, conversions and averages over a window, plus the by-user and
+// by-source breakdowns. Kept separate from /stats because that one backs the
+// sidebar badge and is polled constantly — it shouldn't carry report joins.
+//
+// Filtered on created_at: "how many leads did we get in March" is a question
+// about when they arrived, not when they were dealt with.
+router.get('/report', requireRawRole('admin', 'office'), async (req, res) => {
+  const { from, to } = req.query;
+  const range = [from || null, to || null];
+  // $1/$2 are the window; null means unbounded on that side.
+  const WINDOW = `($1::date IS NULL OR l.created_at >= $1::date)
+              AND ($2::date IS NULL OR l.created_at < ($2::date + INTERVAL '1 day'))`;
+
+  try {
+    const { rows: [totals] } = await pool.query(`
+      SELECT
+        COUNT(*)                                              AS total,
+        COUNT(*) FILTER (WHERE l.status='converted')          AS converted,
+        COUNT(*) FILTER (WHERE l.status='not_interested')     AS not_interested,
+        COUNT(*) FILTER (WHERE l.status IN ('new','contacted','call_back')) AS open,
+        COUNT(*) FILTER (WHERE l.entry_method='manual')       AS manual,
+        COUNT(*) FILTER (WHERE l.entry_method='website')      AS website,
+        AVG(EXTRACT(EPOCH FROM (l.resulted_at  - l.created_at))) AS avg_secs_to_result,
+        AVG(EXTRACT(EPOCH FROM (l.converted_at - l.created_at))) AS avg_secs_to_convert
+      FROM leads l WHERE ${WINDOW}`, range);
+
+    // Credit for a booking goes to whoever recorded it; older rows fall back to
+    // whoever actioned the lead, which is all the history can tell us.
+    const { rows: byUser } = await pool.query(`
+      SELECT u.id AS user_id, u.name,
+             COUNT(*) FILTER (WHERE l.status='converted') AS booked,
+             COUNT(*)                                     AS actioned
+      FROM leads l
+      JOIN users u ON u.id = COALESCE(l.converted_by, l.resulted_by)
+      WHERE ${WINDOW} AND l.resulted_at IS NOT NULL
+      GROUP BY u.id, u.name
+      ORDER BY booked DESC, actioned DESC, u.name`, range);
+
+    const { rows: bySource } = await pool.query(`
+      SELECT COALESCE(NULLIF(l.source,''), 'Unknown') AS source,
+             COUNT(*)                                      AS total,
+             COUNT(*) FILTER (WHERE l.status='converted')  AS converted
+      FROM leads l WHERE ${WINDOW}
+      GROUP BY 1 ORDER BY total DESC, source`, range);
+
+    const n = v => (v == null ? null : Number(v));
+    const total = Number(totals.total);
+    res.json({
+      from: from || null,
+      to: to || null,
+      total,
+      converted:      Number(totals.converted),
+      not_interested: Number(totals.not_interested),
+      open:           Number(totals.open),
+      manual:         Number(totals.manual),
+      website:        Number(totals.website),
+      conversion_rate: total > 0 ? Number(totals.converted) / total : null,
+      avg_secs_to_result:  n(totals.avg_secs_to_result),
+      avg_secs_to_convert: n(totals.avg_secs_to_convert),
+      by_user: byUser.map(r => ({
+        user_id: r.user_id, name: r.name,
+        booked: Number(r.booked), actioned: Number(r.actioned),
+      })),
+      by_source: bySource.map(r => ({
+        source: r.source,
+        total: Number(r.total),
+        converted: Number(r.converted),
+        conversion_rate: Number(r.total) > 0 ? Number(r.converted) / Number(r.total) : null,
+      })),
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Call notes, newest first, with who wrote each one and the result it was
+// logged against.
+router.get('/:id/notes', requireRawRole('admin', 'office'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT n.id, n.note, n.result, n.created_at, n.user_id, u.name AS author_name
+       FROM lead_call_notes n LEFT JOIN users u ON u.id = n.user_id
+       WHERE n.lead_id = $1 ORDER BY n.created_at DESC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+// A note on its own, without recording a call result.
+router.post('/:id/notes', requireRawRole('admin', 'office'), async (req, res) => {
+  const { note } = req.body || {};
+  if (!note?.trim()) return res.status(400).json({ error: 'Note is required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO lead_call_notes (lead_id, user_id, note) VALUES ($1,$2,$3)
+       RETURNING id, note, result, created_at, user_id`,
+      [req.params.id, req.user.id, note.trim()]
+    );
+    res.status(201).json({ ...rows[0], author_name: req.user.name });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
 router.patch('/:id/status', requireRawRole('admin', 'office'), async (req, res) => {
   const { status } = req.body;
   if (!LEAD_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
@@ -337,7 +438,7 @@ router.put('/:id', requireRawRole('admin', 'office'), async (req, res) => {
 // picked decides the status, so nobody has to remember which status goes with
 // "left a voicemail".
 router.post('/:id/result', requireRawRole('admin', 'office'), async (req, res) => {
-  const { result, call_back_on } = req.body || {};
+  const { result, call_back_on, note } = req.body || {};
   const mapped = CALL_RESULTS[result];
   if (!mapped) return res.status(400).json({ error: 'Unknown call result' });
   if (result === 'call_back' && !call_back_on) {
@@ -367,6 +468,9 @@ router.post('/:id/result', requireRawRole('admin', 'office'), async (req, res) =
       `call_back_on = ${result === 'call_back' ? '$5::date' : 'NULL'}`,
     ];
     if (stamp) sets.push(`${stamp} = COALESCE(${stamp}, NOW())`);
+    // Credit the booking to whoever recorded it, not whoever touched the lead
+    // first — resulted_by is already pinned to the earliest actioner.
+    if (mapped.status === 'converted') sets.push('converted_by = COALESCE(converted_by, $3)');
 
     const params = [mapped.status, result, req.user.id, req.params.id];
     if (result === 'call_back') params.push(call_back_on);
@@ -374,8 +478,21 @@ router.post('/:id/result', requireRawRole('admin', 'office'), async (req, res) =
     const { rows } = await client.query(
       `UPDATE leads SET ${sets.join(', ')} WHERE id=$4 RETURNING *`, params
     );
+
+    // The note is saved against the result it was taken with, so the history
+    // shows what was said as well as what was picked.
+    let savedNote = null;
+    if (note?.trim()) {
+      const { rows: [n] } = await client.query(
+        `INSERT INTO lead_call_notes (lead_id, user_id, note, result) VALUES ($1,$2,$3,$4)
+         RETURNING id, note, result, created_at, user_id`,
+        [req.params.id, req.user.id, note.trim(), result]
+      );
+      savedNote = { ...n, author_name: req.user.name };
+    }
+
     await client.query('COMMIT');
-    res.json({ ...rows[0], customer_id: customerId, job_id: jobId });
+    res.json({ ...rows[0], customer_id: customerId, job_id: jobId, note: savedNote });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);
@@ -401,6 +518,7 @@ router.post('/:id/convert', requireRawRole('admin', 'office'), async (req, res) 
               converted_at = COALESCE(converted_at, NOW()),
               resulted_at  = COALESCE(resulted_at, NOW()),
               resulted_by  = COALESCE(resulted_by, $2),
+              converted_by = COALESCE(converted_by, $2),
               call_back_on = NULL
        WHERE id=$1`,
       [lead.id, req.user.id]
