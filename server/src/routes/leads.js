@@ -167,13 +167,18 @@ router.post('/webhook/wix', async (req, res) => {
 async function ensureCustomer(client, lead) {
   if (lead.customer_id) return lead.customer_id;
 
+  // Several customer columns are narrower than their lead equivalents
+  // (lead_source, address_city and address_region are all 100 vs 255), so a
+  // long value would fail the insert rather than simply being stored untidily.
+  const clip = (v, n) => (v == null ? null : String(v).slice(0, n));
   const { rows } = await client.query(
     `INSERT INTO customers (name, contact_name, company, email, phone, mobile, lead_source,
                             address_street, address_city, address_region, address_postcode, address_country)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-    [lead.name, lead.contact_name, lead.company, lead.email, lead.phone, lead.mobile, lead.source,
-     lead.address_street, lead.address_city, lead.address_region, lead.address_postcode,
-     lead.address_country || 'New Zealand']
+    [clip(lead.name, 255), clip(lead.contact_name, 255), clip(lead.company, 255),
+     clip(lead.email, 255), clip(lead.phone, 50), clip(lead.mobile, 50), clip(lead.source, 100),
+     lead.address_street, clip(lead.address_city, 100), clip(lead.address_region, 100),
+     clip(lead.address_postcode, 20), clip(lead.address_country || 'New Zealand', 100)]
   );
   const customerId = rows[0].id;
 
@@ -189,15 +194,30 @@ async function ensureCustomer(client, lead) {
 
 // Converting means the work is booked, so it opens a job. Idempotent for the
 // same reason — re-marking a lead as booked must not open a second job.
+// jobs.type is a short, configured category — not free text. What the customer
+// asked for goes in the description, which is unbounded.
+const DEFAULT_JOB_TYPES = ['Installation', 'Service', 'Inspection', 'Repair', 'Quote Only'];
+
+async function defaultJobType(client) {
+  const { rows } = await client.query(`SELECT value FROM settings WHERE key='job_types'`);
+  const configured = rows[0]?.value;
+  const list = Array.isArray(configured) && configured.length ? configured : DEFAULT_JOB_TYPES;
+  return list[0];
+}
+
 async function ensureJob(client, lead, customerId) {
   if (lead.job_id) return lead.job_id;
 
+  // Previously this put lead.service_required straight into jobs.type, which is
+  // VARCHAR(50) — any enquiry described in more than 50 characters made booking
+  // fail with a bare "Server error". The wording belongs in the description.
+  const type = await defaultJobType(client);
   const { rows } = await client.query(
     `INSERT INTO jobs (customer_id, type, description, priority, status)
      VALUES ($1,$2,$3,'medium','new') RETURNING id`,
     [
       customerId,
-      lead.service_required || 'Enquiry',
+      type,
       [lead.service_required, lead.message].filter(Boolean).join(' — ') || null,
     ]
   );
@@ -341,6 +361,137 @@ router.get('/report', requireRawRole('admin', 'office'), async (req, res) => {
       })),
     });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Does this lead look like somebody we already know? Matches on the things
+// people actually re-enter differently — name, email, mobile/phone and street
+// — and reports which field matched so the answer is explainable rather than
+// just "possible duplicate".
+//
+// Digits-only comparison for phones so "0274 616 368" matches "0274616368",
+// and street matching ignores case and punctuation for the same reason.
+const digits = v => (v || '').replace(/\D/g, '');
+
+async function findDuplicates(lead) {
+  const street = (lead.address_street || lead.address || '').trim();
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name, c.email, c.mobile, c.phone,
+            c.address_street, c.address_city,
+            LOWER(TRIM(c.name))            = LOWER(TRIM($1)) AS name_match,
+            (NULLIF($2,'') IS NOT NULL AND LOWER(TRIM(c.email)) = LOWER(TRIM($2))) AS email_match,
+            (NULLIF($3,'') IS NOT NULL AND $3 IN (
+               regexp_replace(COALESCE(c.mobile,''), '\\D', '', 'g'),
+               regexp_replace(COALESCE(c.phone,''),  '\\D', '', 'g')
+             )) AS phone_match,
+            (NULLIF($4,'') IS NOT NULL
+               AND LOWER(regexp_replace(COALESCE(c.address_street,''), '[^a-zA-Z0-9]', '', 'g'))
+                 = LOWER(regexp_replace($4, '[^a-zA-Z0-9]', '', 'g'))) AS address_match
+     FROM customers c
+     WHERE LOWER(TRIM(c.name)) = LOWER(TRIM($1))
+        OR (NULLIF($2,'') IS NOT NULL AND LOWER(TRIM(c.email)) = LOWER(TRIM($2)))
+        OR (NULLIF($3,'') IS NOT NULL AND $3 IN (
+              regexp_replace(COALESCE(c.mobile,''), '\\D', '', 'g'),
+              regexp_replace(COALESCE(c.phone,''),  '\\D', '', 'g')))
+        OR (NULLIF($4,'') IS NOT NULL
+              AND LOWER(regexp_replace(COALESCE(c.address_street,''), '[^a-zA-Z0-9]', '', 'g'))
+                = LOWER(regexp_replace($4, '[^a-zA-Z0-9]', '', 'g')))
+     LIMIT 20`,
+    [lead.name || '', lead.email || '', digits(lead.mobile) || digits(lead.phone) || '', street]
+  );
+
+  // Open jobs already on file at the same address — "we're already doing work
+  // there" is a different warning from "we already know this person".
+  let jobs = [];
+  if (street) {
+    const { rows: j } = await pool.query(
+      `SELECT j.id, j.job_number, j.external_ref, j.status, j.description,
+              c.name AS customer_name
+       FROM jobs j
+       LEFT JOIN customers c ON c.id = j.customer_id
+       LEFT JOIN customer_sites s ON s.id = j.site_id
+       WHERE j.status <> 'cancelled'
+         AND LOWER(regexp_replace(COALESCE(s.address, j.site_address, ''), '[^a-zA-Z0-9]', '', 'g'))
+             LIKE '%' || LOWER(regexp_replace($1, '[^a-zA-Z0-9]', '', 'g')) || '%'
+       ORDER BY j.created_at DESC LIMIT 10`,
+      [street]
+    );
+    jobs = j;
+  }
+
+  return {
+    customers: rows.map(r => ({
+      id: r.id, name: r.name, email: r.email, mobile: r.mobile || r.phone,
+      address: [r.address_street, r.address_city].filter(Boolean).join(', '),
+      matched_on: [
+        r.name_match && 'name', r.email_match && 'email',
+        r.phone_match && 'mobile', r.address_match && 'address',
+      ].filter(Boolean),
+    })),
+    jobs,
+  };
+}
+
+// Checked before saving a manual lead, and again from the lead itself.
+router.post('/check-duplicates', requireRawRole('admin', 'office'), async (req, res) => {
+  try {
+    res.json(await findDuplicates(req.body || {}));
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.get('/:id/duplicates', requireRawRole('admin', 'office'), async (req, res) => {
+  try {
+    const { rows: [lead] } = await pool.query('SELECT * FROM leads WHERE id=$1', [req.params.id]);
+    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    const found = await findDuplicates(lead);
+    // The customer this lead already created isn't a duplicate of itself.
+    found.customers = found.customers.filter(c => c.id !== lead.customer_id);
+    res.json(found);
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+// Attach a lead to a customer that already exists instead of creating a second
+// record. Only fills gaps on the customer — an existing value is never
+// overwritten by lead data, which is usually the less complete of the two.
+router.post('/:id/merge', requireRawRole('admin', 'office'), async (req, res) => {
+  const { customer_id } = req.body || {};
+  if (!customer_id) return res.status(400).json({ error: 'customer_id is required' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [lead] } = await client.query('SELECT * FROM leads WHERE id=$1 FOR UPDATE', [req.params.id]);
+    if (!lead) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Lead not found' }); }
+    const { rows: [cust] } = await client.query('SELECT * FROM customers WHERE id=$1', [customer_id]);
+    if (!cust) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Customer not found' }); }
+
+    await client.query(
+      `UPDATE customers SET
+         email       = COALESCE(NULLIF(email,''), $2),
+         mobile      = COALESCE(NULLIF(mobile,''), $3),
+         phone       = COALESCE(NULLIF(phone,''), $4),
+         company     = COALESCE(NULLIF(company,''), $5),
+         address_street   = COALESCE(NULLIF(address_street,''), $6),
+         address_city     = COALESCE(NULLIF(address_city,''), $7),
+         address_region   = COALESCE(NULLIF(address_region,''), $8),
+         address_postcode = COALESCE(NULLIF(address_postcode,''), $9),
+         updated_at = NOW()
+       WHERE id = $1`,
+      [customer_id, lead.email, lead.mobile, lead.phone, lead.company,
+       lead.address_street, lead.address_city, lead.address_region, lead.address_postcode]
+    );
+
+    // If the lead had already spawned its own customer, that record is now a
+    // duplicate. It's left in place rather than deleted — it may already have
+    // jobs hanging off it, and silently removing those would be worse.
+    await client.query('UPDATE leads SET customer_id=$1, updated_at=NOW() WHERE id=$2',
+      [customer_id, req.params.id]);
+
+    await client.query('COMMIT');
+    res.json({ customer_id, previous_customer_id: lead.customer_id || null });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
 });
 
 // Call notes, newest first, with who wrote each one and the result it was
@@ -527,8 +678,10 @@ router.post('/:id/convert', requireRawRole('admin', 'office'), async (req, res) 
     res.json({ customer_id: customerId, job_id: jobId });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('[lead] booking failed:', err);
+    // A bare "Server error" gave no way to tell a too-long field from a dead
+    // database. The message is safe to show — it names a column, not data.
+    res.status(500).json({ error: `Could not book this lead: ${err.message}` });
   } finally {
     client.release();
   }

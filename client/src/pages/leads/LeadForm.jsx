@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import AddressAutocomplete from '../../components/AddressAutocomplete';
+import DuplicateWarning from './DuplicateWarning';
 import styles from './Leads.module.css';
 
 // Deliberately mirrors the New Customer form field for field, in the same
@@ -24,6 +25,7 @@ export default function LeadForm() {
   const [form, setForm] = useState(EMPTY_LEAD);
   const [sources, setSources] = useState([]);
   const [contactSameAsName, setContactSameAsName] = useState(true);
+  const [dupes, setDupes] = useState(null);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -55,6 +57,20 @@ export default function LeadForm() {
   useEffect(() => {
     if (contactSameAsName) set('contact_name', form.name);
   }, [contactSameAsName, form.name]);
+
+  // Checked as details are filled in, so a duplicate shows up while there's
+  // still a chance to do something about it rather than after saving.
+  useEffect(() => {
+    const hasSomething = form.name.trim() || form.email.trim() || form.mobile.trim() || form.address_street.trim();
+    if (!hasSomething) { setDupes(null); return; }
+    const t = setTimeout(() => {
+      api.post('/leads/check-duplicates', {
+        name: form.name, email: form.email, mobile: form.mobile,
+        phone: form.phone, address_street: form.address_street,
+      }).then(r => setDupes(r.data)).catch(() => setDupes(null));
+    }, 500);
+    return () => clearTimeout(t);
+  }, [form.name, form.email, form.mobile, form.phone, form.address_street]);
 
   async function save(e) {
     e.preventDefault();
@@ -91,6 +107,14 @@ export default function LeadForm() {
         </div>
 
         {error && <div className={styles.formError}>{error}</div>}
+
+        <DuplicateWarning dupes={dupes} />
+        {dupes?.customers?.length > 0 && !isNew && (
+          <p className={styles.dupeFoot}>
+            Saving will keep this as a separate lead. Use Merge on the lead itself to attach it
+            to an existing customer.
+          </p>
+        )}
 
         <div className={styles.card}>
           <div className={styles.cardBody}>

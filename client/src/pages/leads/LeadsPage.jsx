@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Leads.module.css';
 import { overlayClose } from '../../lib/overlayClose';
+import DuplicateWarning from './DuplicateWarning';
 
 const STATUSES = ['new', 'contacted', 'call_back', 'converted', 'not_interested'];
 const STATUS_COLOURS = {
@@ -218,6 +219,8 @@ export default function LeadsPage() {
   const [editing, setEditing] = useState(false);
   const [stats, setStats] = useState(null);
   const [callNotes, setCallNotes] = useState([]);
+  const [dupes, setDupes] = useState(null);
+  const [merging, setMerging] = useState(false);
   const [report, setReport] = useState(null);
   const [period, setPeriod] = useState('month'); // day | week | month | all | range
   const [range, setRange] = useState({ from: '', to: '' });
@@ -256,10 +259,11 @@ export default function LeadsPage() {
     api.get('/leads/report', { params }).then(r => setReport(r.data)).catch(() => {});
   }, [period, range.from, range.to, leads.length]);
 
-  // Call history for whichever lead is open.
+  // Call history and possible duplicates for whichever lead is open.
   useEffect(() => {
-    if (!selected) { setCallNotes([]); return; }
+    if (!selected) { setCallNotes([]); setDupes(null); return; }
     api.get(`/leads/${selected.id}/notes`).then(r => setCallNotes(r.data || [])).catch(() => setCallNotes([]));
+    api.get(`/leads/${selected.id}/duplicates`).then(r => setDupes(r.data)).catch(() => setDupes(null));
   }, [selected?.id]);
   useEffect(() => {
     api.get('/customers/lead-sources').then(r => setSources(r.data || [])).catch(() => {});
@@ -533,6 +537,23 @@ export default function LeadsPage() {
                 onClick={e => { if (!selected.email) e.preventDefault(); }}
               >✉ Email</a>
             </div>
+
+            <DuplicateWarning
+              dupes={dupes}
+              merging={merging}
+              onMerge={async c => {
+                if (!confirm(`Attach this lead to the existing customer "${c.name}"?\n\nAnything missing on their record will be filled in from the lead. Existing details are kept.`)) return;
+                setMerging(true);
+                try {
+                  await api.post(`/leads/${selected.id}/merge`, { customer_id: c.id });
+                  setDupes(d => ({ ...d, customers: d.customers.filter(x => x.id !== c.id) }));
+                  load();
+                  alert(`Merged into ${c.name}.`);
+                } catch (err) {
+                  alert(err.response?.data?.error || 'Could not merge');
+                } finally { setMerging(false); }
+              }}
+            />
 
             <CallResultPicker
               lead={selected}
