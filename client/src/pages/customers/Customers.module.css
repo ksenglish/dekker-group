@@ -766,3 +766,18 @@
   .detailGrid { grid-template-columns: 1fr; }
   .formGrid { grid-template-columns: 1fr; }
 }
+
+/* Alternative contact details kept from a merged lead */
+.altContact {
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 10px; background: #f8fafc;
+}
+.altContactRows { display: grid; gap: 4px; }
+.altContactRows > div {
+  display: grid; grid-template-columns: 90px 1fr; gap: 10px; font-size: 13px;
+}
+.altContactRows span { color: var(--color-text-muted); }
+.altContactRows a { color: var(--color-primary); }
+.altContactNote {
+  display: block; margin-top: 8px; font-size: 11px; color: var(--color-text-muted);
+}

@@ -71,7 +71,15 @@ async function get(req, res) {
        WHERE j.customer_id = $1 ORDER BY j.created_at DESC LIMIT 20`,
       [req.params.id]
     );
-    res.json({ ...rows[0], sites: sites.rows, recent_jobs: jobs.rows });
+    // Alternative details picked up when a lead was merged in — a second name
+    // on the account, a partner's mobile, a different site address.
+    const contacts = await pool.query(
+      `SELECT cc.*, u.name AS created_by_name
+       FROM customer_contacts cc LEFT JOIN users u ON u.id = cc.created_by
+       WHERE cc.customer_id = $1 ORDER BY cc.created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ ...rows[0], sites: sites.rows, recent_jobs: jobs.rows, contacts: contacts.rows });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

@@ -505,6 +505,31 @@ export default function CustomerDetail() {
         )}
       </div>
 
+      {/* Details that came in on a merged lead and disagreed with what was
+          already on file, so neither version was lost. */}
+      {tab === 'info' && !editMode && !isNew && customer?.contacts?.length > 0 && (
+        <div className={styles.sitesSection}>
+          <div className={styles.sitesSectionHeader}>
+            <h3>Other Contact Details</h3>
+          </div>
+          {customer.contacts.map(c => (
+            <div key={c.id} className={styles.altContact}>
+              <div className={styles.altContactRows}>
+                {c.name    && <div><span>Name</span><strong>{c.name}</strong></div>}
+                {c.mobile  && <div><span>Mobile</span><strong><a href={`tel:${c.mobile}`}>{c.mobile}</a></strong></div>}
+                {c.phone   && <div><span>Phone</span><strong><a href={`tel:${c.phone}`}>{c.phone}</a></strong></div>}
+                {c.email   && <div><span>Email</span><strong><a href={`mailto:${c.email}`}>{c.email}</a></strong></div>}
+                {c.address && <div><span>Address</span><strong>{c.address}</strong></div>}
+              </div>
+              <span className={styles.altContactNote}>
+                {c.note || 'Added on merge'}
+                {c.created_at ? ` · ${new Date(c.created_at).toLocaleDateString('en-NZ')}` : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Sites — shown inside info tab when not editing */}
       {tab === 'info' && !editMode && !isNew && (
         <div className={styles.sitesSection}>

@@ -372,8 +372,19 @@ router.get('/report', requireRawRole('admin', 'office'), async (req, res) => {
 // and street matching ignores case and punctuation for the same reason.
 const digits = v => (v || '').replace(/\D/g, '');
 
+// Only an address specific enough to identify a property is worth matching on.
+// A bare suburb or city — "Rotorua" — appears in half the database, so matching
+// it flags every job in town. Requiring a street number keeps it to a real
+// address; anything without one is a locality, not a place.
+function matchableStreet(lead) {
+  const candidate = (lead.address_street || lead.address || '').trim();
+  if (!/\d/.test(candidate)) return '';
+  if (candidate.replace(/[^a-zA-Z0-9]/g, '').length < 6) return '';
+  return candidate;
+}
+
 async function findDuplicates(lead) {
-  const street = (lead.address_street || lead.address || '').trim();
+  const street = matchableStreet(lead);
   const { rows } = await pool.query(
     `SELECT c.id, c.name, c.email, c.mobile, c.phone,
             c.address_street, c.address_city,
@@ -463,6 +474,9 @@ router.post('/:id/merge', requireRawRole('admin', 'office'), async (req, res) =>
     const { rows: [cust] } = await client.query('SELECT * FROM customers WHERE id=$1', [customer_id]);
     if (!cust) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Customer not found' }); }
 
+    // Blanks on the customer are filled from the lead — that's new information,
+    // nothing is lost. Values that disagree are never overwritten; they go on a
+    // secondary contact below so both are kept.
     await client.query(
       `UPDATE customers SET
          email       = COALESCE(NULLIF(email,''), $2),
@@ -479,6 +493,41 @@ router.post('/:id/merge', requireRawRole('admin', 'office'), async (req, res) =>
        lead.address_street, lead.address_city, lead.address_region, lead.address_postcode]
     );
 
+    // Compare against what the customer already had, not the row just updated —
+    // a field we've only now filled in isn't a conflict with itself.
+    const sameText = (a, b) =>
+      (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+    const samePhone = (a, b) => digits(a) === digits(b);
+    const addressOf = r => [r.address_street, r.address_city, r.address_postcode]
+      .filter(v => v && String(v).trim()).join(', ');
+
+    // Only a value the lead actually has, that the customer also had, and that
+    // differs, counts as a conflict worth keeping.
+    const conflict = (leadVal, custVal, same = sameText) =>
+      leadVal && String(leadVal).trim() && custVal && String(custVal).trim() && !same(leadVal, custVal)
+        ? String(leadVal).trim() : null;
+
+    const secondary = {
+      name:    conflict(lead.contact_name || lead.name, cust.contact_name || cust.name),
+      mobile:  conflict(lead.mobile, cust.mobile, samePhone),
+      phone:   conflict(lead.phone, cust.phone, samePhone),
+      email:   conflict(lead.email, cust.email),
+      address: conflict(addressOf(lead), addressOf(cust)),
+    };
+
+    let secondaryContactId = null;
+    if (Object.values(secondary).some(Boolean)) {
+      const { rows: [contact] } = await client.query(
+        `INSERT INTO customer_contacts (customer_id, name, mobile, phone, email, address, note, lead_id, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+        [customer_id, secondary.name, secondary.mobile, secondary.phone,
+         secondary.email, secondary.address,
+         `From merged lead${lead.source ? ` (${lead.source})` : ''}`,
+         lead.id, req.user.id]
+      );
+      secondaryContactId = contact.id;
+    }
+
     // If the lead had already spawned its own customer, that record is now a
     // duplicate. It's left in place rather than deleted — it may already have
     // jobs hanging off it, and silently removing those would be worse.
@@ -486,7 +535,12 @@ router.post('/:id/merge', requireRawRole('admin', 'office'), async (req, res) =>
       [customer_id, req.params.id]);
 
     await client.query('COMMIT');
-    res.json({ customer_id, previous_customer_id: lead.customer_id || null });
+    res.json({
+      customer_id,
+      previous_customer_id: lead.customer_id || null,
+      secondary_contact_id: secondaryContactId,
+      secondary_contact: secondaryContactId ? secondary : null,
+    });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);
