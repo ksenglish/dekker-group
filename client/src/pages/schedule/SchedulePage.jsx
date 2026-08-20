@@ -316,8 +316,14 @@ export default function SchedulePage() {
     } finally { setSavingNotes(false); }
   }
 
-  function handleEditNote() {
-    setAddNoteTarget({ existing: selectedNote });
+  // `scope` decides whether a save rewrites the repeating note or detaches the
+  // one day being looked at. A note that doesn't repeat only ever has a series.
+  function handleEditNote(scope = 'series') {
+    setAddNoteTarget({
+      existing: selectedNote,
+      scope,
+      occurrenceDate: selectedNote.occurrence_date,
+    });
     setSelectedNote(null);
   }
 
@@ -594,9 +600,18 @@ export default function SchedulePage() {
             <div className={styles.modalFooter}>
               {canEdit && (
                 <>
-                  <button className={styles.btnSecondary} onClick={handleEditNote}>✏ Edit</button>
-                  {selectedNote.recurrence !== 'none' && (
-                    <button className={styles.btnDanger} onClick={handleDeleteOccurrence}>Delete This Occurrence</button>
+                  {selectedNote.recurrence !== 'none' ? (
+                    <>
+                      <button className={styles.btnSecondary} onClick={() => handleEditNote('occurrence')}>
+                        ✏ Edit This Occurrence
+                      </button>
+                      <button className={styles.btnSecondary} onClick={() => handleEditNote('series')}>
+                        ✏ Edit Series
+                      </button>
+                      <button className={styles.btnDanger} onClick={handleDeleteOccurrence}>Delete This Occurrence</button>
+                    </>
+                  ) : (
+                    <button className={styles.btnSecondary} onClick={() => handleEditNote('series')}>✏ Edit</button>
                   )}
                   <button className={styles.btnDanger} onClick={handleDeleteNote}>
                     {selectedNote.recurrence !== 'none' ? 'Delete Series' : 'Delete Note'}
@@ -628,6 +643,8 @@ export default function SchedulePage() {
           time={addNoteTarget.time}
           userId={addNoteTarget.userId}
           existing={addNoteTarget.existing}
+          scope={addNoteTarget.scope}
+          occurrenceDate={addNoteTarget.occurrenceDate}
           techMap={techMap}
           isAdmin={isAdmin(user?.role)}
           onClose={() => setAddNoteTarget(null)}

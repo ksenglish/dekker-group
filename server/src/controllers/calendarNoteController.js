@@ -135,6 +135,73 @@ async function update(req, res) {
   }
 }
 
+// "Edit just this occurrence" — the changed day is detached from the series
+// rather than the series itself being altered. The original date is excluded
+// and a standalone note takes its place, so every other week is untouched.
+//
+// There's no separate override table: an exclusion plus a one-off note already
+// expresses "this day is different", and reuses machinery that's known to work.
+async function updateOccurrence(req, res) {
+  const { date, user_id, note, note_date, start_time, end_time } = req.body;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
+    return res.status(400).json({ error: 'date (YYYY-MM-DD) is required' });
+  }
+  if (note !== undefined && !note.trim()) {
+    return res.status(400).json({ error: 'Note cannot be empty' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [series] } = await client.query(
+      'SELECT * FROM calendar_notes WHERE id=$1 FOR UPDATE', [req.params.id]
+    );
+    if (!series) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Note not found' });
+    }
+
+    const merged = {
+      user_id:    user_id    !== undefined ? user_id              : series.user_id,
+      note:       note       !== undefined ? note.trim()          : series.note,
+      note_date:  note_date  !== undefined ? note_date            : date,
+      start_time: start_time !== undefined ? (start_time || null) : series.start_time,
+      end_time:   end_time   !== undefined ? (end_time || null)   : series.end_time,
+    };
+
+    // A note that doesn't repeat has no series to detach from — editing "this
+    // occurrence" is just editing the note.
+    if (series.recurrence === 'none') {
+      const { rows } = await client.query(
+        `UPDATE calendar_notes SET user_id=$1, note=$2, note_date=$3, start_time=$4, end_time=$5
+         WHERE id=$6 RETURNING *`,
+        [merged.user_id, merged.note, merged.note_date, merged.start_time, merged.end_time, req.params.id]
+      );
+      await client.query('COMMIT');
+      return res.json({ ...rows[0], detached: false });
+    }
+
+    await client.query(
+      `UPDATE calendar_notes SET excluded_dates = array_append(excluded_dates, $1)
+       WHERE id=$2 AND NOT ($1 = ANY(excluded_dates))`,
+      [date, req.params.id]
+    );
+    const { rows } = await client.query(
+      `INSERT INTO calendar_notes (user_id, note, note_date, start_time, end_time, recurrence, created_by)
+       VALUES ($1,$2,$3,$4,$5,'none',$6) RETURNING *`,
+      [merged.user_id, merged.note, merged.note_date, merged.start_time, merged.end_time, req.user.id]
+    );
+    await client.query('COMMIT');
+    res.status(201).json({ ...rows[0], detached: true, series_id: req.params.id });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
+  }
+}
+
 // "Delete just this occurrence" — adds one date to a recurring note's exclusion list
 async function excludeOccurrence(req, res) {
   const { date } = req.body;
@@ -165,4 +232,4 @@ async function remove(req, res) {
   }
 }
 
-module.exports = { list, create, update, excludeOccurrence, remove };
+module.exports = { list, create, update, updateOccurrence, excludeOccurrence, remove };

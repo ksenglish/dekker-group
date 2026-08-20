@@ -41,13 +41,23 @@ const RECURRENCE_OPTIONS = [
 // fraught to be worth it); `isAdmin` only unlocks the multi-select when adding
 // a brand new note, letting one Admin action put the same note on several
 // team members' diaries at once.
-export default function AddNoteModal({ date, time, userId, techMap, existing, onClose, onSaved, isAdmin = false }) {
+export default function AddNoteModal({
+  date, time, userId, techMap, existing, onClose, onSaved, isAdmin = false,
+  scope = 'series', occurrenceDate = null,
+}) {
   const isEdit = !!existing;
+  // Editing one day of a repeating note detaches that day; the rest of the
+  // series carries on unchanged, so the repeat setting isn't offered here.
+  const isOccurrence = isEdit && scope === 'occurrence' && existing?.recurrence !== 'none';
   const startTime = existing?.start_time ? existing.start_time.slice(0, 5) : (time || '09:00');
   const [form, setForm] = useState({
     user_ids: isEdit ? [existing.user_id] : (userId ? [userId] : []),
     note: existing?.note || '',
-    note_date: existing ? String(existing.note_date).slice(0, 10) : date,
+    // For a single occurrence the date being edited is the one on screen, not
+    // the series' original anchor date.
+    note_date: existing
+      ? String((scope === 'occurrence' && occurrenceDate) || existing.note_date).slice(0, 10)
+      : date,
     start_time: startTime,
     end_time: existing?.end_time ? existing.end_time.slice(0, 5) : plusOneHour(startTime),
     recurrence: existing?.recurrence || 'none',
@@ -64,7 +74,11 @@ export default function AddNoteModal({ date, time, userId, techMap, existing, on
     }
     setSaving(true); setError('');
     try {
-      if (isEdit) {
+      if (isOccurrence) {
+        await api.put(`/calendar-notes/${existing.noteId || existing.id}/occurrence`, {
+          ...form, user_id: form.user_ids[0], date: occurrenceDate,
+        });
+      } else if (isEdit) {
         await api.put(`/calendar-notes/${existing.noteId || existing.id}`, { ...form, user_id: form.user_ids[0] });
       } else {
         await Promise.all(form.user_ids.map(user_id => api.post('/calendar-notes', { ...form, user_id })));
@@ -81,7 +95,7 @@ export default function AddNoteModal({ date, time, userId, techMap, existing, on
     <div className={styles.modalOverlay} {...overlayClose(onClose)}>
       <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2>{isEdit ? 'Edit Note' : 'Add Note to Diary'}</h2>
+          <h2>{isOccurrence ? 'Edit This Occurrence' : isEdit ? 'Edit Note' : 'Add Note to Diary'}</h2>
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -131,12 +145,15 @@ export default function AddNoteModal({ date, time, userId, techMap, existing, on
               </div>
             </div>
 
-            <div className={styles.field}>
-              <label>Repeat</label>
-              <select value={form.recurrence} onChange={e => set('recurrence', e.target.value)}>
-                {RECURRENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
+            {/* A detached day stands on its own, so there's no repeat to set. */}
+            {!isOccurrence && (
+              <div className={styles.field}>
+                <label>Repeat</label>
+                <select value={form.recurrence} onChange={e => set('recurrence', e.target.value)}>
+                  {RECURRENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
           </div>
 
           <div className={styles.modalFooter}>

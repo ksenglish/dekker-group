@@ -6,7 +6,7 @@ const { getTheme } = require('./settingsController');
 const { getThemeById, getDefaultTheme } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
-const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
+const { OFFICE_RECORDS_EMAIL, SALES_EMAIL } = require('../utils/recordsEmail');
 const { advanceJobStatus, advanceJobStatusByLabel } = require('../utils/jobStatusFlow');
 const fileStore = require('../services/fileStore');
 const { shrinkForPage } = require('../utils/imageForPrint');
@@ -700,12 +700,17 @@ async function sendEmail(req, res) {
       }
     }
 
+    // The rep gets a blind copy so they have the quote as the customer received
+    // it, and sits on Reply-To alongside the sales inbox — a customer replying
+    // reaches the person who knows the job, without the shared inbox losing it.
     await sendMail({
       to: q.customer_email,
       subject,
       html: htmlBody,
       text: body,
       attachments,
+      bcc: req.user?.email || null,
+      replyTo: [req.user?.email, SALES_EMAIL],
     });
     await pool.query('UPDATE quotes SET status=\'sent\', delivery_status=\'sent\', sent_at=NOW(), updated_at=NOW() WHERE id=$1', [req.params.id]);
     await logActivity({ type: 'quote_sent', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id,

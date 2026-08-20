@@ -36,11 +36,29 @@ async function getEmailSettings() {
 // Legacy alias used by authController
 const getResendSettings = getEmailSettings;
 
-async function sendMail({ to, subject, html, text, attachments }) {
+// Drops empties and duplicates from an address list, comparing case-insensitively
+// so the same mailbox can't be listed twice in different casing.
+function addressList(value) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of [].concat(value || [])) {
+    const addr = String(raw || '').trim();
+    if (!addr) continue;
+    const key = addr.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(addr);
+  }
+  return out;
+}
+
+async function sendMail({ to, subject, html, text, attachments, bcc, replyTo }) {
   const s = await getEmailSettings();
   if (!s) throw new Error('Email not configured — go to Settings → Email to set up email sending.');
 
   const fromStr = `${s.fromName || 'Dekker Group'} <${s.from}>`;
+  const bccList = addressList(bcc);
+  const replyList = addressList(replyTo);
 
   if (s.provider === 'smtp') {
     const port = s.port || 587;
@@ -51,6 +69,8 @@ async function sendMail({ to, subject, html, text, attachments }) {
       auth: { user: s.user, pass: s.pass },
     });
     const payload = { from: fromStr, to, subject, html: html || text, text };
+    if (bccList.length) payload.bcc = bccList;
+    if (replyList.length) payload.replyTo = replyList.join(', ');
     if (attachments?.length) {
       payload.attachments = attachments.map(a => ({ filename: a.filename, content: a.content }));
     }
@@ -62,6 +82,8 @@ async function sendMail({ to, subject, html, text, attachments }) {
   const { Resend } = require('resend');
   const resend = new Resend(s.apiKey);
   const payload = { from: fromStr, to, subject, html: html || text };
+  if (bccList.length) payload.bcc = bccList;
+  if (replyList.length) payload.replyTo = replyList;
   if (attachments?.length) {
     payload.attachments = attachments.map(a => ({ filename: a.filename, content: a.content }));
   }
