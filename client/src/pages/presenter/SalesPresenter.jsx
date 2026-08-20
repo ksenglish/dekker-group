@@ -193,7 +193,7 @@ function PlanScanner({ jobId, mode = 'area', hint, onResult }) {
   );
 }
 
-function AreaCalculator({ product, jobId }) {
+function AreaCalculator({ product, jobId, onQuantityChange }) {
   const cfg = product.calculator_config || {};
   const [length, setLength] = useState('');
   const [width, setWidth] = useState('');
@@ -207,6 +207,11 @@ function AreaCalculator({ product, jobId }) {
 
   const area = parseFloat(totalM2) || 0;
   const total = area * pricePerM2;
+
+  // The panel's "Add to Quote" button lives outside this component, so the m²
+  // has to be reported up or the quote line lands on a quantity of 1 and the
+  // quoted price stops matching the estimate shown here.
+  useEffect(() => { onQuantityChange?.(area); }, [area, onQuantityChange]);
 
   // Only overwrite the total once both dimensions are real numbers, so
   // half-finished typing can't wipe a figure entered by hand.
@@ -447,12 +452,17 @@ function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant }) {
   );
 }
 
-function LinearCalculator({ product }) {
+function LinearCalculator({ product, onQuantityChange }) {
   const cfg = product.calculator_config || {};
   const [meters, setMeters] = useState('');
   const [qty, setQty] = useState(1);
   const pricePerM = (product.price_from / 100) || cfg.price_per_m || 0;
-  const total = (parseFloat(meters) || 0) * pricePerM * qty;
+  // Priced per metre, so the quote's quantity is the total run, not the
+  // number of runs.
+  const runMetres = Math.round((parseFloat(meters) || 0) * qty * 100) / 100;
+  const total = runMetres * pricePerM;
+
+  useEffect(() => { onQuantityChange?.(runMetres); }, [runMetres, onQuantityChange]);
 
   return (
     <div className={styles.calc}>
@@ -1174,10 +1184,10 @@ const SELF_PICK_CALCULATORS = new Set([
   'bdvair_positive_pressure',
 ]);
 
-function Calculator({ product, onPick, jobId, onSelectVariant }) {
+function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange }) {
   const type = product.calculator_type || 'unit';
-  if (type === 'area') return <AreaCalculator product={product} jobId={jobId} />;
-  if (type === 'linear') return <LinearCalculator product={product} />;
+  if (type === 'area') return <AreaCalculator product={product} jobId={jobId} onQuantityChange={onQuantityChange} />;
+  if (type === 'linear') return <LinearCalculator product={product} onQuantityChange={onQuantityChange} />;
   if (type === 'heatpump') return <HeatpumpCalculator onPick={onPick} />;
   if (type === 'paling_fence') return <PalingFenceCalculator onPick={onPick} jobId={jobId} product={product} onSelectVariant={onSelectVariant} />;
   if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
@@ -1438,6 +1448,12 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
     : onPick;
 
   const [showBrochure, setShowBrochure] = useState(false);
+  // Measured calculators report what they worked out, so the generic button
+  // below can carry it onto the quote line.
+  const [calcQuantity, setCalcQuantity] = useState(0);
+  const unit = product.calculator_type === 'area' ? 'm²'
+    : product.calculator_type === 'linear' ? 'm' : '';
+
   return (
     <div className={styles.panelOverlay} {...overlayClose(onClose)}>
       <div className={styles.panel}>
@@ -1465,10 +1481,16 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
               From <strong>${(product.price_from / 100).toLocaleString('en-NZ')}</strong> <span>+ GST</span>
             </div>
           )}
-          <Calculator product={product} onPick={pickWithDescription} jobId={jobId} onSelectVariant={onSelectVariant} />
+          <Calculator product={product} onPick={pickWithDescription} jobId={jobId}
+            onSelectVariant={onSelectVariant} onQuantityChange={setCalcQuantity} />
           {onPick && !SELF_PICK_CALCULATORS.has(product.calculator_type) && (
-            <button className={styles.addToJobBtn} onClick={() => pickWithDescription(product.price_list_product || product)}>
-              + Add to Quote
+            <button className={styles.addToJobBtn} onClick={() => pickWithDescription({
+              ...(product.price_list_product || product),
+              // Only measured calculators set one; a plain unit product has no
+              // quantity to carry and keeps the line at 1.
+              ...(calcQuantity > 0 ? { quantity: calcQuantity } : {}),
+            })}>
+              {calcQuantity > 0 ? `+ Add ${calcQuantity.toFixed(2)}${unit} to Quote` : '+ Add to Quote'}
             </button>
           )}
           {brochureSrc(product) && (
