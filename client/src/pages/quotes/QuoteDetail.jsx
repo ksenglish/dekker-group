@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
@@ -51,6 +51,18 @@ export default function QuoteDetail() {
   const [jobAttachments, setJobAttachments] = useState([]);
   const [attachmentIds, setAttachmentIds] = useState([]);
   const [thumbs, setThumbs] = useState({});
+  const [detailsSavedAt, setDetailsSavedAt] = useState(null);
+
+  // Details, description, theme, dates and attachments all save together, so
+  // one snapshot of the lot decides whether anything is outstanding.
+  const detailsSnapshot = JSON.stringify({
+    notes, themeId, quoteDate, expiresAt, attachmentIds: [...attachmentIds].sort(),
+  });
+  // null until the quote has loaded, so the first render can't look "unsaved".
+  const savedDetailsRef = useRef(null);
+  const detailsTimer = useRef(null);
+  const hasUnsavedDetails = savedDetailsRef.current !== null
+    && savedDetailsRef.current !== detailsSnapshot;
 
   function loadActivity() {
     api.get(`/quotes/${id}/activity`).then(r => setActivity(r.data)).catch(() => {});
@@ -64,10 +76,37 @@ export default function QuoteDetail() {
       setQuoteDate(toDateInput(r.data.quote_date || r.data.created_at));
       setExpiresAt(toDateInput(r.data.expires_at));
       setAttachmentIds(r.data.attachment_ids || []);
+      // Baseline for "has anything changed" — set from what was just loaded,
+      // so arriving on the page never counts as an edit.
+      savedDetailsRef.current = JSON.stringify({
+        notes: r.data.notes || '',
+        themeId: r.data.theme_id || '',
+        quoteDate: toDateInput(r.data.quote_date || r.data.created_at),
+        expiresAt: toDateInput(r.data.expires_at),
+        attachmentIds: [...(r.data.attachment_ids || [])].sort(),
+      });
     }).finally(() => setLoading(false));
     api.get('/settings/themes').then(r => setThemes(r.data.filter(t => !t.archived))).catch(() => {});
     loadActivity();
   }, [id]);
+
+  // Autosave the details block a short while after typing stops. Silent —
+  // a toast on every pause would be noise; the status line carries it instead.
+  useEffect(() => {
+    if (!hasUnsavedDetails || savingDetails || !quote) return;
+    clearTimeout(detailsTimer.current);
+    detailsTimer.current = setTimeout(() => handleSaveDetails({ silent: true }), 1500);
+    return () => clearTimeout(detailsTimer.current);
+  }, [detailsSnapshot, hasUnsavedDetails, savingDetails, quote]);
+
+  // Backstop for the gap between the last keystroke and the save landing, and
+  // for a save that failed. Closing the tab is the case autosave can't cover.
+  useEffect(() => {
+    if (!hasUnsavedDetails) return;
+    const warn = e => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [hasUnsavedDetails]);
 
   // Keyed on the job rather than loaded alongside the quote, so a quote that
   // only gets its job later picks up that job's drawings straight away.
@@ -122,16 +161,23 @@ export default function QuoteDetail() {
     finally { setSaving(false); }
   }
 
-  async function handleSaveDetails() {
+  async function handleSaveDetails({ silent = false } = {}) {
+    clearTimeout(detailsTimer.current);
     setSavingDetails(true);
     try {
+      const snapshot = detailsSnapshot;
       const { data } = await api.put(`/quotes/${id}`, {
         status: quote.status, notes, theme_id: themeId || null,
         quote_date: quoteDate || null, expires_at: expiresAt || null,
         attachment_ids: attachmentIds,
       });
       setQuote(q => ({ ...q, ...data }));
-      flash('success', 'Quote details saved');
+      // Records what was actually sent, not the values as they stand now — the
+      // user may have typed more while the request was in flight, and that
+      // should still count as unsaved.
+      savedDetailsRef.current = snapshot;
+      setDetailsSavedAt(Date.now());
+      if (!silent) flash('success', 'Quote details saved');
       loadActivity();
     } catch { flash('error', 'Failed to save quote details'); }
     finally { setSavingDetails(false); }
@@ -503,11 +549,14 @@ export default function QuoteDetail() {
       <div className={styles.actionBar}>
         <div className={styles.actionBarInner}>
           <span className={styles.actionBarHint}>
-            {savingDetails ? 'Saving…' : 'Changes to details, description and attachments save together'}
+            {savingDetails ? 'Saving…'
+              : hasUnsavedDetails ? 'Unsaved changes — saving shortly…'
+              : detailsSavedAt ? `Saved ${new Date(detailsSavedAt).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' })}`
+              : 'Details, description and attachments save automatically'}
           </span>
           <div className={styles.actionBarButtons}>
-            <button className={styles.btnSecondary} onClick={handleSaveDetails} disabled={savingDetails}>
-              {savingDetails ? 'Saving…' : 'Save Quote Details'}
+            <button className={styles.btnSecondary} onClick={() => handleSaveDetails()} disabled={savingDetails}>
+              {savingDetails ? 'Saving…' : 'Save Now'}
             </button>
             {quote.status === 'draft' && (
               <button className={styles.btnPrimary} onClick={handleApprove} disabled={saving}>

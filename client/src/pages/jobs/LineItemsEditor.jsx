@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import styles from './Jobs.module.css';
 import ProductSearch from '../../components/products/ProductSearch';
 
@@ -17,12 +17,25 @@ const GST_RATE = 0.15;
 let rowSeq = 0;
 const nextRowKey = () => `new-${++rowSeq}`;
 
+const AUTOSAVE_DELAY = 1200;
+
 export default function LineItemsEditor({ items: initialItems, onSave, readonly }) {
   const [items, setItems] = useState([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
+
+  // Read inside callbacks that must not be re-created on every keystroke.
+  const dirtyRef = useRef(false);
+  const itemsRef = useRef([]);
+  const timerRef = useRef(null);
+  useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+  useEffect(() => { itemsRef.current = items; }, [items]);
 
   useEffect(() => {
+    // Local edits are newer than anything arriving from the server — a save
+    // landing mid-typing must not overwrite what's still being typed.
+    if (dirtyRef.current) return;
     setItems(initialItems.map(i => ({
       ...i,
       _key: i.id || nextRowKey(),
@@ -30,36 +43,66 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
       // the figure the team quotes customers.
       unit_price: ((i.unit_price / 100) * (1 + GST_RATE)).toFixed(2),
     })));
-    setDirty(false);
   }, [initialItems]);
+
+  const toPayload = rows => rows.map(i => ({
+    description: i.description,
+    quantity: parseFloat(i.quantity) || 1,
+    // Convert the incl.-GST figure the team edits back to excl. GST for storage.
+    unit_price: (parseFloat(i.unit_price) || 0) / (1 + GST_RATE),
+    product_id: i.product_id || null,
+    product_name: i.product_name || null,
+  }));
+
+  const save = useCallback(async rows => {
+    clearTimeout(timerRef.current);
+    setSaving(true);
+    try {
+      await onSave(toPayload(rows));
+      setDirty(false);
+      setSavedAt(Date.now());
+    } finally {
+      setSaving(false);
+    }
+  }, [onSave]);
+
+  // A blank row can't be saved — the server drops line items with no
+  // description, so saving mid-entry would delete the row being typed into.
+  // Autosave waits until every row has something in it.
+  const scheduleSave = useCallback(() => {
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      const rows = itemsRef.current;
+      if (rows.some(r => !String(r.description || '').trim())) return;
+      save(rows);
+    }, AUTOSAVE_DELAY);
+  }, [save]);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   function addRow() {
     setItems(i => [...i, { _key: nextRowKey(), description: '', quantity: 1, unit_price: '0.00', product_id: null, product_name: '' }]);
     setDirty(true);
   }
 
+  // Removing a line is unambiguous and can't be half-finished, so it saves
+  // straight away rather than waiting out the debounce.
   function removeRow(idx) {
-    setItems(i => i.filter((_, j) => j !== idx));
+    const next = items.filter((_, j) => j !== idx);
+    setItems(next);
     setDirty(true);
+    itemsRef.current = next;
+    if (!next.some(r => !String(r.description || '').trim())) save(next);
   }
 
   function update(idx, key, val) {
     setItems(i => i.map((row, j) => j === idx ? { ...row, [key]: val } : row));
     setDirty(true);
+    scheduleSave();
   }
 
-async function handleSave() {
-    setSaving(true);
-    await onSave(items.map(i => ({
-      description: i.description,
-      quantity: parseFloat(i.quantity) || 1,
-      // Convert the incl.-GST figure the team edits back to excl. GST for storage.
-      unit_price: (parseFloat(i.unit_price) || 0) / (1 + GST_RATE),
-      product_id: i.product_id || null,
-      product_name: i.product_name || null,
-    })));
-    setDirty(false);
-    setSaving(false);
+  async function handleSave() {
+    await save(itemsRef.current);
   }
 
   return (
@@ -103,6 +146,7 @@ async function handleSave() {
                     ...(product_name !== null ? { product_name } : {}),
                   }));
                   setDirty(true);
+                  scheduleSave();
                 }}
               />
               <input
@@ -133,11 +177,18 @@ async function handleSave() {
       {!readonly && (
         <div className={styles.lineItemActions}>
           <button className={styles.btnSmall} onClick={addRow}>+ Add Line</button>
+          {/* Autosave handles the normal case; the button stays for a row that
+              can't save itself yet — one still waiting for a description. */}
           {dirty && (
             <button className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
               {saving ? 'Saving…' : 'Save Items'}
             </button>
           )}
+          <span className={styles.autosaveHint}>
+            {saving ? 'Saving…'
+              : dirty ? 'Unsaved changes'
+              : savedAt ? 'Saved' : ''}
+          </span>
         </div>
       )}
     </div>
