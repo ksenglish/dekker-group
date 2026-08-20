@@ -378,4 +378,124 @@ async function addLeadSource(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, remove, listSites, createSite, updateSite, deleteSite, listNotes, createNote, deleteNote, importCsv, getLeadSources, addLeadSource };
+// Every table that points at a customer. Enumerated rather than discovered at
+// runtime so a new one has to be added here deliberately — a table missed by a
+// merge would orphan its rows against a customer that no longer exists.
+const CUSTOMER_REFERENCES = [
+  { table: 'jobs',              column: 'customer_id', label: 'jobs' },
+  { table: 'quotes',            column: 'customer_id', label: 'quotes' },
+  { table: 'invoices',          column: 'customer_id', label: 'invoices' },
+  { table: 'customer_sites',    column: 'customer_id', label: 'sites' },
+  { table: 'customer_notes',    column: 'customer_id', label: 'notes' },
+  { table: 'customer_contacts', column: 'customer_id', label: 'contacts' },
+  { table: 'email_log',         column: 'customer_id', label: 'emails' },
+  { table: 'leads',             column: 'customer_id', label: 'leads' },
+];
+
+const digitsOnly = v => String(v ?? '').replace(/\D/g, '');
+const sameText = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+const addressOf = r => [r.address_street, r.address_city, r.address_postcode]
+  .filter(v => v && String(v).trim()).join(', ');
+
+// Fold one customer into another: all history moves across, the surviving
+// record keeps its own details, and anything that disagreed is preserved as a
+// secondary contact rather than lost. The absorbed record is then removed —
+// leaving it behind is what created the confusion this fixes.
+//
+// :id survives. The customer named in the body is the one absorbed.
+async function merge(req, res) {
+  const targetId = req.params.id;
+  const sourceId = req.body?.merge_id;
+  if (!sourceId) return res.status(400).json({ error: 'Choose a customer to merge in' });
+  if (sourceId === targetId) return res.status(400).json({ error: 'A customer cannot be merged into itself' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Locked in a stable order so two merges running at once can't deadlock.
+    const { rows: both } = await client.query(
+      'SELECT * FROM customers WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE',
+      [[targetId, sourceId]]
+    );
+    const target = both.find(c => c.id === targetId);
+    const source = both.find(c => c.id === sourceId);
+    if (!target || !source) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Sites move rather than being merged or de-duplicated: jobs point at a
+    // site by id, so removing one as a duplicate would break those jobs.
+    const moved = {};
+    for (const ref of CUSTOMER_REFERENCES) {
+      const { rowCount } = await client.query(
+        `UPDATE ${ref.table} SET ${ref.column} = $1 WHERE ${ref.column} = $2`,
+        [targetId, sourceId]
+      );
+      if (rowCount > 0) moved[ref.label] = rowCount;
+    }
+
+    // Blanks on the survivor are filled from the absorbed record — new
+    // information, nothing overwritten.
+    await client.query(
+      `UPDATE customers SET
+         contact_name = COALESCE(NULLIF(contact_name,''), $2),
+         company      = COALESCE(NULLIF(company,''), $3),
+         email        = COALESCE(NULLIF(email,''), $4),
+         mobile       = COALESCE(NULLIF(mobile,''), $5),
+         phone        = COALESCE(NULLIF(phone,''), $6),
+         lead_source  = COALESCE(NULLIF(lead_source,''), $7),
+         address_street   = COALESCE(NULLIF(address_street,''), $8),
+         address_city     = COALESCE(NULLIF(address_city,''), $9),
+         address_region   = COALESCE(NULLIF(address_region,''), $10),
+         address_postcode = COALESCE(NULLIF(address_postcode,''), $11),
+         xero_contact_id  = COALESCE(xero_contact_id, $12),
+         updated_at = NOW()
+       WHERE id = $1`,
+      [targetId, source.contact_name, source.company, source.email, source.mobile,
+       source.phone, source.lead_source, source.address_street, source.address_city,
+       source.address_region, source.address_postcode, source.xero_contact_id]
+    );
+
+    // Compared against the survivor as it was before that fill, so a field we
+    // have only just populated isn't reported as disagreeing with itself.
+    const conflict = (a, b, same = sameText) =>
+      a && String(a).trim() && b && String(b).trim() && !same(a, b) ? String(a).trim() : null;
+    const secondary = {
+      name:    conflict(source.contact_name || source.name, target.contact_name || target.name),
+      mobile:  conflict(source.mobile, target.mobile, (x, y) => digitsOnly(x) === digitsOnly(y)),
+      phone:   conflict(source.phone, target.phone, (x, y) => digitsOnly(x) === digitsOnly(y)),
+      email:   conflict(source.email, target.email),
+      address: conflict(addressOf(source), addressOf(target)),
+    };
+    let secondaryContactId = null;
+    if (Object.values(secondary).some(Boolean)) {
+      const { rows: [contact] } = await client.query(
+        `INSERT INTO customer_contacts (customer_id, name, mobile, phone, email, address, note, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [targetId, secondary.name, secondary.mobile, secondary.phone, secondary.email,
+         secondary.address, `Merged from "${source.name}"`, req.user.id]
+      );
+      secondaryContactId = contact.id;
+    }
+
+    // Safe now that nothing points at it — every reference was reassigned above.
+    await client.query('DELETE FROM customers WHERE id = $1', [sourceId]);
+    await client.query('COMMIT');
+
+    res.json({
+      customer_id: targetId,
+      merged_name: source.name,
+      moved,
+      secondary_contact_id: secondaryContactId,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[customer] merge failed:', err);
+    res.status(500).json({ error: `Could not merge: ${err.message}` });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { list, get, create, update, remove, listSites, createSite, updateSite, deleteSite, listNotes, createNote, deleteNote, importCsv, getLeadSources, addLeadSource, merge };

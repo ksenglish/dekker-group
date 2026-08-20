@@ -14,6 +14,8 @@ router.post('/import', requireRole('admin', 'office'), c.importCsv);
 router.get('/:id', c.get);
 router.put('/:id', requireRole('admin'), c.update);
 router.delete('/:id', requireRole('admin'), c.remove);
+// Admin only: it moves history and deletes a record.
+router.post('/:id/merge', requireRole('admin'), c.merge);
 
 // Sites
 router.get('/:id/sites', c.listSites);

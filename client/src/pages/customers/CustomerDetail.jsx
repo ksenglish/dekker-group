@@ -44,6 +44,15 @@ export default function CustomerDetail() {
   const [contactSameAsName, setContactSameAsName] = useState(true);
   const [noteText, setNoteText] = useState('');
   const [addingSite, setAddingSite] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeQuery, setMergeQuery] = useState('');
+  const [mergeResults, setMergeResults] = useState([]);
+  const [mergePick, setMergePick] = useState(null);
+  const [merging, setMerging] = useState(false);
+  const [mergeError, setMergeError] = useState('');
+  // Bumped to re-run the load effect after a merge, since the id it keys on
+  // doesn't change.
+  const [reloadKey, setReloadKey] = useState(0);
   const [newSite, setNewSite] = useState({ address: '', label: '' });
   const [editingSiteId, setEditingSiteId] = useState(null);
   const [editSite, setEditSite] = useState({ address: '', label: '' });
@@ -92,7 +101,7 @@ export default function CustomerDetail() {
         setLoading(false);
       }
     })();
-  }, [id]);
+  }, [id, reloadKey]);
 
   useEffect(() => {
     if (contactSameAsName) set('contact_name', form.name);
@@ -125,6 +134,41 @@ export default function CustomerDetail() {
     set('lead_source', newLeadSource.trim());
     setNewLeadSource('');
     setAddingLeadSource(false);
+  }
+
+  // Search for the duplicate to fold in. The customer being viewed is filtered
+  // out — merging a record into itself is the one thing this must not do.
+  useEffect(() => {
+    if (!mergeOpen || mergeQuery.trim().length < 2) { setMergeResults([]); return; }
+    const t = setTimeout(() => {
+      api.get('/customers', { params: { search: mergeQuery, limit: 20 } })
+        .then(r => setMergeResults((r.data.customers || []).filter(c => c.id !== id)))
+        .catch(() => setMergeResults([]));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [mergeOpen, mergeQuery, id]);
+
+  async function handleMerge() {
+    if (!mergePick) return;
+    const summary = `Merge "${mergePick.name}" into "${customer.name}"?\n\n`
+      + `All of their jobs, quotes, invoices, sites and notes move to ${customer.name}. `
+      + `Any details that differ are kept as a secondary contact.\n\n`
+      + `"${mergePick.name}" is then deleted. This cannot be undone.`;
+    if (!confirm(summary)) return;
+    setMerging(true); setMergeError('');
+    try {
+      const { data } = await api.post(`/customers/${id}/merge`, { merge_id: mergePick.id });
+      const movedText = Object.entries(data.moved || {})
+        .map(([what, n]) => `${n} ${what}`).join(', ');
+      setMergeOpen(false);
+      setMergePick(null);
+      setReloadKey(k => k + 1);
+      alert(movedText
+        ? `Merged "${data.merged_name}" in — moved ${movedText}.`
+        : `Merged "${data.merged_name}" in.`);
+    } catch (err) {
+      setMergeError(err.response?.data?.error || 'Merge failed');
+    } finally { setMerging(false); }
   }
 
   async function handleDelete() {
@@ -234,6 +278,11 @@ export default function CustomerDetail() {
           <div className={styles.headerActions}>
             {!editMode && tab === 'info' && isAdmin(user?.role) && (
               <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
+            )}
+            {!editMode && isAdmin(user?.role) && (
+              <button className={styles.btnSecondary} onClick={() => { setMergeOpen(true); setMergeQuery(''); setMergePick(null); }}>
+                Merge Duplicate
+              </button>
             )}
             {isAdmin(user?.role) && (
               <button className={styles.btnDanger} onClick={handleDelete}>Delete</button>
@@ -504,6 +553,58 @@ export default function CustomerDetail() {
           </button>
         )}
       </div>
+
+      {mergeOpen && (
+        <div className={styles.modalOverlay} onClick={e => e.target === e.currentTarget && setMergeOpen(false)}>
+          <div className={styles.modal}>
+            <div className={styles.modalHeader}>
+              <h2>Merge a duplicate into {customer?.name}</h2>
+              <button className={styles.modalClose} onClick={() => setMergeOpen(false)}>✕</button>
+            </div>
+            <div className={styles.mergeBody}>
+              <p className={styles.mergeIntro}>
+                Find the duplicate record. Its jobs, quotes, invoices, sites and notes move
+                to <strong>{customer?.name}</strong>, and the duplicate is deleted.
+              </p>
+              {mergeError && <div className={styles.errorBanner}>{mergeError}</div>}
+              <input
+                autoFocus
+                className={styles.mergeSearch}
+                placeholder="Search by name, email or phone…"
+                value={mergeQuery}
+                onChange={e => { setMergeQuery(e.target.value); setMergePick(null); }}
+              />
+              <div className={styles.mergeResults}>
+                {mergeQuery.trim().length < 2 ? (
+                  <p className={styles.emptyState}>Type at least two characters.</p>
+                ) : mergeResults.length === 0 ? (
+                  <p className={styles.emptyState}>No other customers match.</p>
+                ) : mergeResults.map(c => (
+                  <button
+                    key={c.id}
+                    className={`${styles.mergeRow} ${mergePick?.id === c.id ? styles.mergeRowActive : ''}`}
+                    onClick={() => setMergePick(c)}
+                  >
+                    <span className={styles.mergeRowName}>{c.name}</span>
+                    <span className={styles.mergeRowDetail}>
+                      {[c.mobile || c.phone, c.email, c.address_street].filter(Boolean).join(' · ') || 'No details'}
+                    </span>
+                    <span className={styles.mergeRowCount}>
+                      {c.job_count || 0} job{Number(c.job_count) === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className={styles.modalFooter}>
+              <button className={styles.btnSecondary} onClick={() => setMergeOpen(false)}>Cancel</button>
+              <button className={styles.btnDanger} onClick={handleMerge} disabled={!mergePick || merging}>
+                {merging ? 'Merging…' : mergePick ? `Merge "${mergePick.name}" in` : 'Select a customer'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Details that came in on a merged lead and disagreed with what was
           already on file, so neither version was lost. */}
