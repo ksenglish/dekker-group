@@ -4,6 +4,7 @@
 const router = require('express').Router();
 const pool = require('../db/pool');
 const { RINNAI_HEATPUMP_TABLE } = require('../utils/heatpumpSizing');
+const { SMARTVENT_TABLE } = require('../utils/smartVentSizing');
 const { getPublicPricing } = require('../utils/publicPricing');
 const content = require('../services/websiteContent');
 const media = require('../services/websiteMedia');
@@ -58,6 +59,55 @@ router.get('/heat-pumps', async (req, res) => {
     res.json({ pricingEnabled: !!config.enabled, currency: 'NZD', models });
   } catch (err) {
     console.error('GET /api/public/heat-pumps failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// GET /api/public/ventilation-systems?family=positive|balanced
+//
+// The SmartVent sizing bands, plus an installed price per model where the
+// price list has one. Same arrangement as the heat pumps: only the models the
+// calculator can recommend, only their installed retail price, and nothing at
+// all until pricing is switched on in Settings.
+router.get('/ventilation-systems', async (req, res) => {
+  try {
+    const family = ['positive', 'balanced'].includes(req.query.family) ? req.query.family : null;
+    const config = await getPublicPricing();
+
+    let priceList = [];
+    if (config.enabled) {
+      const { rows } = await pool.query(
+        'SELECT name, description, unit_price FROM products WHERE is_active = true'
+      );
+      priceList = rows;
+    }
+
+    const priceFor = (model) => {
+      const match = priceList.find(p => {
+        const fields = [norm(p.name), norm(p.description)];
+        return fields.includes(norm(model));
+      });
+      return match
+        ? Math.round((match.unit_price + config.installCents) * GST_MULTIPLIER)
+        : null;
+    };
+
+    const rows = SMARTVENT_TABLE
+      .filter(r => !family || r.family === family)
+      .map(r => ({
+        family: r.family,
+        system: r.system,
+        houseMin: r.houseMin,
+        houseMax: r.houseMax,
+        outlets: r.outlets,
+        model: r.model,
+        installedPriceIncGstCents: priceFor(r.model),
+      }));
+
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json({ pricingEnabled: !!config.enabled, currency: 'NZD', systems: rows });
+  } catch (err) {
+    console.error('GET /api/public/ventilation-systems failed:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });
