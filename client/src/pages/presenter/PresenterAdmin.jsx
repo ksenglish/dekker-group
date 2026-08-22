@@ -84,13 +84,17 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
     brochure_base64: product?.brochure_base64 || '',
     sort_order: product?.sort_order || 0,
     price_list_product_id: product?.price_list_product_id || '',
+    install_product_id: product?.install_product_id || '',
   });
   const [priceListProducts, setPriceListProducts] = useState([]);
   const [plSearch, setPlSearch] = useState('');
   const [plOpen, setPlOpen] = useState(false);
+  const [installSearch, setInstallSearch] = useState('');
+  const [installOpen, setInstallOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const plRef = useRef();
+  const installRef = useRef();
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -98,7 +102,10 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
 
   // Close dropdown on outside click
   useEffect(() => {
-    function handleClick(e) { if (plRef.current && !plRef.current.contains(e.target)) setPlOpen(false); }
+    function handleClick(e) {
+      if (plRef.current && !plRef.current.contains(e.target)) setPlOpen(false);
+      if (installRef.current && !installRef.current.contains(e.target)) setInstallOpen(false);
+    }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
@@ -111,9 +118,22 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
     }
   }, [priceListProducts]);
 
-  const plFiltered = plSearch.trim()
-    ? priceListProducts.filter(p => p.name.toLowerCase().includes(plSearch.toLowerCase()) || (p.description || '').toLowerCase().includes(plSearch.toLowerCase()))
-    : priceListProducts;
+  // Same for the installation product
+  useEffect(() => {
+    if (product?.install_product_id && priceListProducts.length > 0) {
+      const ip = priceListProducts.find(p => p.id === product.install_product_id);
+      if (ip) setInstallSearch(ip.name);
+    }
+  }, [priceListProducts]);
+
+  const matches = (term) => (term.trim()
+    ? priceListProducts.filter(p =>
+        p.name.toLowerCase().includes(term.toLowerCase()) ||
+        (p.description || '').toLowerCase().includes(term.toLowerCase()))
+    : priceListProducts);
+
+  const plFiltered = matches(plSearch);
+  const installFiltered = matches(installSearch);
 
   async function handlePriceListPick(pl) {
     setPlSearch(pl.name);
@@ -149,6 +169,7 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
         features: form.features.split('\n').map(f => f.trim()).filter(Boolean),
         subcategory_id: subcategoryId || null,
         price_list_product_id: form.price_list_product_id || null,
+        install_product_id: form.install_product_id || null,
       };
       let data;
       if (product) {
@@ -232,6 +253,61 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
             {CALC_TYPES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
+        {/* Installation is priced separately from supply. The calculator works
+            out how many to charge from the calculator type above: per unit for
+            heat pumps, per outlet for ventilation, per metre for fencing. */}
+        <div className={styles.field} style={{ gridColumn: '1 / -1' }} ref={installRef}>
+          <label>
+            Installation / Construction Product{' '}
+            <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>
+              (optional — adds a separate labour calculator)
+            </span>
+          </label>
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                value={installSearch}
+                onChange={e => { setInstallSearch(e.target.value); setInstallOpen(true); }}
+                onFocus={() => setInstallOpen(true)}
+                placeholder="Search price list for the install item…"
+                style={{ flex: 1, padding: '8px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13, outline: 'none' }}
+                autoComplete="off"
+              />
+              {form.install_product_id && (
+                <button type="button"
+                  onClick={() => { setInstallSearch(''); set('install_product_id', ''); }}
+                  style={{ padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', background: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--color-text-muted)' }}>
+                  ✕ Clear
+                </button>
+              )}
+            </div>
+            {installOpen && installFiltered.length > 0 && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: 'white', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxHeight: 220, overflowY: 'auto', marginTop: 2 }}>
+                {installFiltered.map(p => (
+                  <div key={p.id}
+                    onMouseDown={() => { setInstallSearch(p.name); set('install_product_id', p.id); setInstallOpen(false); }}
+                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--color-border)', fontSize: 13 }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                    <div style={{ fontWeight: 500 }}>{p.name}</div>
+                    {(p.unit_price || p.unit) && (
+                      <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                        {p.unit_price ? `$${(p.unit_price / 100).toFixed(2)}` : ''}
+                        {p.unit && p.unit !== 'each' ? ` per ${p.unit}` : ''}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {form.install_product_id && (
+            <span style={{ fontSize: 12, color: '#16a34a', marginTop: 4, display: 'block' }}>
+              ✓ A separate installation calculator will show under this product
+            </span>
+          )}
+        </div>
+
         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
           <label>Key Features (one per line)</label>
           <textarea rows={3} value={form.features} onChange={e => set('features', e.target.value)} placeholder="5 year warranty&#10;Wi-Fi control" />

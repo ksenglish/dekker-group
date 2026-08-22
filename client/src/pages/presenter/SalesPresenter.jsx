@@ -279,7 +279,7 @@ function AreaCalculator({ product, jobId, onQuantityChange }) {
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Area</span><strong>{area.toFixed(2)} m²</strong></div>
           {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Estimate (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
-          {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
+          {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Supply (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
         </div>
       )}
     </div>
@@ -337,7 +337,7 @@ function parseFenceVariant(productName) {
   return { height: height || '1.8m', top: top || 'standard' };
 }
 
-function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant }) {
+function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant, onQuantityChange }) {
   // Initial-only, so switching variant doesn't fight the user's own choice.
   const initial = useState(() => parseFenceVariant(product?.name))[0];
   const [height, setHeight] = useState(initial.height);
@@ -373,6 +373,8 @@ function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant }) {
   const perMetre = priceProduct ? priceProduct.unit_price / 100 : (tableMatch?.fallbackPerM ?? 0);
   const runLength = scannedLength != null ? scannedLength : (parseFloat(metres) || 0);
   const total = runLength * perMetre;
+  // Drives the construction calculator underneath — build is per metre.
+  useEffect(() => { onQuantityChange?.(Math.round(runLength * 100) / 100); }, [runLength, onQuantityChange]);
 
   return (
     <div className={styles.calc}>
@@ -415,8 +417,8 @@ function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant }) {
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Fence</span><strong>{tableMatch.name}</strong></div>
           <div className={styles.calcResultRow}><span>Run length</span><strong>{runLength.toFixed(2)} m</strong></div>
-          <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-          <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Supply (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Supply (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
 
           {!priceProduct && (
             <div className={styles.calcNote} style={{ marginTop: 10 }}>
@@ -484,7 +486,7 @@ function LinearCalculator({ product, onQuantityChange }) {
       {parseFloat(meters) > 0 && (
         <div className={styles.calcResult}>
           {pricePerM > 0 && <div className={styles.calcResultRow}><span>Estimate (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
-          {pricePerM > 0 && <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
+          {pricePerM > 0 && <div className={styles.calcResultRow}><span>Supply (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
         </div>
       )}
     </div>
@@ -505,7 +507,7 @@ const RINNAI_HEATPUMP_TABLE = [
 ];
 const HEATPUMP_MAX_KW = RINNAI_HEATPUMP_TABLE[RINNAI_HEATPUMP_TABLE.length - 1].kwMax;
 
-function HeatpumpCalculator({ onPick }) {
+function HeatpumpCalculator({ onPick, onQuantityChange }) {
   const [length, setLength] = useState(0);
   const [width, setWidth] = useState(0);
   const [m2, setM2] = useState('0');
@@ -531,6 +533,10 @@ function HeatpumpCalculator({ onPick }) {
   const m3 = (parseFloat(m2) || 0) * effectiveHeight;
   const kwValue = m3 > 0 ? m3 * kwMultiplier : 0;
   const kw = kwValue > 0 ? kwValue.toFixed(2) : null;
+
+  // One install per unit — the install calculator underneath charges a single
+  // installation once a model has actually been settled on.
+  useEffect(() => { onQuantityChange?.(kwValue > 0 ? 1 : 0); }, [kwValue, onQuantityChange]);
 
   const tableMatch = kwValue > 0
     ? RINNAI_HEATPUMP_TABLE.find(r => kwValue >= r.kwMin && kwValue <= r.kwMax)
@@ -625,8 +631,8 @@ function HeatpumpCalculator({ onPick }) {
             <div className={styles.calcResultRow}><span>Recommended model</span><strong>{tableMatch.model}</strong></div>
             <div className={styles.calcResultRow}><span>Unit</span><strong>{tableMatch.description}</strong></div>
             {exGst != null && <>
-              <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-              <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+              <div className={styles.calcResultRow}><span>Supply (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+              <div className={styles.calcResultRow}><span>Supply (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
             </>}
             {!priceProduct && (
               <div className={styles.calcNote} style={{ marginTop: 10 }}>
@@ -683,8 +689,8 @@ function UnitCalculator({ product }) {
       </div>
       {unitPrice > 0 && (
         <div className={styles.calcResult}>
-          <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-          <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Supply (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Supply (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
         </div>
       )}
     </div>
@@ -703,9 +709,11 @@ const SMARTVENT_LITE_TABLE = [
   { houseMin: 281, houseMax: 560, outlets: 8, model: 'SV06L+ with 2 Extension Kits',  exGst: 4661.45, incGst: 5360.67 },
 ];
 
-function SmartVentLiteCalculator({ onPick }) {
+function SmartVentLiteCalculator({ onPick, onQuantityChange }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
+  // Drives the installation calculator underneath — install is per outlet.
+  useEffect(() => { onQuantityChange?.(parseInt(outlets, 10) || 0); }, [outlets, onQuantityChange]);
   const [priceListProducts, setPriceListProducts] = useState([]);
   const [showBrochure, setShowBrochure] = useState(false);
   const [fullPriceProduct, setFullPriceProduct] = useState(null);
@@ -759,8 +767,8 @@ function SmartVentLiteCalculator({ onPick }) {
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
           {exGst != null && <>
-            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Supply (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Supply (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
           </>}
           {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {priceProduct && onPick && (
@@ -834,9 +842,11 @@ const PP_TABLE = [
   { system: 'SmartVent Positive Advance',  houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06AD with 6 Extension Kits' },
 ];
 
-function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct }) {
+function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct, onQuantityChange }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
+  // Drives the installation calculator underneath — install is per outlet.
+  useEffect(() => { onQuantityChange?.(parseInt(outlets, 10) || 0); }, [outlets, onQuantityChange]);
   const [priceListProducts, setPriceListProducts] = useState([]);
   const [showBrochure, setShowBrochure] = useState(false);
   const [fullPriceProduct, setFullPriceProduct] = useState(null);
@@ -901,8 +911,8 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
           <div className={styles.calcResultRow}><span>System Type</span><strong>{tableMatch.system}</strong></div>
           <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
           {exGst != null && <>
-            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Supply (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Supply (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
           </>}
           {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {priceProduct && onPick && (
@@ -952,10 +962,12 @@ const BP_TABLE = [
 const BP_SYSTEMS = [...new Set(BP_TABLE.map(r => r.system))];
 const BP_MAX_HOUSE = Math.max(...BP_TABLE.map(r => r.houseMax));
 
-function SmartVentBalancedPressureCalculator({ onPick }) {
+function SmartVentBalancedPressureCalculator({ onPick, onQuantityChange }) {
   const [system, setSystem] = useState(BP_SYSTEMS[0]);
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
+  // Drives the installation calculator underneath — install is per outlet.
+  useEffect(() => { onQuantityChange?.(parseInt(outlets, 10) || 0); }, [outlets, onQuantityChange]);
   const [priceListProducts, setPriceListProducts] = useState([]);
   const [showBrochure, setShowBrochure] = useState(false);
   const [fullPriceProduct, setFullPriceProduct] = useState(null);
@@ -1015,8 +1027,8 @@ function SmartVentBalancedPressureCalculator({ onPick }) {
           <div className={styles.calcResultRow}><span>System Type</span><strong>{tableMatch.system}</strong></div>
           <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
           {exGst != null && <>
-            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Supply (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Supply (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
           </>}
           {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {priceProduct && onPick && (
@@ -1078,9 +1090,11 @@ const BDVAIR_PP_TABLE = [
 const BDVAIR_MAX_HOUSE = Math.max(...BDVAIR_PP_TABLE.map(r => r.houseMax));
 const BDVAIR_MAX_OUTLETS = Math.max(...BDVAIR_PP_TABLE.map(r => r.outlets));
 
-function BDVAirPositivePressureCalculator({ onPick }) {
+function BDVAirPositivePressureCalculator({ onPick, onQuantityChange }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
+  // Drives the installation calculator underneath — install is per outlet.
+  useEffect(() => { onQuantityChange?.(parseInt(outlets, 10) || 0); }, [outlets, onQuantityChange]);
   const [priceListProducts, setPriceListProducts] = useState([]);
   const [showBrochure, setShowBrochure] = useState(false);
   const [fullPriceProduct, setFullPriceProduct] = useState(null);
@@ -1135,8 +1149,8 @@ function BDVAirPositivePressureCalculator({ onPick }) {
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
           {exGst != null && <>
-            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Supply (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Supply (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
           </>}
           {!priceProduct && exGst != null && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {exGst == null && <div className={styles.calcNote} style={{ marginTop: 10 }}>No price on file for "{tableMatch.model}" — contact the office to price this unit.</div>}
@@ -1184,16 +1198,103 @@ const SELF_PICK_CALCULATORS = new Set([
   'bdvair_positive_pressure',
 ]);
 
+// ── Installation / construction ───────────────────────────────────────────────
+// Supply and labour are priced as separate products. How many of the labour
+// item to charge depends on what's being installed, and that's decided by the
+// calculator type rather than stored per product.
+const INSTALL_BASIS = {
+  heatpump:                     { unit: 'unit',  label: 'Installation', per: 'per unit' },
+  smartvent_lite:               { unit: 'outlet', label: 'Installation', per: 'per outlet' },
+  smartvent_positive_pressure:  { unit: 'outlet', label: 'Installation', per: 'per outlet' },
+  smartvent_balanced_pressure:  { unit: 'outlet', label: 'Installation', per: 'per outlet' },
+  bdvair_positive_pressure:     { unit: 'outlet', label: 'Installation', per: 'per outlet' },
+  paling_fence:                 { unit: 'metre', label: 'Construction',  per: 'per metre' },
+  area:                         { unit: 'm²',    label: 'Installation', per: 'per m²' },
+  linear:                       { unit: 'metre', label: 'Construction',  per: 'per metre' },
+  unit:                         { unit: 'unit',  label: 'Installation', per: 'per unit' },
+};
+
+// Sits under the sizing calculator. The quantity is whatever the calculator
+// above worked out — outlets, metres, or a single unit — and stays editable,
+// because the number that gets quoted is the installer's call, not the table's.
+function InstallationCalculator({ product, onPick, suggestedQty }) {
+  const basis = INSTALL_BASIS[product.calculator_type] || INSTALL_BASIS.unit;
+  const install = product.install_product;
+  const [qty, setQty] = useState('');
+  const [touched, setTouched] = useState(false);
+
+  // Follow the calculator above until someone types their own number.
+  useEffect(() => {
+    if (!touched && suggestedQty > 0) setQty(String(suggestedQty));
+  }, [suggestedQty, touched]);
+
+  if (!install) return null;
+
+  const quantity = parseFloat(qty) || 0;
+  const rate = (install.unit_price || 0) / 100;
+  const exGst = rate * quantity;
+  const incGst = Math.round(exGst * 1.15 * 100) / 100;
+
+  return (
+    <div className={styles.calc}>
+      <h3 className={styles.calcTitle}>{basis.label} Calculator</h3>
+
+      <div className={styles.calcGrid}>
+        <div className={styles.calcField}>
+          <label>{basis.unit === 'unit' ? 'Units' : basis.unit === 'outlet' ? 'Outlets' : `Length (${basis.unit})`}</label>
+          <input type="number" min="0" step="0.01" value={qty}
+            onChange={e => { setQty(e.target.value); setTouched(true); }}
+            placeholder={suggestedQty > 0 ? String(suggestedQty) : 'e.g. 4'} />
+        </div>
+        <div className={styles.calcField}>
+          <label>Rate</label>
+          <input value={rate > 0 ? `$${rate.toFixed(2)} ${basis.per}` : 'No price set'} readOnly />
+        </div>
+      </div>
+
+      {suggestedQty > 0 && !touched && (
+        <div className={styles.calcNote}>
+          Taken from the calculator above — change it if the job needs it.
+        </div>
+      )}
+
+      {quantity > 0 && rate > 0 && (
+        <div className={styles.calcResult}>
+          <div className={styles.calcResultRow}><span>{install.name}</span><strong>{quantity} × ${rate.toFixed(2)}</strong></div>
+          <div className={styles.calcResultRow}><span>{basis.label} (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}>
+            <span>{basis.label} (inc GST)</span>
+            <strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong>
+          </div>
+
+          {onPick && (
+            <button className={styles.addToJobBtn}
+              onClick={() => onPick({ ...install, quantity })}>
+              + Add {basis.label.toLowerCase()} to Quote
+            </button>
+          )}
+        </div>
+      )}
+
+      {rate === 0 && (
+        <div className={styles.calcNote}>
+          &ldquo;{install.name}&rdquo; has no price on the price list yet, so this can&rsquo;t be worked out.
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange }) {
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} jobId={jobId} onQuantityChange={onQuantityChange} />;
   if (type === 'linear') return <LinearCalculator product={product} onQuantityChange={onQuantityChange} />;
-  if (type === 'heatpump') return <HeatpumpCalculator onPick={onPick} />;
-  if (type === 'paling_fence') return <PalingFenceCalculator onPick={onPick} jobId={jobId} product={product} onSelectVariant={onSelectVariant} />;
-  if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} />;
-  if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} />;
-  if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onPick={onPick} />;
-  if (type === 'bdvair_positive_pressure') return <BDVAirPositivePressureCalculator onPick={onPick} />;
+  if (type === 'heatpump') return <HeatpumpCalculator onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'paling_fence') return <PalingFenceCalculator onPick={onPick} jobId={jobId} product={product} onSelectVariant={onSelectVariant} onQuantityChange={onQuantityChange} />;
+  if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} onQuantityChange={onQuantityChange} />;
+  if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'bdvair_positive_pressure') return <BDVAirPositivePressureCalculator onPick={onPick} onQuantityChange={onQuantityChange} />;
   return <UnitCalculator product={product} />;
 }
 
@@ -1483,6 +1584,11 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
           )}
           <Calculator product={product} onPick={pickWithDescription} jobId={jobId}
             onSelectVariant={onSelectVariant} onQuantityChange={setCalcQuantity} />
+
+          {/* Labour is its own product and its own line on the quote. */}
+          <InstallationCalculator product={product} onPick={pickWithDescription}
+            suggestedQty={calcQuantity} />
+
           {onPick && !SELF_PICK_CALCULATORS.has(product.calculator_type) && (
             <button className={styles.addToJobBtn} onClick={() => pickWithDescription({
               ...(product.price_list_product || product),

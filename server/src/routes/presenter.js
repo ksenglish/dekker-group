@@ -10,14 +10,24 @@ router.use(authenticate);
 
 const cleanDescription = d => (d ? sanitizeHtml(d) || null : null);
 
-// Merge price-list product fields into presenter product row
+// Merge price-list product fields into presenter product row.
+// `install_product` is the separate labour/construction item priced alongside
+// the supply product — see migration 084.
 function enrichProduct(r) {
-  const { pl_id, pl_name, pl_unit_price, pl_description, ...rest } = r;
+  const { pl_id, pl_name, pl_unit_price, pl_description,
+    ip_id, ip_name, ip_unit_price, ip_unit, ...rest } = r;
   return {
     ...rest,
     price_list_product: pl_id ? { id: pl_id, name: pl_name, unit_price: pl_unit_price, description: pl_description } : null,
+    install_product: ip_id ? { id: ip_id, name: ip_name, unit_price: ip_unit_price, unit: ip_unit } : null,
   };
 }
+
+// Columns and join shared by every presenter product query.
+const INSTALL_SELECT = `
+         ip.id AS ip_id, ip.name AS ip_name, ip.unit_price AS ip_unit_price, ip.unit AS ip_unit`;
+const INSTALL_JOIN = `
+       LEFT JOIN products ip ON ip.id = pp.install_product_id`;
 
 // ── Sections ──────────────────────────────────────────────────────────────────
 router.get('/sections', async (req, res) => {
@@ -197,11 +207,11 @@ router.get('/sections/:id/products', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT pp.id, pp.section_id, pp.subcategory_id, pp.name, pp.description,
               pp.image_base64, pp.price_from, pp.features, pp.calculator_type,
-              pp.calculator_config, pp.sort_order, pp.price_list_product_id,
+              pp.calculator_config, pp.sort_order, pp.price_list_product_id, pp.install_product_id,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
-         pl.description AS pl_description
+         pl.description AS pl_description,${INSTALL_SELECT}
        FROM presenter_products pp
-       LEFT JOIN products pl ON pl.id = pp.price_list_product_id
+       LEFT JOIN products pl ON pl.id = pp.price_list_product_id${INSTALL_JOIN}
        WHERE pp.section_id=$1 ORDER BY pp.sort_order, pp.name`,
       [req.params.id]
     );
@@ -214,11 +224,11 @@ router.get('/subcategories/:id/products', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT pp.id, pp.section_id, pp.subcategory_id, pp.name, pp.description,
               pp.image_base64, pp.price_from, pp.features, pp.calculator_type,
-              pp.calculator_config, pp.sort_order, pp.price_list_product_id,
+              pp.calculator_config, pp.sort_order, pp.price_list_product_id, pp.install_product_id,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
-         pl.description AS pl_description
+         pl.description AS pl_description,${INSTALL_SELECT}
        FROM presenter_products pp
-       LEFT JOIN products pl ON pl.id = pp.price_list_product_id
+       LEFT JOIN products pl ON pl.id = pp.price_list_product_id${INSTALL_JOIN}
        WHERE pp.subcategory_id=$1 ORDER BY pp.sort_order, pp.name`,
       [req.params.id]
     );
@@ -233,70 +243,72 @@ router.get('/products/:id', async (req, res) => {
       `SELECT pp.*,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
          pl.description AS pl_description, pl.media_base64 AS pl_image,
-         pl.brochure_base64 AS pl_brochure
+         pl.brochure_base64 AS pl_brochure,${INSTALL_SELECT}
        FROM presenter_products pp
-       LEFT JOIN products pl ON pl.id = pp.price_list_product_id
+       LEFT JOIN products pl ON pl.id = pp.price_list_product_id${INSTALL_JOIN}
        WHERE pp.id=$1`,
       [req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
     const r = rows[0];
-    const { pl_id, pl_name, pl_unit_price, pl_description, pl_image, pl_brochure, ...rest } = r;
+    const { pl_id, pl_name, pl_unit_price, pl_description, pl_image, pl_brochure,
+      ip_id, ip_name, ip_unit_price, ip_unit, ...rest } = r;
     res.json({
       ...rest,
       brochure_base64: rest.brochure_base64 || pl_brochure || null,
       price_list_product: pl_id ? { id: pl_id, name: pl_name, unit_price: pl_unit_price, description: pl_description, image_base64: pl_image, brochure_base64: pl_brochure } : null,
+      install_product: ip_id ? { id: ip_id, name: ip_name, unit_price: ip_unit_price, unit: ip_unit } : null,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/sections/:id/products', requireRole('admin', 'office'), async (req, res) => {
-  const { name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, subcategory_id, price_list_product_id } = req.body;
+  const { name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, subcategory_id, price_list_product_id, install_product_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   try {
     const { rows } = await pool.query(
       `INSERT INTO presenter_products
-         (section_id, subcategory_id, name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, price_list_product_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+         (section_id, subcategory_id, name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, price_list_product_id, install_product_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [req.params.id, subcategory_id || null, name, cleanDescription(description), image_base64 || null, brochure_base64 || null,
        price_from ? Math.round(price_from * 100) : 0,
        features || [], calculator_type || 'unit',
        calculator_config ? JSON.stringify(calculator_config) : '{}',
-       sort_order || 0, price_list_product_id || null]
+       sort_order || 0, price_list_product_id || null, install_product_id || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/subcategories/:id/products', requireRole('admin', 'office'), async (req, res) => {
-  const { name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, section_id, price_list_product_id } = req.body;
+  const { name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, section_id, price_list_product_id, install_product_id } = req.body;
   if (!name || !section_id) return res.status(400).json({ error: 'Name and section_id are required' });
   try {
     const { rows } = await pool.query(
       `INSERT INTO presenter_products
-         (section_id, subcategory_id, name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, price_list_product_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+         (section_id, subcategory_id, name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, price_list_product_id, install_product_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [section_id, req.params.id, name, cleanDescription(description), image_base64 || null, brochure_base64 || null,
        price_from ? Math.round(price_from * 100) : 0,
        features || [], calculator_type || 'unit',
        calculator_config ? JSON.stringify(calculator_config) : '{}',
-       sort_order || 0, price_list_product_id || null]
+       sort_order || 0, price_list_product_id || null, install_product_id || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.put('/products/:id', requireRole('admin', 'office'), async (req, res) => {
-  const { name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, subcategory_id, price_list_product_id } = req.body;
+  const { name, description, image_base64, brochure_base64, price_from, features, calculator_type, calculator_config, sort_order, subcategory_id, price_list_product_id, install_product_id } = req.body;
   try {
     const { rows } = await pool.query(
       `UPDATE presenter_products SET name=$1,description=$2,image_base64=$3,brochure_base64=$4,price_from=$5,
-       features=$6,calculator_type=$7,calculator_config=$8,sort_order=$9,subcategory_id=$10,price_list_product_id=$11 WHERE id=$12 RETURNING *`,
+       features=$6,calculator_type=$7,calculator_config=$8,sort_order=$9,subcategory_id=$10,price_list_product_id=$11,install_product_id=$12 WHERE id=$13 RETURNING *`,
       [name, cleanDescription(description), image_base64 || null, brochure_base64 !== undefined ? brochure_base64 : null,
        price_from ? Math.round(price_from * 100) : 0,
        features || [], calculator_type || 'unit',
        calculator_config ? JSON.stringify(calculator_config) : '{}',
-       sort_order || 0, subcategory_id || null, price_list_product_id || null, req.params.id]
+       sort_order || 0, subcategory_id || null, price_list_product_id || null, install_product_id || null, req.params.id]
     );
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }

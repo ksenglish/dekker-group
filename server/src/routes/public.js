@@ -13,6 +13,22 @@ const GST_MULTIPLIER = 1.15;
 
 const norm = s => (s || '').trim().toLowerCase();
 
+// The going rate for installation, taken from whatever install products the
+// Sales Presenter has been pointed at for these calculator types. The lowest is
+// used, because the website quotes it as a "from" figure — the real number
+// depends on the job and is settled on site.
+async function installRateIncGstCents(calculatorTypes) {
+  const { rows } = await pool.query(
+    `SELECT MIN(ip.unit_price) AS rate
+       FROM presenter_products pp
+       JOIN products ip ON ip.id = pp.install_product_id
+      WHERE pp.calculator_type = ANY($1) AND ip.is_active = true`,
+    [calculatorTypes]
+  );
+  const rate = rows[0]?.rate;
+  return rate == null ? null : Math.round(rate * GST_MULTIPLIER);
+}
+
 // GET /api/public/heat-pumps
 //
 // Deliberately narrow: only the Rinnai highwall models the sizing calculator
@@ -56,7 +72,13 @@ router.get('/heat-pumps', async (req, res) => {
     });
 
     res.set('Cache-Control', 'public, max-age=300');
-    res.json({ pricingEnabled: !!config.enabled, currency: 'NZD', models });
+    res.json({
+      pricingEnabled: !!config.enabled,
+      currency: 'NZD',
+      // Installation is a separate product now, charged once per unit.
+      installFromIncGstCents: config.enabled ? await installRateIncGstCents(['heatpump']) : null,
+      models,
+    });
   } catch (err) {
     console.error('GET /api/public/heat-pumps failed:', err.message);
     res.status(500).json({ error: 'Server error' });
@@ -104,8 +126,18 @@ router.get('/ventilation-systems', async (req, res) => {
         installedPriceIncGstCents: priceFor(r.model),
       }));
 
+    const installTypes = family === 'balanced'
+      ? ['smartvent_balanced_pressure']
+      : ['smartvent_lite', 'smartvent_positive_pressure', 'bdvair_positive_pressure'];
+
     res.set('Cache-Control', 'public, max-age=300');
-    res.json({ pricingEnabled: !!config.enabled, currency: 'NZD', systems: rows });
+    res.json({
+      pricingEnabled: !!config.enabled,
+      currency: 'NZD',
+      // Ventilation installation is charged per outlet.
+      installPerOutletIncGstCents: config.enabled ? await installRateIncGstCents(installTypes) : null,
+      systems: rows,
+    });
   } catch (err) {
     console.error('GET /api/public/ventilation-systems failed:', err.message);
     res.status(500).json({ error: 'Server error' });
