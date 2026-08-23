@@ -134,12 +134,18 @@ router.get('/ventilation-systems', async (req, res) => {
       ? ['smartvent_balanced_pressure']
       : ['smartvent_lite', 'smartvent_positive_pressure', 'bdvair_positive_pressure'];
 
+    // A single headline figure, not a rate to multiply out — the site quotes
+    // "installation from X" and the real number is settled on site.
+    const installFrom = config.enabled ? await installRateIncGstCents(installTypes) : null;
+
     res.set('Cache-Control', 'public, max-age=300');
     res.json({
       pricingEnabled: !!config.enabled,
       currency: 'NZD',
-      // Ventilation installation is charged per outlet.
-      installPerOutletIncGstCents: config.enabled ? await installRateIncGstCents(installTypes) : null,
+      installFromIncGstCents: installFrom,
+      // Kept for the version of the site that's live until this change is
+      // published; it reads the old name. Safe to drop after that.
+      installPerOutletIncGstCents: installFrom,
       systems: rows,
     });
   } catch (err) {
