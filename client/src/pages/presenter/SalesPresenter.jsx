@@ -279,7 +279,7 @@ function AreaCalculator({ product, jobId, onQuantityChange }) {
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Area</span><strong>{area.toFixed(2)} m²</strong></div>
           {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Estimate (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
-          {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Supply Only (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
+          {pricePerM2 > 0 && <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
         </div>
       )}
     </div>
@@ -417,8 +417,8 @@ function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant, onQuan
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Fence</span><strong>{tableMatch.name}</strong></div>
           <div className={styles.calcResultRow}><span>Run length</span><strong>{runLength.toFixed(2)} m</strong></div>
-          <div className={styles.calcResultRow}><span>Supply Only (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-          <div className={styles.calcResultRow}><span>Supply Only (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
 
           {!priceProduct && (
             <div className={styles.calcNote} style={{ marginTop: 10 }}>
@@ -486,7 +486,7 @@ function LinearCalculator({ product, onQuantityChange }) {
       {parseFloat(meters) > 0 && (
         <div className={styles.calcResult}>
           {pricePerM > 0 && <div className={styles.calcResultRow}><span>Estimate (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
-          {pricePerM > 0 && <div className={styles.calcResultRow}><span>Supply Only (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
+          {pricePerM > 0 && <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>}
         </div>
       )}
     </div>
@@ -631,8 +631,8 @@ function HeatpumpCalculator({ onPick, onQuantityChange }) {
             <div className={styles.calcResultRow}><span>Recommended model</span><strong>{tableMatch.model}</strong></div>
             <div className={styles.calcResultRow}><span>Unit</span><strong>{tableMatch.description}</strong></div>
             {exGst != null && <>
-              <div className={styles.calcResultRow}><span>Supply Only (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-              <div className={styles.calcResultRow}><span>Supply Only (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+              <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+              <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
             </>}
             {!priceProduct && (
               <div className={styles.calcNote} style={{ marginTop: 10 }}>
@@ -689,8 +689,8 @@ function UnitCalculator({ product }) {
       </div>
       {unitPrice > 0 && (
         <div className={styles.calcResult}>
-          <div className={styles.calcResultRow}><span>Supply Only (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-          <div className={styles.calcResultRow}><span>Supply Only (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${total.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+          <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
         </div>
       )}
     </div>
@@ -767,8 +767,8 @@ function SmartVentLiteCalculator({ onPick, onQuantityChange }) {
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
           {exGst != null && <>
-            <div className={styles.calcResultRow}><span>Supply Only (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-            <div className={styles.calcResultRow}><span>Supply Only (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
           </>}
           {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {priceProduct && onPick && (
@@ -911,8 +911,8 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
           <div className={styles.calcResultRow}><span>System Type</span><strong>{tableMatch.system}</strong></div>
           <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
           {exGst != null && <>
-            <div className={styles.calcResultRow}><span>Supply Only (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-            <div className={styles.calcResultRow}><span>Supply Only (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
           </>}
           {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {priceProduct && onPick && (
@@ -1027,8 +1027,8 @@ function SmartVentBalancedPressureCalculator({ onPick, onQuantityChange }) {
           <div className={styles.calcResultRow}><span>System Type</span><strong>{tableMatch.system}</strong></div>
           <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
           {exGst != null && <>
-            <div className={styles.calcResultRow}><span>Supply Only (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-            <div className={styles.calcResultRow}><span>Supply Only (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
           </>}
           {!priceProduct && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {priceProduct && onPick && (
@@ -1149,8 +1149,8 @@ function BDVAirPositivePressureCalculator({ onPick, onQuantityChange }) {
         <div className={styles.calcResult}>
           <div className={styles.calcResultRow}><span>Model</span><strong>{tableMatch.model}</strong></div>
           {exGst != null && <>
-            <div className={styles.calcResultRow}><span>Supply Only (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-            <div className={styles.calcResultRow}><span>Supply Only (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
+            <div className={styles.calcResultRow}><span>Total (inc GST)</span><strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
           </>}
           {!priceProduct && exGst != null && <div className={styles.calcNote} style={{ marginTop: 10 }}>Add "{tableMatch.model}" to your Price List to enable live pricing and job line items.</div>}
           {exGst == null && <div className={styles.calcNote} style={{ marginTop: 10 }}>No price on file for "{tableMatch.model}" — contact the office to price this unit.</div>}
@@ -1197,93 +1197,6 @@ const SELF_PICK_CALCULATORS = new Set([
   'smartvent_balanced_pressure',
   'bdvair_positive_pressure',
 ]);
-
-// ── Installation / construction ───────────────────────────────────────────────
-// Supply and labour are priced as separate products. How many of the labour
-// item to charge depends on what's being installed, and that's decided by the
-// calculator type rather than stored per product.
-const INSTALL_BASIS = {
-  heatpump:                     { unit: 'unit',  label: 'Installation', per: 'per unit' },
-  smartvent_lite:               { unit: 'outlet', label: 'Installation', per: 'per outlet' },
-  smartvent_positive_pressure:  { unit: 'outlet', label: 'Installation', per: 'per outlet' },
-  smartvent_balanced_pressure:  { unit: 'outlet', label: 'Installation', per: 'per outlet' },
-  bdvair_positive_pressure:     { unit: 'outlet', label: 'Installation', per: 'per outlet' },
-  paling_fence:                 { unit: 'metre', label: 'Construction',  per: 'per metre' },
-  area:                         { unit: 'm²',    label: 'Installation', per: 'per m²' },
-  linear:                       { unit: 'metre', label: 'Construction',  per: 'per metre' },
-  unit:                         { unit: 'unit',  label: 'Installation', per: 'per unit' },
-};
-
-// Sits under the sizing calculator. The quantity is whatever the calculator
-// above worked out — outlets, metres, or a single unit — and stays editable,
-// because the number that gets quoted is the installer's call, not the table's.
-function InstallationCalculator({ product, onPick, suggestedQty }) {
-  const basis = INSTALL_BASIS[product.calculator_type] || INSTALL_BASIS.unit;
-  const install = product.install_product;
-  const [qty, setQty] = useState('');
-  const [touched, setTouched] = useState(false);
-
-  // Follow the calculator above until someone types their own number.
-  useEffect(() => {
-    if (!touched && suggestedQty > 0) setQty(String(suggestedQty));
-  }, [suggestedQty, touched]);
-
-  if (!install) return null;
-
-  const quantity = parseFloat(qty) || 0;
-  const rate = (install.unit_price || 0) / 100;
-  const exGst = rate * quantity;
-  const incGst = Math.round(exGst * 1.15 * 100) / 100;
-
-  return (
-    <div className={styles.calc}>
-      <h3 className={styles.calcTitle}>{basis.label} Calculator</h3>
-
-      <div className={styles.calcGrid}>
-        <div className={styles.calcField}>
-          <label>{basis.unit === 'unit' ? 'Units' : basis.unit === 'outlet' ? 'Outlets' : `Length (${basis.unit})`}</label>
-          <input type="number" min="0" step="0.01" value={qty}
-            onChange={e => { setQty(e.target.value); setTouched(true); }}
-            placeholder={suggestedQty > 0 ? String(suggestedQty) : 'e.g. 4'} />
-        </div>
-        <div className={styles.calcField}>
-          <label>Rate</label>
-          <input value={rate > 0 ? `$${rate.toFixed(2)} ${basis.per}` : 'No price set'} readOnly />
-        </div>
-      </div>
-
-      {suggestedQty > 0 && !touched && (
-        <div className={styles.calcNote}>
-          Taken from the calculator above — change it if the job needs it.
-        </div>
-      )}
-
-      {quantity > 0 && rate > 0 && (
-        <div className={styles.calcResult}>
-          <div className={styles.calcResultRow}><span>{install.name}</span><strong>{quantity} × ${rate.toFixed(2)}</strong></div>
-          <div className={styles.calcResultRow}><span>{basis.label} (ex GST)</span><strong>${exGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong></div>
-          <div className={styles.calcResultRow}>
-            <span>{basis.label} (inc GST)</span>
-            <strong className={styles.calcTotal}>${incGst.toLocaleString('en-NZ', { minimumFractionDigits: 2 })}</strong>
-          </div>
-
-          {onPick && (
-            <button className={styles.addToJobBtn}
-              onClick={() => onPick({ ...install, quantity })}>
-              + Add {basis.label.toLowerCase()} to Quote
-            </button>
-          )}
-        </div>
-      )}
-
-      {rate === 0 && (
-        <div className={styles.calcNote}>
-          &ldquo;{install.name}&rdquo; has no price on the price list yet, so this can&rsquo;t be worked out.
-        </div>
-      )}
-    </div>
-  );
-}
 
 function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange }) {
   const type = product.calculator_type || 'unit';
@@ -1579,21 +1492,11 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
           )}
           {showsFromPrice(product) && (
             <div className={styles.panelPriceFrom}>
-              Supply only from <strong>${(product.price_from / 100).toLocaleString('en-NZ')}</strong> <span>+ GST</span>
-            </div>
-          )}
-          {/* The headline install figure, set per product in Presenter Setup. */}
-          {product.install_from_cents > 0 && (
-            <div className={styles.panelPriceFrom} style={{ fontSize: '0.9em', opacity: 0.85 }}>
-              Installation from <strong>${(product.install_from_cents / 100).toLocaleString('en-NZ')}</strong> <span>+ GST</span>
+              From <strong>${(product.price_from / 100).toLocaleString('en-NZ')}</strong> <span>+ GST</span>
             </div>
           )}
           <Calculator product={product} onPick={pickWithDescription} jobId={jobId}
             onSelectVariant={onSelectVariant} onQuantityChange={setCalcQuantity} />
-
-          {/* Labour is its own product and its own line on the quote. */}
-          <InstallationCalculator product={product} onPick={pickWithDescription}
-            suggestedQty={calcQuantity} />
 
           {onPick && !SELF_PICK_CALCULATORS.has(product.calculator_type) && (
             <button className={styles.addToJobBtn} onClick={() => pickWithDescription({
