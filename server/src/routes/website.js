@@ -8,6 +8,7 @@ const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
 const content = require('../services/websiteContent');
 const media = require('../services/websiteMedia');
+const publishing = require('../services/websitePublish');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
@@ -128,6 +129,29 @@ router.delete('/media/:id', requireRole('admin', 'office'), async (req, res) => 
     const ok = await media.remove(req.params.id);
     res.status(ok ? 204 : 404).end();
   } catch (err) { console.error('Website route failed:', err.message); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ── Preview & publish ────────────────────────────────────────────────────────
+// Website changes sit on a staging branch with its own preview build until
+// someone publishes them to the live site.
+router.get('/publish/status', async (req, res) => {
+  try {
+    res.json(await publishing.status());
+  } catch (err) {
+    console.error('Website publish status failed:', err.message);
+    res.status(500).json({ error: 'Could not reach GitHub' });
+  }
+});
+
+router.post('/publish', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await publishing.publish(req.user?.name || req.user?.email);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    res.json(result);
+  } catch (err) {
+    console.error('Website publish failed:', err.message);
+    res.status(500).json({ error: 'Could not publish' });
+  }
 });
 
 // ── Change requests ──────────────────────────────────────────────────────────
