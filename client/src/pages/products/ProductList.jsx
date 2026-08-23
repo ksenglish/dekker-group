@@ -92,6 +92,7 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
     unit_price: product ? (product.unit_price / 100).toFixed(2) : '',
     cost_price: product ? (product.cost_price / 100).toFixed(2) : '',
     supplier: product?.supplier || '',
+    quote_description: product?.quote_description || '',
     subcategory_1: product?.subcategory_1 || '',
     subcategory_2: product?.subcategory_2 || '',
     subcategory_3: product?.subcategory_3 || '',
@@ -159,7 +160,16 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
             </div>
             <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
               <label>Description</label>
-              <textarea rows={2} value={form.description} onChange={e => set('description', e.target.value)} placeholder="Optional detail shown on quotes/invoices" />
+              <textarea rows={2} value={form.description} onChange={e => set('description', e.target.value)} placeholder="The line that appears on the quote, e.g. Paling Fence 1.8m High" />
+            </div>
+            <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
+              <label>Quote Description</label>
+              <textarea rows={3} value={form.quote_description}
+                onChange={e => set('quote_description', e.target.value)}
+                placeholder="Wording added to the quote's description box when this product is added" />
+              <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                Description goes on the line item; this goes in the description box above the lines.
+              </span>
             </div>
             <div className={styles.formGroup}>
               <label>Category</label>

@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import DealsEditor from './DealsEditor';
 import WebsiteRequests from './WebsiteRequests';
+import CalculatorPricing from './CalculatorPricing';
 
-const TABS = ['Latest Deals', 'Change Requests'];
+const TABS = ['Latest Deals', 'Calculator Pricing', 'Change Requests'];
 
 export default function WebsitePage() {
   const [searchParams] = useSearchParams();
@@ -34,6 +35,7 @@ export default function WebsitePage() {
       </div>
 
       {tab === 'Latest Deals' && <DealsEditor />}
+      {tab === 'Calculator Pricing' && <CalculatorPricing />}
       {tab === 'Change Requests' && <WebsiteRequests />}
     </div>
   );

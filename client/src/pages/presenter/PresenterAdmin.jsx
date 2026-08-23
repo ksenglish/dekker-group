@@ -85,6 +85,7 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
     sort_order: product?.sort_order || 0,
     price_list_product_id: product?.price_list_product_id || '',
     install_product_id: product?.install_product_id || '',
+    install_from: product?.install_from_cents != null ? (product.install_from_cents / 100).toFixed(2) : '',
   });
   const [priceListProducts, setPriceListProducts] = useState([]);
   const [plSearch, setPlSearch] = useState('');
@@ -170,6 +171,7 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
         subcategory_id: subcategoryId || null,
         price_list_product_id: form.price_list_product_id || null,
         install_product_id: form.install_product_id || null,
+        install_from_cents: form.install_from === '' ? null : Math.round(parseFloat(form.install_from) * 100),
       };
       let data;
       if (product) {
@@ -306,6 +308,20 @@ function ProductForm({ sectionId, subcategoryId, product, onSave, onCancel }) {
               ✓ A separate installation calculator will show under this product
             </span>
           )}
+        </div>
+
+        <div className={styles.field}>
+          <label>
+            Installation From ($){' '}
+            <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(ex GST)</span>
+          </label>
+          <input type="number" min="0" step="0.01" value={form.install_from}
+            onChange={e => set('install_from', e.target.value)}
+            placeholder="e.g. 650.00" />
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4, display: 'block' }}>
+            The headline figure shown as &ldquo;Installation from&rdquo; in the presenter and on the
+            website. Leave blank to use the install product&rsquo;s own rate.
+          </span>
         </div>
 
         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>

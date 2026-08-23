@@ -13,20 +13,24 @@ const GST_MULTIPLIER = 1.15;
 
 const norm = s => (s || '').trim().toLowerCase();
 
-// The going rate for installation, taken from whatever install products the
-// Sales Presenter has been pointed at for these calculator types. The lowest is
-// used, because the website quotes it as a "from" figure — the real number
-// depends on the job and is settled on site.
+// The "Installation from" figure for these calculator types.
+//
+// An explicit figure set against a presenter product wins — that's the number
+// someone has decided to quote publicly. Failing that it falls back to the
+// install product's own rate, so the site still says something useful before
+// anyone has filled the field in. Lowest of whatever is available, since it's
+// quoted as a "from".
 async function installRateIncGstCents(calculatorTypes) {
   const { rows } = await pool.query(
-    `SELECT MIN(ip.unit_price) AS rate
+    `SELECT MIN(pp.install_from_cents) AS stated,
+            MIN(ip.unit_price)         AS rate
        FROM presenter_products pp
-       JOIN products ip ON ip.id = pp.install_product_id
-      WHERE pp.calculator_type = ANY($1) AND ip.is_active = true`,
+       LEFT JOIN products ip ON ip.id = pp.install_product_id AND ip.is_active = true
+      WHERE pp.calculator_type = ANY($1)`,
     [calculatorTypes]
   );
-  const rate = rows[0]?.rate;
-  return rate == null ? null : Math.round(rate * GST_MULTIPLIER);
+  const source = rows[0]?.stated ?? rows[0]?.rate;
+  return source == null ? null : Math.round(source * GST_MULTIPLIER);
 }
 
 // GET /api/public/heat-pumps

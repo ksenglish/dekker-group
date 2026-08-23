@@ -35,7 +35,7 @@ async function list(req, res) {
     // The has_* flags say whether there's anything to fetch, so the browse grid
     // knows which tiles have a picture or a brochure without carrying the bytes.
     const { rows } = await pool.query(
-      `SELECT id, name, description, category,
+      `SELECT id, name, description, quote_description, category,
               subcategory_1, subcategory_2, subcategory_3, subcategory_4,
               unit, unit_price, cost_price, supplier, is_active, created_at, updated_at,
               (media_key IS NOT NULL OR media_base64 IS NOT NULL)       AS has_image,
@@ -83,7 +83,7 @@ async function resolveMediaWrite({ incoming, existingKey, existingInline, prefix
 }
 
 async function create(req, res) {
-  const { name, description, category, subcategory_1, subcategory_2, subcategory_3, subcategory_4,
+  const { name, description, quote_description, category, subcategory_1, subcategory_2, subcategory_3, subcategory_4,
     unit, unit_price, supplier, cost_price, media_base64, brochure_base64 } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
   try {
@@ -91,12 +91,12 @@ async function create(req, res) {
     const brochure = await resolveMediaWrite({ incoming: brochure_base64, prefix: 'products/brochures', filename: `${name}-brochure` });
 
     const { rows } = await pool.query(
-      `INSERT INTO products (name, description, category,
+      `INSERT INTO products (name, description, quote_description, category,
          subcategory_1, subcategory_2, subcategory_3, subcategory_4,
          unit, unit_price, supplier, cost_price,
          media_base64, brochure_base64, media_key, brochure_key)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-      [name, description || null, category || null,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      [name, description || null, quote_description || null, category || null,
        subcategory_1 || null, subcategory_2 || null, subcategory_3 || null, subcategory_4 || null,
        unit || 'each', Math.round((unit_price || 0) * 100), supplier || null,
        Math.round((cost_price || 0) * 100), media.inline, brochure.inline, media.key, brochure.key]
@@ -106,7 +106,7 @@ async function create(req, res) {
 }
 
 async function update(req, res) {
-  const { name, description, category, subcategory_1, subcategory_2, subcategory_3, subcategory_4,
+  const { name, description, quote_description, category, subcategory_1, subcategory_2, subcategory_3, subcategory_4,
     unit, unit_price, is_active, supplier, cost_price, media_base64, brochure_base64 } = req.body;
   try {
     const { rows: [current] } = await pool.query(
@@ -124,12 +124,12 @@ async function update(req, res) {
     });
 
     const { rows } = await pool.query(
-      `UPDATE products SET name=$1, description=$2, category=$3,
-       subcategory_1=$4, subcategory_2=$5, subcategory_3=$6, subcategory_4=$7,
-       unit=$8, unit_price=$9, is_active=$10, supplier=$11, cost_price=$12,
-       media_base64=$13, brochure_base64=$14, media_key=$15, brochure_key=$16, updated_at=NOW()
-       WHERE id=$17 RETURNING *`,
-      [name, description || null, category || null,
+      `UPDATE products SET name=$1, description=$2, quote_description=$3, category=$4,
+       subcategory_1=$5, subcategory_2=$6, subcategory_3=$7, subcategory_4=$8,
+       unit=$9, unit_price=$10, is_active=$11, supplier=$12, cost_price=$13,
+       media_base64=$14, brochure_base64=$15, media_key=$16, brochure_key=$17, updated_at=NOW()
+       WHERE id=$18 RETURNING *`,
+      [name, description || null, quote_description || null, category || null,
        subcategory_1 || null, subcategory_2 || null, subcategory_3 || null, subcategory_4 || null,
        unit || 'each', Math.round((unit_price || 0) * 100), is_active !== false,
        supplier || null, Math.round((cost_price || 0) * 100),
@@ -256,14 +256,15 @@ async function upsertProduct(fields) {
 
   if (!existing) {
     await pool.query(
-      `INSERT INTO products (name, description, category,
+      `INSERT INTO products (name, description, quote_description, category,
          subcategory_1, subcategory_2, subcategory_3, subcategory_4,
          unit, unit_price, cost_price, supplier,
          media_base64, brochure_base64, media_key, brochure_key)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
       [
         name,
         supplied(fields.description) ? fields.description : null,
+        supplied(fields.quote_description) ? fields.quote_description : null,
         supplied(fields.category) ? fields.category : null,
         supplied(fields.subcategory_1) ? fields.subcategory_1 : null,
         supplied(fields.subcategory_2) ? fields.subcategory_2 : null,
@@ -286,25 +287,27 @@ async function upsertProduct(fields) {
   // forever, which is the whole thing this is trying to stop.
   await pool.query(
     `UPDATE products SET
-       description     = COALESCE($2, description),
-       category        = COALESCE($3, category),
-       subcategory_1   = COALESCE($4, subcategory_1),
-       subcategory_2   = COALESCE($5, subcategory_2),
-       subcategory_3   = COALESCE($6, subcategory_3),
-       subcategory_4   = COALESCE($7, subcategory_4),
-       unit            = COALESCE($8, unit),
-       unit_price      = COALESCE($9, unit_price),
-       cost_price      = COALESCE($10, cost_price),
-       supplier        = COALESCE($11, supplier),
-       media_base64    = CASE WHEN $14::text IS NOT NULL THEN NULL ELSE COALESCE($12, media_base64) END,
-       brochure_base64 = CASE WHEN $15::text IS NOT NULL THEN NULL ELSE COALESCE($13, brochure_base64) END,
-       media_key       = COALESCE($14, media_key),
-       brochure_key    = COALESCE($15, brochure_key),
-       updated_at      = NOW()
+       description       = COALESCE($2, description),
+       quote_description = COALESCE($3, quote_description),
+       category          = COALESCE($4, category),
+       subcategory_1     = COALESCE($5, subcategory_1),
+       subcategory_2     = COALESCE($6, subcategory_2),
+       subcategory_3     = COALESCE($7, subcategory_3),
+       subcategory_4     = COALESCE($8, subcategory_4),
+       unit              = COALESCE($9, unit),
+       unit_price        = COALESCE($10, unit_price),
+       cost_price        = COALESCE($11, cost_price),
+       supplier          = COALESCE($12, supplier),
+       media_base64      = CASE WHEN $15::text IS NOT NULL THEN NULL ELSE COALESCE($13, media_base64) END,
+       brochure_base64   = CASE WHEN $16::text IS NOT NULL THEN NULL ELSE COALESCE($14, brochure_base64) END,
+       media_key         = COALESCE($15, media_key),
+       brochure_key      = COALESCE($16, brochure_key),
+       updated_at        = NOW()
      WHERE id = $1`,
     [
       existing.id,
       supplied(fields.description) ? fields.description : null,
+      supplied(fields.quote_description) ? fields.quote_description : null,
       supplied(fields.category) ? fields.category : null,
       supplied(fields.subcategory_1) ? fields.subcategory_1 : null,
       supplied(fields.subcategory_2) ? fields.subcategory_2 : null,
@@ -344,6 +347,7 @@ async function importCsv(req, res) {
     return -1;
   };
   const idx = { name: headers.indexOf('name'), description: headers.indexOf('description'),
+    quote_description: firstOf('quote description', 'quote_description', 'quotedescription'),
     category: headers.indexOf('category'),
     subcategory_1: firstOf('sub category 1', 'subcategory 1', 'sub_category_1', 'subcategory1', 'sub category'),
     subcategory_2: firstOf('sub category 2', 'subcategory 2', 'sub_category_2', 'subcategory2'),
@@ -365,6 +369,7 @@ async function importCsv(req, res) {
       const outcome = await upsertProduct({
         name,
         description: at('description'),
+        quote_description: at('quote_description'),
         category: at('category'),
         subcategory_1: at('subcategory_1'),
         subcategory_2: at('subcategory_2'),
@@ -445,6 +450,7 @@ async function importZip(req, res) {
         const outcome = await upsertProduct({
           name,
           description: get('description'),
+          quote_description: getAny('quote description', 'quote_description', 'quotedescription'),
           category: get('category'),
           subcategory_1: getAny('sub category 1', 'subcategory 1', 'sub_category_1', 'subcategory1', 'sub category'),
           subcategory_2: getAny('sub category 2', 'subcategory 2', 'sub_category_2', 'subcategory2'),

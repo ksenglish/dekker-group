@@ -197,10 +197,11 @@ export default function QuoteDetail() {
         product_name: i.product_name,
       })),
       {
-        // The product's description is quote wording now, not a line label —
-        // it goes onto the quote's description below. The line itself carries
-        // the product name.
-        description: product.name,
+        // Two different descriptions on a price list product: `description` is
+        // the line on the quote, `quote_description` is the wording that goes
+        // in the box above the lines. A presenter product's own description is
+        // rich text and would print its tags here, so those keep using the name.
+        description: (product.unit_price != null && product.description) || product.name,
         // Measured products (the fence calculator) hand back their own
         // quantity — metres of run — rather than a single unit.
         quantity: product.quantity > 0 ? product.quantity : 1,
@@ -217,11 +218,10 @@ export default function QuoteDetail() {
     // left sitting in the box — the line items have already been written, and
     // a rep who adds three products and closes the tab shouldn't lose the
     // wording that went with them.
-    // The presenter attaches the wording from the product it was showing. When
-    // that key is present it's authoritative — including when it's null, which
-    // means that product has nothing to add. `description` is only consulted
-    // for picks that didn't come through the presenter panel.
-    const wording = 'presenter_description' in product ? product.presenter_description : product.description;
+    // The presenter attaches the wording from the product it was showing; a
+    // pick straight from the price list brings its own Quote Description. The
+    // presenter's wins when it has one, since that's the curated sales copy.
+    const wording = product.presenter_description || product.quote_description
     const addition = (wording || '').trim();
     if (addition) {
       const combined = appendDescription(notes, addition);
