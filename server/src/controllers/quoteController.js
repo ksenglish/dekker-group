@@ -1,4 +1,5 @@
 const pool = require('../db/pool');
+const { findJobType } = require('../services/jobTypes');
 const { normaliseRole } = require('../middleware/auth');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
@@ -142,7 +143,15 @@ async function create(req, res) {
     const theme = await getTheme();
     const expiryDays = theme.quoteExpiryDays ?? 30;
     const expiresAt = expiryDays > 0 ? (() => { const d = new Date(); d.setDate(d.getDate() + expiryDays); return d; })() : null;
-    const docTheme = theme_id ? await getThemeById(theme_id) : await getDefaultTheme();
+    // Theme precedence: whatever the caller asked for, else the theme set
+    // against this job's type in Settings, else the global default.
+    let resolvedThemeId = theme_id || null;
+    if (!resolvedThemeId && job_id) {
+      const { rows: [jobRow] } = await pool.query('SELECT type FROM jobs WHERE id=$1', [job_id]);
+      const jobType = jobRow ? await findJobType(jobRow.type) : null;
+      if (jobType?.theme_id) resolvedThemeId = jobType.theme_id;
+    }
+    const docTheme = resolvedThemeId ? await getThemeById(resolvedThemeId) : await getDefaultTheme();
     // A new quote opens with its theme's standard description already in the
     // box, so the wording that goes on every quote doesn't have to be retyped.
     // Anything passed in explicitly wins — it's the caller being specific.

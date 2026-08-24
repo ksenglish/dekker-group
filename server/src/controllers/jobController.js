@@ -6,6 +6,7 @@ const { sendMail } = require('../utils/email');
 const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
 const { quoteDeliveredSql } = require('../utils/quoteDelivery');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
+const { attachDefaultForms } = require('./jobFormController');
 const { notifyJobNote, notifyTargets } = require('../utils/jobNoteNotify');
 
 async function list(req, res) {
@@ -201,6 +202,8 @@ async function create(req, res) {
       ? [...new Set([...(tech_ids || []), req.user.id])]
       : (tech_ids || []);
     await saveTechnicians(client, rows[0].id, finalTechIds);
+    // Put this job type's default Pre/Post Install forms on the job, ready to fill in
+    await attachDefaultForms(client, rows[0].id, type);
     await client.query('COMMIT');
     res.status(201).json({ ...rows[0], technicians: finalTechIds.map(id => ({ id })) });
   } catch (err) {
@@ -229,6 +232,9 @@ async function update(req, res) {
     );
     if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Job not found' }); }
     await saveTechnicians(client, req.params.id, tech_ids);
+    // Changing the job's type brings in that type's forms. Additive — anything
+    // already attached (and possibly part-filled) is left alone.
+    await attachDefaultForms(client, req.params.id, type);
     await client.query('COMMIT');
     res.json(rows[0]);
   } catch (err) {

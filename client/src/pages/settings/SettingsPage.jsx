@@ -6,12 +6,13 @@ import { CSS } from '@dnd-kit/utilities';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { compressImage } from '../../lib/image';
+import FormsTab from './FormsTab';
 import styles from './Settings.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 import RichTextEditor from '../../components/RichTextEditor';
 import { isHtml } from '../../lib/richText';
 
-const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Website Pricing', 'Integrations'];
+const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Forms', 'Website Pricing', 'Integrations'];
 
 // ── Sortable job status row (drag to reorder) ─────────────────────────────────
 function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
@@ -173,6 +174,8 @@ export default function SettingsPage() {
           {activeTab === 'Website Pricing' && <WebsitePricingTab />}
 
           {activeTab === 'Integrations' && <IntegrationsTab />}
+
+          {activeTab === 'Forms' && <FormsTab />}
 
           {activeTab === 'Job Types & Templates' && (
             <JobTypesTab />
@@ -1257,8 +1260,32 @@ function EmailTemplatesTab() {
   );
 }
 
+// Multi-select of form templates, kept simple: tick the forms this job type
+// should load. Shows a nudge rather than an empty box when none exist yet.
+function FormPicker({ options, selected, onChange }) {
+  const chosen = Array.isArray(selected) ? selected : [];
+  if (!options.length) {
+    return <p className={styles.hint} style={{ margin: 0 }}>None built yet — create one under Settings → Forms.</p>;
+  }
+  return (
+    <div className={styles.formPicker}>
+      {options.map(o => (
+        <label key={o.id} className={styles.formPickerItem}>
+          <input type="checkbox" checked={chosen.includes(o.id)}
+            onChange={e => onChange(e.target.checked ? [...chosen, o.id] : chosen.filter(x => x !== o.id))} />
+          <span>{o.name}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
 function JobTypesTab() {
-  const [jobTypes, setJobTypes] = useState([]);
+  const [typeConfig, setTypeConfig] = useState([]);
+  const [typesDirty, setTypesDirty] = useState(false);
+  const [savingTypes, setSavingTypes] = useState(false);
+  const [themes, setThemes] = useState([]);
+  const [formTemplates, setFormTemplates] = useState([]);
   const [newType, setNewType] = useState('');
   const [templates, setTemplates] = useState([]);
   const [editingTpl, setEditingTpl] = useState(null); // null | 'new' | template object
@@ -1272,9 +1299,11 @@ function JobTypesTab() {
   const statusSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   useEffect(() => {
-    api.get('/settings/job-types').then(r => setJobTypes(r.data)).catch(() => {});
+    api.get('/settings/job-types/config').then(r => setTypeConfig(r.data)).catch(() => {});
     api.get('/settings/job-templates').then(r => setTemplates(r.data)).catch(() => {});
     api.get('/settings/job-statuses').then(r => setStatuses(r.data)).catch(() => {});
+    api.get('/settings/themes').then(r => setThemes(r.data)).catch(() => {});
+    api.get('/forms/templates').then(r => setFormTemplates(r.data)).catch(() => {});
   }, []);
 
   function setStatusLabel(key, label) {
@@ -1338,20 +1367,37 @@ function JobTypesTab() {
     } finally { setSavingStatuses(false); }
   }
 
-  async function addType() {
-    const t = newType.trim();
-    if (!t || jobTypes.includes(t)) return;
-    const updated = [...jobTypes, t];
-    await api.put('/settings/job-types', updated);
-    setJobTypes(updated);
-    setNewType('');
+  // Job types are edited as a set and saved together — a type's defaults are
+  // several fields, so per-keystroke saving would be noisy and racy.
+  function updateType(i, patch) {
+    setTypeConfig(ts => ts.map((t, j) => j === i ? { ...t, ...patch } : t));
+    setTypesDirty(true);
   }
 
-  async function removeType(t) {
-    if (!confirm(`Remove job type "${t}"?`)) return;
-    const updated = jobTypes.filter(x => x !== t);
-    await api.put('/settings/job-types', updated);
-    setJobTypes(updated);
+  function addType() {
+    const name = newType.trim();
+    if (!name || typeConfig.some(t => t.name.toLowerCase() === name.toLowerCase())) return;
+    setTypeConfig(ts => [...ts, { name, theme_id: null, pre_install_form_ids: [], post_install_form_ids: [] }]);
+    setNewType('');
+    setTypesDirty(true);
+  }
+
+  function removeType(i) {
+    const t = typeConfig[i];
+    if (!confirm(`Remove job type "${t.name}"? Jobs already using it keep their type.`)) return;
+    setTypeConfig(ts => ts.filter((_, j) => j !== i));
+    setTypesDirty(true);
+  }
+
+  async function saveTypeConfig() {
+    setSavingTypes(true);
+    try {
+      const { data } = await api.put('/settings/job-types/config', typeConfig);
+      setTypeConfig(data);
+      setTypesDirty(false);
+    } catch (e) {
+      alert(e.response?.data?.error || 'Failed to save job types');
+    } finally { setSavingTypes(false); }
   }
 
   async function saveTpl() {
@@ -1384,16 +1430,53 @@ function JobTypesTab() {
     <div className={styles.section}>
       {/* Job Types */}
       <div className={styles.card}>
-        <div className={styles.cardHeader}><h2>Job Types</h2></div>
+        <div className={styles.cardHeader}>
+          <h2>Job Types</h2>
+          {typesDirty && (
+            <button className={styles.btnPrimary} onClick={saveTypeConfig} disabled={savingTypes}>
+              {savingTypes ? 'Saving…' : 'Save Job Types'}
+            </button>
+          )}
+        </div>
         <div className={styles.cardBody}>
           <p className={styles.hint} style={{ marginBottom: 12 }}>
-            These types appear in the Job Type dropdown when creating or editing a job.
+            These appear in the Job Type dropdown on a job. Each type can set which document theme its quotes and
+            invoices use, and which forms load onto the job automatically — build those under Settings → Forms.
           </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {jobTypes.map(t => (
-              <div key={t} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#f8fafc', borderRadius: 6, border: '1px solid var(--color-border)' }}>
-                <span style={{ fontSize: 14, fontWeight: 500 }}>{t}</span>
-                <button onClick={() => removeType(t)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>✕</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+            {typeConfig.map((t, i) => (
+              <div key={i} className={styles.jobTypeCard}>
+                <div className={styles.jobTypeHead}>
+                  <input className={styles.jobTypeName} value={t.name}
+                    onChange={e => updateType(i, { name: e.target.value })} placeholder="Job type name" />
+                  <button onClick={() => removeType(i)} title="Remove job type"
+                    style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>✕</button>
+                </div>
+                <div className={styles.jobTypeDefaults}>
+                  <div className={styles.field}>
+                    <label>Document Theme</label>
+                    <select value={t.theme_id || ''} onChange={e => updateType(i, { theme_id: e.target.value || null })}>
+                      <option value="">Use the default theme</option>
+                      {themes.filter(th => !th.archived).map(th => (
+                        <option key={th.id} value={th.id}>{th.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className={styles.field}>
+                    <label>Pre-Install Forms</label>
+                    <FormPicker
+                      options={formTemplates.filter(f => f.stage === 'pre_install')}
+                      selected={t.pre_install_form_ids}
+                      onChange={ids => updateType(i, { pre_install_form_ids: ids })} />
+                  </div>
+                  <div className={styles.field}>
+                    <label>Post Install Forms</label>
+                    <FormPicker
+                      options={formTemplates.filter(f => f.stage === 'post_install')}
+                      selected={t.post_install_form_ids}
+                      onChange={ids => updateType(i, { post_install_form_ids: ids })} />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -1404,6 +1487,7 @@ function JobTypesTab() {
               style={{ flex: 1, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 13 }} />
             <button className={styles.btnPrimary} onClick={addType} disabled={!newType.trim()}>Add</button>
           </div>
+          {typesDirty && <p className={styles.hint} style={{ marginTop: 10 }}>Unsaved changes — hit Save Job Types above.</p>}
         </div>
       </div>
 

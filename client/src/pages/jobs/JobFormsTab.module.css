@@ -16,3 +16,65 @@
 .status { font-size: 12px; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
 .statusDone { color: #16a34a; }
 .statusPending { color: var(--color-text-muted); }
+
+/* ── Form renderer ────────────────────────────────────────────── */
+.formHeader {
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 20px; border-bottom: 1px solid var(--color-border);
+}
+.formTitle { font-size: 16px; font-weight: 600; }
+.formProgress { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+
+.formBody { padding: 4px 20px 20px; display: flex; flex-direction: column; }
+
+.sectionHeading { margin: 22px 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--color-border); }
+.sectionHeading h3 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); }
+.sectionHeading p { font-size: 12px; color: var(--color-text-muted); margin-top: 4px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; }
+.fieldLabel { font-size: 13px; font-weight: 600; }
+.req { color: #dc2626; }
+.fieldHelp { font-size: 12px; color: var(--color-text-muted); margin: -2px 0 2px; }
+.field input, .field textarea, .field select {
+  padding: 9px 12px; border: 1px solid var(--color-border); border-radius: var(--radius);
+  font-size: 14px; font-family: inherit; outline: none; background: white; width: 100%; box-sizing: border-box;
+}
+.field input:focus, .field textarea:focus, .field select:focus {
+  border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+.field input:disabled, .field textarea:disabled, .field select:disabled { background: #f8fafc; color: var(--color-text-muted); }
+
+.inlineCheck { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
+.inlineCheck input { width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--color-primary); }
+
+.yesNo { display: flex; gap: 8px; }
+.yesNoBtn {
+  flex: 1; max-width: 130px; padding: 10px 16px; font-size: 14px; font-weight: 600; font-family: inherit;
+  background: white; border: 1px solid var(--color-border); border-radius: var(--radius); cursor: pointer;
+}
+.yesNoActive { background: var(--color-primary); border-color: var(--color-primary); color: white; }
+
+.signoffRow { display: flex; gap: 8px; flex-wrap: wrap; }
+.signoffRow input { flex: 1; min-width: 140px; }
+
+.photoRow { display: flex; flex-wrap: wrap; gap: 8px; }
+.photoWrap { position: relative; }
+.photoThumb { width: 92px; height: 92px; object-fit: cover; border-radius: 6px; border: 1px solid var(--color-border); display: block; }
+.photoThumbLoading {
+  width: 92px; height: 92px; border-radius: 6px; border: 1px solid var(--color-border);
+  display: flex; align-items: center; justify-content: center; background: #f8fafc; color: var(--color-text-muted);
+}
+.photoRemove {
+  position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.55); color: white;
+  border: none; border-radius: 4px; cursor: pointer; padding: 2px 6px; font-size: 11px;
+}
+.photoAdd {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; cursor: pointer;
+  padding: 9px 16px; background: var(--color-primary); color: white;
+  border-radius: var(--radius); font-size: 13px; font-weight: 500;
+}
+
+.formActions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 14px 20px; border-top: 1px solid var(--color-border); background: #f8fafc;
+}

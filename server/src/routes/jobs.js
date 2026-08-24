@@ -141,6 +141,14 @@ router.put('/:id/op-form', c.saveOpForm);
 // controller since it depends on row ownership, not just role); deleting is
 // Admin only.
 router.get('/:id/quote-delivery', c.getQuoteDelivery);
+// Admin-built forms attached to this job (the Electrical COC below is separate
+// — it's a statutory certificate with its own table and PDF)
+const jobForms = require('../controllers/jobFormController');
+router.get('/:id/forms', jobForms.list);
+router.post('/:id/forms', requireRole('admin', 'office'), jobForms.attach);
+router.put('/:id/forms/:submissionId', jobForms.save);
+router.delete('/:id/forms/:submissionId', requireRole('admin', 'office'), jobForms.remove);
+
 router.get('/:id/electrical-coc', c.getElectricalCoc);
 router.put('/:id/electrical-coc', c.saveElectricalCoc);
 router.delete('/:id/electrical-coc', c.deleteElectricalCoc);

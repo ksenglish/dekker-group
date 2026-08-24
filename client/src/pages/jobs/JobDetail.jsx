@@ -1382,10 +1382,17 @@ export default function JobDetail() {
           )}
 
           {activeTab === 'timesheets' && <JobTimesheets jobId={id} user={user} />}
-          {activeTab === 'photos' && <JobAttachments key={attachmentsRefreshKey} jobId={id} user={user} />}
+          {activeTab === 'photos' && (
+            <>
+              <JobFormsTab jobId={id} job={job} user={user} stage="pre_install" />
+              <div style={{ marginTop: 16 }}>
+                <JobAttachments key={attachmentsRefreshKey} jobId={id} user={user} />
+              </div>
+            </>
+          )}
           {activeTab === 'forms' && (
             <>
-              <JobFormsTab jobId={id} job={job} user={user} />
+              <JobFormsTab jobId={id} job={job} user={user} stage="post_install" />
               <div style={{ marginTop: 16 }}>
                 <JobAttachments jobId={id} user={user} category="post_install" />
               </div>

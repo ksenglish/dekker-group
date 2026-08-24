@@ -199,10 +199,10 @@ async function ensureCustomer(client, lead) {
 const DEFAULT_JOB_TYPES = ['Installation', 'Service', 'Inspection', 'Repair', 'Quote Only'];
 
 async function defaultJobType(client) {
-  const { rows } = await client.query(`SELECT value FROM settings WHERE key='job_types'`);
-  const configured = rows[0]?.value;
-  const list = Array.isArray(configured) && configured.length ? configured : DEFAULT_JOB_TYPES;
-  return list[0];
+  // Job types can be stored as names or as objects carrying their defaults —
+  // normalise so this always yields a plain name for jobs.type.
+  const names = await require('../services/jobTypes').getJobTypeNames(client);
+  return names[0] || DEFAULT_JOB_TYPES[0];
 }
 
 async function ensureJob(client, lead, customerId) {

@@ -4,6 +4,7 @@ const c = require('../controllers/settingsController');
 const { buildPDF } = require('../utils/pdf');
 const { testConnection, getEmailSettings } = require('../utils/email');
 const { getXeroConnection, saveXeroConnection } = require('../utils/xero');
+const jobTypes = require('../services/jobTypes');
 const { themeRowToJson, getDefaultTheme, getThemeById } = require('../utils/documentThemes');
 // Terms are written in the rich text editor now, so they arrive as HTML from a
 // client that could have been modified. Same allowlist the quote description
@@ -193,17 +194,54 @@ router.post('/email/test', authenticate, requireRole('admin'), async (req, res) 
 // Job Types (stored in settings table as JSON)
 const DEFAULT_JOB_TYPES = ['Installation', 'Service', 'Inspection', 'Repair', 'Quote Only'];
 
+// Names only — the job form, filters and lead intake all just want the list of
+// type names, and predate types carrying defaults with them.
 router.get('/job-types', authenticate, async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='job_types'`);
-    res.json(rows[0]?.value || DEFAULT_JOB_TYPES);
+    res.json(await jobTypes.getJobTypeNames());
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// Full config, including each type's default document theme and forms
+router.get('/job-types/config', authenticate, async (req, res) => {
+  try {
+    res.json(await jobTypes.getJobTypes());
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/job-types/config', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const types = req.body;
+  if (!Array.isArray(types)) return res.status(400).json({ error: 'Array required' });
+  const cleaned = jobTypes.normalise(types);
+  if (!cleaned.length) return res.status(400).json({ error: 'At least one job type is required' });
+  const seen = new Set();
+  for (const t of cleaned) {
+    const key = t.name.toLowerCase();
+    if (seen.has(key)) return res.status(400).json({ error: `Duplicate job type "${t.name}"` });
+    seen.add(key);
+  }
+  try {
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('job_types', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
+      [JSON.stringify(cleaned)]
+    );
+    res.json(cleaned);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+// Legacy shape (plain names). Kept working, but merged against the stored
+// config so saving a name list can't silently drop each type's theme/form
+// defaults.
 router.put('/job-types', authenticate, requireRole('admin', 'office'), async (req, res) => {
   try {
-    const types = req.body;
-    if (!Array.isArray(types)) return res.status(400).json({ error: 'Array required' });
+    const names = req.body;
+    if (!Array.isArray(names)) return res.status(400).json({ error: 'Array required' });
+    const existing = await jobTypes.getJobTypes();
+    const types = jobTypes.normalise(names).map(t => {
+      const prior = existing.find(e => e.name.toLowerCase() === t.name.toLowerCase());
+      return prior ? { ...prior, name: t.name } : t;
+    });
     await pool.query(
       `INSERT INTO settings (key, value, updated_at) VALUES ('job_types', $1, NOW())
        ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()`,
