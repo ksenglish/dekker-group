@@ -6,6 +6,7 @@ const pool = require('../db/pool');
 const { RINNAI_HEATPUMP_TABLE } = require('../utils/heatpumpSizing');
 const { SMARTVENT_TABLE } = require('../utils/smartVentSizing');
 const { getPublicPricing } = require('../utils/publicPricing');
+const discounts = require('../utils/calculatorDiscounts');
 const content = require('../services/websiteContent');
 const media = require('../services/websiteMedia');
 
@@ -44,6 +45,10 @@ async function installRateIncGstCents(calculatorTypes) {
 router.get('/heat-pumps', async (req, res) => {
   try {
     const config = await getPublicPricing();
+    const preview = await content.isValidPreviewToken(req.query.preview);
+    const discount = config.enabled
+      ? await discounts.getActiveDiscount('heatpump', { preview })
+      : null;
 
     let priceList = [];
     if (config.enabled) {
@@ -62,25 +67,33 @@ router.get('/heat-pumps', async (req, res) => {
         return fields.includes(norm(band.model)) || fields.includes(norm(band.description));
       });
 
+      // Cents, inc GST, installation included. null means "ask us" — either
+      // pricing is off or that model isn't on the price list.
+      const listPrice = match
+        ? Math.round((match.unit_price + config.installCents) * GST_MULTIPLIER)
+        : null;
+
       return {
         model: band.model,
         description: band.description,
         kwMin: band.kwMin,
         kwMax: band.kwMax,
-        // Cents, inc GST, installation included. null means "ask us" — either
-        // pricing is off or that model isn't on the price list.
-        installedPriceIncGstCents: match
-          ? Math.round((match.unit_price + config.installCents) * GST_MULTIPLIER)
-          : null,
+        // What the customer pays, discount already taken off, so an old build
+        // of the site quotes the right number without knowing about discounts.
+        installedPriceIncGstCents: discounts.applyDiscount(listPrice, discount),
+        // The pre-discount price, for showing what it was. Equal to the above
+        // when nothing is discounted.
+        listPriceIncGstCents: listPrice,
       };
     });
 
-    res.set('Cache-Control', 'public, max-age=300');
+    res.set('Cache-Control', preview ? 'no-store' : 'public, max-age=300');
     res.json({
       pricingEnabled: !!config.enabled,
       currency: 'NZD',
       // Installation is a separate product now, charged once per unit.
       installFromIncGstCents: config.enabled ? await installRateIncGstCents(['heatpump']) : null,
+      discount: discounts.describe(discount),
       models,
     });
   } catch (err) {
@@ -99,6 +112,15 @@ router.get('/ventilation-systems', async (req, res) => {
   try {
     const family = ['positive', 'balanced'].includes(req.query.family) ? req.query.family : null;
     const config = await getPublicPricing();
+    const preview = await content.isValidPreviewToken(req.query.preview);
+
+    // Without a family the response spans both, and they can be discounted
+    // differently — so the discount is resolved per row, not per request.
+    const families = family ? [family] : ['positive', 'balanced'];
+    const byFamily = {};
+    for (const f of families) {
+      byFamily[f] = config.enabled ? await discounts.getActiveDiscount(f, { preview }) : null;
+    }
 
     let priceList = [];
     if (config.enabled) {
@@ -120,15 +142,21 @@ router.get('/ventilation-systems', async (req, res) => {
 
     const rows = SMARTVENT_TABLE
       .filter(r => !family || r.family === family)
-      .map(r => ({
-        family: r.family,
-        system: r.system,
-        houseMin: r.houseMin,
-        houseMax: r.houseMax,
-        outlets: r.outlets,
-        model: r.model,
-        installedPriceIncGstCents: priceFor(r.model),
-      }));
+      .map(r => {
+        const listPrice = priceFor(r.model);
+        return {
+          family: r.family,
+          system: r.system,
+          houseMin: r.houseMin,
+          houseMax: r.houseMax,
+          outlets: r.outlets,
+          model: r.model,
+          // Discounted, so an old build of the site still quotes the right
+          // number; listPriceIncGstCents is what it was before.
+          installedPriceIncGstCents: discounts.applyDiscount(listPrice, byFamily[r.family]),
+          listPriceIncGstCents: listPrice,
+        };
+      });
 
     const installTypes = family === 'balanced'
       ? ['smartvent_balanced_pressure']
@@ -138,11 +166,14 @@ router.get('/ventilation-systems', async (req, res) => {
     // "installation from X" and the real number is settled on site.
     const installFrom = config.enabled ? await installRateIncGstCents(installTypes) : null;
 
-    res.set('Cache-Control', 'public, max-age=300');
+    res.set('Cache-Control', preview ? 'no-store' : 'public, max-age=300');
     res.json({
       pricingEnabled: !!config.enabled,
       currency: 'NZD',
       installFromIncGstCents: installFrom,
+      // The discount for the family asked for. A request spanning both carries
+      // them per row instead, so there is no single one to name here.
+      discount: family ? discounts.describe(byFamily[family]) : null,
       // Kept for the version of the site that's live until this change is
       // published; it reads the old name. Safe to drop after that.
       installPerOutletIncGstCents: installFrom,

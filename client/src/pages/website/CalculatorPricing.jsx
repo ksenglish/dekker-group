@@ -69,11 +69,15 @@ export default function CalculatorPricing() {
   return (
     <div>
       <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.7, marginBottom: 18, maxWidth: 720 }}>
-        Product prices on the website are supply only. These are the
-        &ldquo;Installation from&rdquo; figures shown alongside them. They&rsquo;re the same
-        values as the Installation From field in Presenter Setup — set them in
+        The &ldquo;Installation from&rdquo; figure for each calculator product. They&rsquo;re the
+        same values as the Installation From field in Presenter Setup — set them in
         either place. Enter the price <strong>excluding GST</strong>; the website
         adds it. Leave one blank to fall back to the install product&rsquo;s own rate.
+        <br /><br />
+        <strong>Nothing on the website shows these at the moment</strong> — product prices
+        still include labour, so quoting an installation figure next to them would
+        count it twice. They&rsquo;re here ready for when the labour-inclusive kits land.
+        To discount what the calculators quote, use Latest Deals.
       </p>
 
       {error && <div style={{ background: '#fee2e2', color: '#b91c1c', padding: '10px 14px', borderRadius: 6, fontSize: 13, marginBottom: 14 }}>{error}</div>}

@@ -27,6 +27,117 @@ const btn = (kind) => ({
       : { background: 'var(--color-surface)', color: 'var(--color-text)', border: '1px solid var(--color-border)' }),
 });
 
+// The website calculators a discount can be set against. Keys match
+// server/src/utils/calculatorDiscounts.js — change both together.
+const CALCULATORS = [
+  { key: 'heatpump', name: 'Heat pumps', where: '/heating' },
+  { key: 'positive', name: 'Positive pressure ventilation', where: '/ventilation/positive-pressure' },
+  { key: 'balanced', name: 'Balanced pressure ventilation', where: '/ventilation/balanced-pressure' },
+];
+
+const blankDiscount = (key) => ({
+  calculator: key, kind: 'percent', value: '', label: '', expires: '', enabled: false,
+});
+
+// Always one row per calculator, whatever is stored — a calculator that has
+// never been discounted still needs its row to fill in.
+const discountRows = (stored) => CALCULATORS.map(c => {
+  const found = (stored || []).find(d => d.calculator === c.key);
+  if (!found) return blankDiscount(c.key);
+  return {
+    ...found,
+    // Cents come back from the server; the form works in dollars.
+    value: found.kind === 'amount'
+      ? (found.value ? (found.value / 100).toFixed(2) : '')
+      : (found.value || ''),
+    label: found.label || '',
+    expires: found.expires || '',
+  };
+});
+
+const toStoredDiscount = (d) => ({
+  calculator: d.calculator,
+  kind: d.kind,
+  value: d.kind === 'amount'
+    ? Math.round((parseFloat(d.value) || 0) * 100)
+    : (parseFloat(d.value) || 0),
+  label: d.label || null,
+  expires: d.expires || null,
+  enabled: !!d.enabled,
+});
+
+// A discount comes off every model the calculator can recommend, so the
+// "starting from" figure a visitor sees already has it applied whatever size
+// system they end up with.
+function DiscountsCard({ rows, onChange }) {
+  const set = (i, k, v) => onChange(rows.map((r, n) => (n === i ? { ...r, [k]: v } : r)));
+
+  return (
+    <div style={{ ...card, marginBottom: 18 }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>Calculator discounts</div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 3, lineHeight: 1.6 }}>
+          Takes money off the price the website calculators quote. It applies to every
+          system size, so the &ldquo;starting from&rdquo; figure is already discounted whichever
+          one a visitor is recommended. Saved and published with the deals above.
+        </div>
+      </div>
+
+      <div style={{ padding: 16, display: 'grid', gap: 14 }}>
+        {rows.map((d, i) => {
+          const meta = CALCULATORS[i];
+          return (
+            <div key={d.calculator} style={{
+              display: 'grid', gridTemplateColumns: '1.4fr 0.9fr 0.9fr 1.1fr 1fr', gap: 12,
+              alignItems: 'end', paddingBottom: 14,
+              borderBottom: i < rows.length - 1 ? '1px solid var(--color-border)' : 'none',
+              opacity: d.enabled ? 1 : 0.65,
+            }}>
+              <div>
+                <label style={{ ...label, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 6 }}>
+                  <input type="checkbox" checked={!!d.enabled}
+                    onChange={e => set(i, 'enabled', e.target.checked)} />
+                  <span style={{ color: 'var(--color-text)', fontSize: 13.5 }}>{meta.name}</span>
+                </label>
+                <div style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>{meta.where}</div>
+              </div>
+
+              <div>
+                <label style={label}>Type</label>
+                <select style={{ ...input, cursor: 'pointer' }} value={d.kind}
+                  onChange={e => set(i, 'kind', e.target.value)}>
+                  <option value="percent">% off</option>
+                  <option value="amount">$ off</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={label}>{d.kind === 'percent' ? 'Percentage' : 'Amount (inc GST)'}</label>
+                <input type="number" min="0" step={d.kind === 'percent' ? '0.5' : '1'}
+                  style={input} value={d.value}
+                  onChange={e => set(i, 'value', e.target.value)}
+                  placeholder={d.kind === 'percent' ? '10' : '300'} />
+              </div>
+
+              <div>
+                <label style={label}>Badge on the price</label>
+                <input style={input} value={d.label}
+                  onChange={e => set(i, 'label', e.target.value)} placeholder="Winter deal" />
+              </div>
+
+              <div>
+                <label style={label}>Ends (blank = no end)</label>
+                <input type="date" style={input} value={d.expires}
+                  onChange={e => set(i, 'expires', e.target.value)} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 const blankDeal = () => ({
   id: `deal-${Date.now()}`,
   badge: 'Special', title: '', price: '', priceNote: 'installed',
@@ -128,16 +239,23 @@ function DealRow({ deal, index, total, onChange, onMove, onDelete, onUpload, upl
 
 export default function DealsEditor() {
   const [deals, setDeals] = useState(null);
+  const [discounts, setDiscounts] = useState([]);
   const [meta, setMeta] = useState({});
+  const [discountMeta, setDiscountMeta] = useState({});
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(null);
   const [uploadingIndex, setUploadingIndex] = useState(null);
   const [error, setError] = useState(null);
   const [flash, setFlash] = useState(null);
 
-  const load = () => api.get('/website/content/deals').then(r => {
-    setDeals(r.data.draft || []);
-    setMeta(r.data);
+  const load = () => Promise.all([
+    api.get('/website/content/deals'),
+    api.get('/website/content/calculator_discounts'),
+  ]).then(([d, c]) => {
+    setDeals(d.data.draft || []);
+    setMeta(d.data);
+    setDiscounts(discountRows(c.data.draft));
+    setDiscountMeta(c.data);
     setDirty(false);
   });
 
@@ -145,6 +263,7 @@ export default function DealsEditor() {
 
   const say = (msg) => { setFlash(msg); setTimeout(() => setFlash(null), 3000); };
   const edit = (next) => { setDeals(next); setDirty(true); setError(null); };
+  const editDiscounts = (next) => { setDiscounts(next); setDirty(true); setError(null); };
 
   const updateAt = (i, deal) => edit(deals.map((d, n) => (n === i ? deal : d)));
   const move = (i, dir) => {
@@ -173,22 +292,30 @@ export default function DealsEditor() {
     } finally { setUploadingIndex(null); }
   }
 
+  // The deals and the discounts are separate content records but one piece of
+  // work on this tab, so the buttons act on both.
   async function save() {
     setBusy('save'); setError(null);
     try {
-      const { data } = await api.put('/website/content/deals', { value: deals });
-      setMeta(data); setDirty(false); say('Draft saved');
+      const [d, c] = await Promise.all([
+        api.put('/website/content/deals', { value: deals }),
+        api.put('/website/content/calculator_discounts', { value: discounts.map(toStoredDiscount) }),
+      ]);
+      setMeta(d.data); setDiscountMeta(c.data); setDirty(false); say('Draft saved');
     } catch (e) { setError(e.response?.data?.error || 'Could not save'); }
     finally { setBusy(null); }
   }
 
   async function publish() {
     if (dirty) { setError('Save your draft before publishing.'); return; }
-    if (!confirm('Publish these deals to dekkerair.co.nz? They go live immediately.')) return;
+    if (!confirm('Publish these deals and discounts to dekkerair.co.nz? They go live immediately.')) return;
     setBusy('publish'); setError(null);
     try {
-      const { data } = await api.post('/website/content/deals/publish');
-      setMeta(data); say('Published — live on the website now');
+      const [d, c] = await Promise.all([
+        api.post('/website/content/deals/publish'),
+        api.post('/website/content/calculator_discounts/publish'),
+      ]);
+      setMeta(d.data); setDiscountMeta(c.data); say('Published — live on the website now');
     } catch (e) { setError(e.response?.data?.error || 'Could not publish'); }
     finally { setBusy(null); }
   }
@@ -197,7 +324,10 @@ export default function DealsEditor() {
     if (!confirm('Discard your unpublished edits and go back to what is live?')) return;
     setBusy('discard');
     try {
-      await api.post('/website/content/deals/revert');
+      await Promise.all([
+        api.post('/website/content/deals/revert'),
+        api.post('/website/content/calculator_discounts/revert'),
+      ]);
       await load(); say('Edits discarded');
     } catch { setError('Could not discard'); }
     finally { setBusy(null); }
@@ -205,7 +335,7 @@ export default function DealsEditor() {
 
   if (!deals) return <div style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>{error || 'Loading…'}</div>;
 
-  const unpublished = dirty || meta.hasUnpublishedChanges;
+  const unpublished = dirty || meta.hasUnpublishedChanges || discountMeta.hasUnpublishedChanges;
   const previewUrl = meta.previewToken ? `${SITE_URL}/deals?preview=${meta.previewToken}` : null;
 
   return (
@@ -251,6 +381,8 @@ export default function DealsEditor() {
         anyone else seeing them; <strong>Publish</strong> makes them live. A deal with an end date
         disappears from the site by itself the day after it passes.
       </p>
+
+      <DiscountsCard rows={discounts} onChange={editDiscounts} />
 
       {deals.map((deal, i) => (
         <DealRow key={deal.id || i} deal={deal} index={i} total={deals.length}

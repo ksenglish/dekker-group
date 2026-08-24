@@ -9,13 +9,14 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const content = require('../services/websiteContent');
 const media = require('../services/websiteMedia');
 const publishing = require('../services/websitePublish');
+const discounts = require('../utils/calculatorDiscounts');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 router.use(authenticate);
 
 // Only keys the app knows how to edit — stops arbitrary content keys appearing.
-const EDITABLE_KEYS = ['deals'];
+const EDITABLE_KEYS = ['deals', discounts.CONTENT_KEY];
 const checkKey = (req, res, next) =>
   EDITABLE_KEYS.includes(req.params.key) ? next() : res.status(404).json({ error: 'Unknown content' });
 
@@ -46,7 +47,10 @@ function normaliseDeals(input) {
   });
 }
 
-const NORMALISERS = { deals: normaliseDeals };
+const NORMALISERS = {
+  deals: normaliseDeals,
+  [discounts.CONTENT_KEY]: discounts.normalise,
+};
 
 const shape = row => ({
   key: row.key,
