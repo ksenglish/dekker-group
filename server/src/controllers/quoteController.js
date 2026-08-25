@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const pool = require('../db/pool');
 const { findJobType } = require('../services/jobTypes');
 const { normaliseRole } = require('../middleware/auth');
@@ -516,7 +517,7 @@ async function enrichItemsForPublic(items, token) {
   if (!ids.length) return items;
 
   const { rows } = await pool.query(
-    `SELECT id, media_base64, media_key,
+    `SELECT id, media_base64, media_key, brochure_key, brochure_hash,
             (brochure_key IS NOT NULL OR brochure_base64 IS NOT NULL) AS has_brochure
        FROM products WHERE id = ANY($1)`,
     [ids]
@@ -527,6 +528,7 @@ async function enrichItemsForPublic(items, token) {
     map[row.id] = {
       media_base64: await fileStore.readDataUrl({ key: row.media_key, inline: row.media_base64 }),
       brochure_url: row.has_brochure ? `/api/quotes/public/${token}/brochures/${row.id}` : null,
+      brochure_hash: row.has_brochure ? await brochureHash(row) : null,
     };
   }
 
@@ -534,7 +536,28 @@ async function enrichItemsForPublic(items, token) {
     ...i,
     media_base64: i.product_id ? (map[i.product_id]?.media_base64 || null) : null,
     brochure_url: i.product_id ? (map[i.product_id]?.brochure_url || null) : null,
+    // Lets the page collapse one brochure shared across several products —
+    // the URL can't, since it's keyed per product.
+    brochure_hash: i.product_id ? (map[i.product_id]?.brochure_hash || null) : null,
   }));
+}
+
+// Migration 087 hashes brochures held inline; ones in object storage are done
+// here, once, the first time they're needed. After that it's a column read, so
+// the bytes never get pulled just to compare two brochures.
+async function brochureHash(row) {
+  if (row.brochure_hash) return row.brochure_hash;
+  if (!row.brochure_key) return null;
+  try {
+    const buffer = await fileStore.getObjectBuffer(row.brochure_key);
+    const hash = crypto.createHash('md5').update(buffer).digest('hex');
+    await pool.query('UPDATE products SET brochure_hash=$1 WHERE id=$2', [hash, row.id]);
+    return hash;
+  } catch {
+    // Falling back to null just means this one isn't deduped — better than
+    // failing the whole quote page over a brochure we couldn't read.
+    return null;
+  }
 }
 
 // Unauthenticated like the rest of the public quote, but joined through the

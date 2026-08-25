@@ -76,15 +76,19 @@ export default function PublicQuote() {
   const isExpired = quote.is_expired;
   const hasThumb = quote.line_items?.some(i => i.media_base64);
   const jobNumber = jobNumberDisplay(quote);
-  // Two line items for the same product share a brochure, so it is shown once.
-  // Deduped on the URL, which is per product — previously on the first 80
-  // characters of the data URL, which amounted to the same thing.
+  // A brochure is shown once, however many line items point at it. Deduped on
+  // the brochure's content hash rather than its URL: one sheet often covers a
+  // whole range (the Mitsubishi AP Classic brochure sits on the AP25, AP50,
+  // AP71…), and the URL is per product, so quoting two models off one brochure
+  // used to render it twice. Falls back to the URL if a hash is unavailable,
+  // which is the old behaviour.
   const brochures = (() => {
     const seen = new Set();
     return (quote.line_items || []).filter(i => {
       if (!i.brochure_url) return false;
-      if (seen.has(i.brochure_url)) return false;
-      seen.add(i.brochure_url); return true;
+      const key = i.brochure_hash || i.brochure_url;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
     });
   })();
 
