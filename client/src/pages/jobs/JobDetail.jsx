@@ -297,6 +297,94 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
 
 // Applies to the stored payload, after downscaling — not the file on disk.
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+// A HEIC can't be downscaled in the browser, so it goes up whole for the
+// server to convert. Well under the server's 15MB body limit once base64
+// inflates it by a third.
+const MAX_RAW_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+// Full-screen photo viewer that steps through the job's other photos rather
+// than making you close and reopen each one. Tracked by attachment id, not
+// index, so deleting a photo elsewhere can't shift what's on screen.
+function PhotoLightbox({ photos, fileUrls, openId, onChange, onClose }) {
+  const index = photos.findIndex(p => p.id === openId);
+  const current = index >= 0 ? photos[index] : null;
+  const hasPrev = index > 0;
+  const hasNext = index >= 0 && index < photos.length - 1;
+
+  const go = useCallback(step => {
+    const next = photos[index + step];
+    if (next) onChange(next.id);
+  }, [photos, index, onChange]);
+
+  // Arrow keys and Escape, so it's usable from a laptop as well as a phone
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'ArrowLeft') go(-1);
+      else if (e.key === 'ArrowRight') go(1);
+      else if (e.key === 'Escape') onClose();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [go, onClose]);
+
+  // Swipe, which is how anyone on site will actually move between photos
+  const touchX = useRef(null);
+  function onTouchStart(e) { touchX.current = e.changedTouches[0].clientX; }
+  function onTouchEnd(e) {
+    if (touchX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchX.current;
+    touchX.current = null;
+    if (Math.abs(dx) > 50) go(dx > 0 ? -1 : 1);
+  }
+
+  if (!current) return null;
+  const url = fileUrls[current.id];
+
+  const navBtn = side => ({
+    position: 'absolute', [side]: 8, top: '50%', transform: 'translateY(-50%)',
+    width: 46, height: 46, borderRadius: '50%', border: 'none',
+    background: 'rgba(255,255,255,0.18)', color: 'white', fontSize: 22,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  });
+
+  return (
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 9999,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+    >
+      <button onClick={onClose} title="Close"
+        style={{ position: 'absolute', top: 12, right: 12, width: 40, height: 40, borderRadius: '50%',
+          border: 'none', background: 'rgba(255,255,255,0.18)', color: 'white', fontSize: 18, cursor: 'pointer' }}>✕</button>
+
+      {photos.length > 1 && (
+        <div style={{ position: 'absolute', top: 18, left: 0, right: 0, textAlign: 'center',
+          color: 'rgba(255,255,255,0.85)', fontSize: 13, pointerEvents: 'none' }}>
+          {index + 1} of {photos.length}
+        </div>
+      )}
+
+      {hasPrev && (
+        <button onClick={() => go(-1)} title="Previous photo" style={navBtn('left')}>‹</button>
+      )}
+      {hasNext && (
+        <button onClick={() => go(1)} title="Next photo" style={navBtn('right')}>›</button>
+      )}
+
+      {url
+        ? <img src={url} alt={current.filename} style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} />
+        : <span style={{ color: 'white', fontSize: 13 }}>Loading…</span>}
+
+      <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, textAlign: 'center',
+        color: 'rgba(255,255,255,0.75)', fontSize: 12, pointerEvents: 'none', padding: '0 20px' }}>
+        {current.filename}
+        {current.uploader_name ? ` · ${current.uploader_name}` : ''}
+      </div>
+    </div>
+  );
+}
 
 function JobAttachments({ jobId, user, category = 'pre_install' }) {
   const [attachments, setAttachments] = useState([]);
@@ -345,8 +433,12 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
           // Downscale first, then check the size. A 12MB phone photo comes out
           // a few hundred KB, so the limit applies to what's actually stored
           // rather than rejecting photos that would have fit comfortably.
-          const { dataUrl, mimeType, bytes } = await compressImage(file);
-          if (bytes > MAX_ATTACHMENT_BYTES) {
+          const { dataUrl, mimeType, bytes, serverWillConvert } = await compressImage(file);
+          // A photo the browser couldn't downscale (HEIC) is sent as-is and
+          // converted server-side, so it gets the larger raw allowance rather
+          // than being judged against the post-compression limit it can't meet.
+          const limit = serverWillConvert ? MAX_RAW_UPLOAD_BYTES : MAX_ATTACHMENT_BYTES;
+          if (bytes > limit) {
             tooBig.push(file.name);
           } else {
             const { data } = await api.post(`/jobs/${jobId}/attachments`, {
@@ -364,7 +456,7 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
       setUploadProgress(null);
     }
     if (tooBig.length) {
-      alert(`Skipped ${tooBig.length} file${tooBig.length === 1 ? '' : 's'} still over 5MB after compression:\n${tooBig.join('\n')}`);
+      alert(`Skipped ${tooBig.length} file${tooBig.length === 1 ? '' : 's'} — too large to upload:\n${tooBig.join('\n')}`);
     }
     if (failed.length) alert(`Failed to upload:\n${failed.join('\n')}`);
   }
@@ -384,7 +476,7 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
             : '📷 Upload Photos'}
           <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFile} disabled={uploading} />
         </label>
-        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>JPG, PNG or WebP · max 5MB each · select several at once</span>
+        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>JPG, PNG, WebP or iPhone HEIC · select several at once</span>
       </div>
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        attachments.length === 0 ? <div className={styles.emptySmall}>No photos uploaded yet.</div> : (
@@ -400,7 +492,7 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
                       src={fileUrl}
                       alt={a.filename}
                       style={{ width: '100%', height: 120, objectFit: 'cover', cursor: 'pointer', display: 'block' }}
-                      onClick={() => setLightbox(fileUrl)}
+                      onClick={() => setLightbox(a.id)}
                     />
                   ) : (
                     <div style={{ width: '100%', height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc' }}>
@@ -427,9 +519,13 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
         </div>
       )}
       {lightbox && (
-        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, cursor: 'zoom-out' }}>
-          <img src={lightbox} alt="" style={{ maxWidth: '100%', maxHeight: '90vh', borderRadius: 8, boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }} />
-        </div>
+        <PhotoLightbox
+          photos={attachments.filter(a => (a.mime_type || '').startsWith('image/'))}
+          fileUrls={fileUrls}
+          openId={lightbox}
+          onChange={setLightbox}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </div>
   );

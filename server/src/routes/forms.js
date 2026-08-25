@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
 const fileStore = require('../services/fileStore');
+const { normaliseImageDataUrl, normaliseFilename } = require('../utils/normaliseUpload');
 
 // Keep in step with FIELD_TYPES in client/src/lib/formFields.js
 const FIELD_TYPES = ['section', 'text', 'textarea', 'number', 'date', 'select', 'checkbox', 'yesno', 'signoff', 'photo'];
@@ -118,9 +119,13 @@ router.post('/photos', async (req, res) => {
   const { filename, data_base64 } = req.body;
   if (!data_base64) return res.status(400).json({ error: 'No image supplied' });
   try {
-    const stored = await fileStore.storeDataUrl({ prefix: 'form-photos', filename, dataUrl: data_base64 });
-    if (stored) return res.json({ key: stored.key, filename: filename || 'photo', contentType: stored.contentType });
-    res.json({ inline: data_base64, filename: filename || 'photo' });
+    // HEIC from an iPhone can't be downscaled or displayed by a browser —
+    // convert to JPEG on the way in. See utils/normaliseUpload.
+    const normalised = await normaliseImageDataUrl(data_base64);
+    const name = normaliseFilename(filename, normalised.converted) || 'photo';
+    const stored = await fileStore.storeDataUrl({ prefix: 'form-photos', filename: name, dataUrl: normalised.dataUrl });
+    if (stored) return res.json({ key: stored.key, filename: name, contentType: stored.contentType });
+    res.json({ inline: normalised.dataUrl, filename: name });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Upload failed' }); }
 });
 

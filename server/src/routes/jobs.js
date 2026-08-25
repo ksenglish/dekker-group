@@ -4,6 +4,7 @@ const c = require('../controllers/jobController');
 const { importTradify, backfillTradifyTime } = require('../controllers/importController');
 const { authenticate, requireRole, authenticateAutomation } = require('../middleware/auth');
 const arcsite = require('../utils/arcsite');
+const { normaliseImageDataUrl, normaliseFilename } = require('../utils/normaliseUpload');
 const { htmlToText } = require('../utils/sanitizeHtml');
 const fileStore = require('../services/fileStore');
 
@@ -415,17 +416,22 @@ router.post('/:id/attachments', async (req, res) => {
   const { filename, mime_type, data_base64, category } = req.body;
   if (!data_base64 || !filename) return res.status(400).json({ error: 'filename and data_base64 required' });
   try {
-    const contentType = mime_type || 'image/jpeg';
-    const buffer = Buffer.from(fileStore.stripDataUrl(data_base64), 'base64');
+    // iPhone HEICs arrive uncompressed — no browser outside Safari can decode
+    // them, so the client couldn't downscale them. Converted to JPEG here.
+    const normalised = await normaliseImageDataUrl(data_base64);
+    const storedDataUrl = normalised.dataUrl;
+    const storedName = normaliseFilename(filename, normalised.converted);
+    const contentType = normalised.mimeType || mime_type || 'image/jpeg';
+    const buffer = Buffer.from(fileStore.stripDataUrl(storedDataUrl), 'base64');
     const storageKey = fileStore.isConfigured()
-      ? await fileStore.putObject({ prefix: `jobs/${req.params.id}/photos`, filename, buffer, contentType })
+      ? await fileStore.putObject({ prefix: `jobs/${req.params.id}/photos`, filename: storedName, buffer, contentType })
       : null;
 
     const { rows } = await pool.query(
       `INSERT INTO job_attachments
          (job_id, uploaded_by, filename, mime_type, data_base64, category, storage_key, size_bytes)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, filename, mime_type, created_at, category`,
-      [req.params.id, req.user.id, filename, contentType, storageKey ? null : data_base64,
+      [req.params.id, req.user.id, storedName, contentType, storageKey ? null : storedDataUrl,
        category === 'post_install' ? 'post_install' : 'pre_install', storageKey, buffer.length]
     );
     res.status(201).json(rows[0]);

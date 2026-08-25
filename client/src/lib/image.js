@@ -57,7 +57,19 @@ export function isImage(file) {
   return (file?.type || '').startsWith('image/');
 }
 
-// Returns { dataUrl, mimeType, compressed, originalBytes, bytes }.
+// iPhones shoot HEIC. Only Safari can decode it, so drawing one into a canvas
+// fails everywhere else and the file comes back untouched — which used to mean
+// a 6MB photo hit the size limit and got skipped. These are handed straight to
+// the server, which converts them with sharp.
+export function needsServerConversion(file) {
+  const type = (file?.type || '').toLowerCase();
+  if (/hei[cf]/.test(type)) return true;
+  // Android often reports an empty or generic type for a HEIC, so fall back
+  // to the extension.
+  return /\.(heic|heif|hif)$/i.test(file?.name || '');
+}
+
+// Returns { dataUrl, mimeType, compressed, serverWillConvert, originalBytes, bytes }.
 // Never throws — on any failure the untouched original comes back, because
 // losing someone's site photo to a resize bug is far worse than storing it big.
 export async function compressImage(file, { maxEdge = MAX_PHOTO_EDGE, quality = DEFAULT_QUALITY } = {}) {
@@ -67,14 +79,18 @@ export async function compressImage(file, { maxEdge = MAX_PHOTO_EDGE, quality = 
     dataUrl: original,
     mimeType: sourceType,
     compressed: false,
+    serverWillConvert: false,
     originalBytes: dataUrlBytes(original),
     bytes: dataUrlBytes(original),
   };
+  if (needsServerConversion(file)) return { ...result, serverWillConvert: true };
   if (!sourceType.startsWith('image/') || SKIP_TYPES.has(sourceType)) return result;
 
   try {
     const img = await loadImage(original);
-    if (!img.width || !img.height) return result;
+    // A format the browser can't decode (some HEICs report as image/*) — let
+    // the server deal with it rather than skipping the photo.
+    if (!img.width || !img.height) return { ...result, serverWillConvert: true };
 
     const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
     const canvas = document.createElement('canvas');
@@ -97,7 +113,8 @@ export async function compressImage(file, { maxEdge = MAX_PHOTO_EDGE, quality = 
       bytes: dataUrlBytes(out),
     };
   } catch {
-    return result;
+    // Decode failed outright — same story, hand it to the server.
+    return { ...result, serverWillConvert: true };
   }
 }
 
