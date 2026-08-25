@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { useUnsavedChanges } from '../../context/UnsavedChangesContext';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import EmailComposeModal from './EmailComposeModal';
 import AttachJobModal from './AttachJobModal';
@@ -25,6 +26,7 @@ const ACTIVITY_LABELS = {
   quote_email_opened: 'Quote email opened',
   quote_viewed: 'Quote viewed',
   quote_accepted: 'Quote accepted',
+  quote_reset_to_draft: 'Quote reset to draft',
 };
 function activityLabel(type) { return ACTIVITY_LABELS[type] || type; }
 
@@ -32,6 +34,7 @@ export default function QuoteDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { setGuard } = useUnsavedChanges();
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -60,9 +63,12 @@ export default function QuoteDetail() {
   });
   // null until the quote has loaded, so the first render can't look "unsaved".
   const savedDetailsRef = useRef(null);
-  const detailsTimer = useRef(null);
   const hasUnsavedDetails = savedDetailsRef.current !== null
     && savedDetailsRef.current !== detailsSnapshot;
+
+  // Once a quote is approved it may be in front of the customer, so the editor
+  // is read-only until someone deliberately resets it to draft.
+  const isLocked = ['approved', 'sent', 'accepted'].includes(quote?.status);
 
   function loadActivity() {
     api.get(`/quotes/${id}/activity`).then(r => setActivity(r.data)).catch(() => {});
@@ -90,23 +96,22 @@ export default function QuoteDetail() {
     loadActivity();
   }, [id]);
 
-  // Autosave the details block a short while after typing stops. Silent —
-  // a toast on every pause would be noise; the status line carries it instead.
-  useEffect(() => {
-    if (!hasUnsavedDetails || savingDetails || !quote) return;
-    clearTimeout(detailsTimer.current);
-    detailsTimer.current = setTimeout(() => handleSaveDetails({ silent: true }), 1500);
-    return () => clearTimeout(detailsTimer.current);
-  }, [detailsSnapshot, hasUnsavedDetails, savingDetails, quote]);
-
-  // Backstop for the gap between the last keystroke and the save landing, and
-  // for a save that failed. Closing the tab is the case autosave can't cover.
+  // Editing is explicit now — no autosave. Two guards catch an unsaved exit:
+  // beforeunload for closing or reloading the tab, and the shared unsaved-work
+  // guard for navigating elsewhere inside the app.
   useEffect(() => {
     if (!hasUnsavedDetails) return;
     const warn = e => { e.preventDefault(); e.returnValue = ''; };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [hasUnsavedDetails]);
+
+  useEffect(() => {
+    setGuard(hasUnsavedDetails
+      ? () => confirm('This quote has unsaved changes. Leave without saving?')
+      : null);
+    return () => setGuard(null);
+  }, [hasUnsavedDetails, setGuard]);
 
   // Keyed on the job rather than loaded alongside the quote, so a quote that
   // only gets its job later picks up that job's drawings straight away.
@@ -161,13 +166,18 @@ export default function QuoteDetail() {
     finally { setSaving(false); }
   }
 
-  async function handleSaveDetails({ silent = false } = {}) {
-    clearTimeout(detailsTimer.current);
+  // notesOverride is for the add-product path, which sets notes and saves in
+  // the same tick — React state hasn't flushed by then, so the new wording has
+  // to be passed in rather than read back out of state.
+  async function handleSaveDetails({ silent = false, notesOverride } = {}) {
+    const notesToSave = notesOverride !== undefined ? notesOverride : notes;
     setSavingDetails(true);
     try {
-      const snapshot = detailsSnapshot;
+      const snapshot = JSON.stringify({
+        notes: notesToSave, themeId, quoteDate, expiresAt, attachmentIds: [...attachmentIds].sort(),
+      });
       const { data } = await api.put(`/quotes/${id}`, {
-        status: quote.status, notes, theme_id: themeId || null,
+        status: quote.status, notes: notesToSave, theme_id: themeId || null,
         quote_date: quoteDate || null, expires_at: expiresAt || null,
         attachment_ids: attachmentIds,
       });
@@ -223,19 +233,32 @@ export default function QuoteDetail() {
     // presenter's wins when it has one, since that's the curated sales copy.
     const wording = product.presenter_description || product.quote_description
     const addition = (wording || '').trim();
-    if (addition) {
-      const combined = appendDescription(notes, addition);
-      setNotes(combined);
-      try {
-        await api.put(`/quotes/${id}`, {
-          status: quote.status, notes: combined, theme_id: themeId || null,
-          quote_date: quoteDate || null, expires_at: expiresAt || null,
-          attachment_ids: attachmentIds,
-        });
-      } catch {
-        flash('error', 'Product added, but its description could not be saved — press Save Quote Details.');
-      }
+    // Adding a product is the one path that still saves the details block for
+    // you — the line items have already been written, so leaving the wording
+    // (and anything else typed) unsaved beside them would be the worst of both.
+    const combined = addition ? appendDescription(notes, addition) : notes;
+    if (addition) setNotes(combined);
+    try {
+      await handleSaveDetails({ silent: true, notesOverride: combined });
+    } catch {
+      flash('error', 'Product added, but the quote details could not be saved — press Save Quote Details.');
     }
+  }
+
+  async function handleResetToDraft() {
+    if (!confirm(
+      `This quote is ${quote.status} and may already be with the customer. `
+      + 'Reset it to draft so it can be edited again?'
+    )) return;
+    setSaving(true);
+    try {
+      const { data } = await api.post(`/quotes/${id}/reset-to-draft`);
+      setQuote(q => ({ ...q, ...data }));
+      flash('success', 'Quote reset to draft — it can be edited again');
+      loadActivity();
+    } catch (err) {
+      flash('error', err.response?.data?.error || 'Failed to reset this quote');
+    } finally { setSaving(false); }
   }
 
   async function handleSaveLineItems(lineItems) {
@@ -305,12 +328,17 @@ export default function QuoteDetail() {
           <button className={styles.btnSecondary} onClick={() => navigate(quote.job_id ? `/jobs/${quote.job_id}` : '/quotes')}>
             ← Back{quote.job_id ? ' to Job' : ''}
           </button>
-          {quote.status !== 'accepted' && (
+          {isLocked && (
+            <button className={styles.btnSecondary} onClick={handleResetToDraft} disabled={saving}>
+              ↩ Reset to Draft
+            </button>
+          )}
+          {!isLocked && (
             <button className={styles.btnSecondary} onClick={() => setShowPresenter(true)}>
               🎯 Sales Presenter
             </button>
           )}
-          {quote.status !== 'accepted' && (
+          {!isLocked && (
             <button className={styles.btnSecondary} onClick={() => setShowPriceList(true)}>
               🏷 Price List
             </button>
@@ -461,7 +489,7 @@ export default function QuoteDetail() {
             <LineItemsEditor
               items={items}
               onSave={handleSaveLineItems}
-              readonly={quote.status === 'accepted'}
+              readonly={isLocked}
             />
             <div className={styles.totalsBlock}>
               <div className={styles.totalRow}><span>Subtotal</span><span>${(quote.subtotal/100).toFixed(2)}</span></div>
@@ -548,16 +576,20 @@ export default function QuoteDetail() {
           and Approve are always reachable. */}
       <div className={styles.actionBar}>
         <div className={styles.actionBarInner}>
-          <span className={styles.actionBarHint}>
-            {savingDetails ? 'Saving…'
-              : hasUnsavedDetails ? 'Unsaved changes — saving shortly…'
+          <span className={styles.actionBarHint} style={hasUnsavedDetails ? { color: '#b45309', fontWeight: 600 } : undefined}>
+            {isLocked ? `This quote is ${quote.status} — reset it to draft to make changes`
+              : savingDetails ? 'Saving…'
+              : hasUnsavedDetails ? '● Unsaved changes'
               : detailsSavedAt ? `Saved ${new Date(detailsSavedAt).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' })}`
-              : 'Details, description and attachments save automatically'}
+              : 'All changes saved'}
           </span>
           <div className={styles.actionBarButtons}>
-            <button className={styles.btnSecondary} onClick={() => handleSaveDetails()} disabled={savingDetails}>
-              {savingDetails ? 'Saving…' : 'Save Now'}
-            </button>
+            {!isLocked && (
+              <button className={hasUnsavedDetails ? styles.btnPrimary : styles.btnSecondary}
+                onClick={() => handleSaveDetails()} disabled={savingDetails || !hasUnsavedDetails}>
+                {savingDetails ? 'Saving…' : hasUnsavedDetails ? 'Save Changes' : 'Saved'}
+              </button>
+            )}
             {quote.status === 'draft' && (
               <button className={styles.btnPrimary} onClick={handleApprove} disabled={saving}>
                 {saving ? 'Approving…' : '✓ Approve Quote'}

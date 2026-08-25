@@ -20,6 +20,7 @@ router.get('/:id', c.get);
 router.put('/:id', c.update);
 router.put('/:id/line-items', c.updateLineItems);
 router.post('/:id/approve', c.approve);
+router.post('/:id/reset-to-draft', c.resetToDraft);
 router.post('/:id/job', c.attachJob);
 router.delete('/:id', c.remove);
 router.post('/:id/convert', c.convertToInvoice);

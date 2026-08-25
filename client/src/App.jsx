@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { UnsavedChangesProvider } from './context/UnsavedChangesContext';
 import LoginPage from './pages/auth/LoginPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import SetPasswordPage from './pages/auth/SetPasswordPage';
@@ -22,6 +23,7 @@ function PublicRoute({ children }) {
 export default function App() {
   return (
     <AuthProvider>
+      <UnsavedChangesProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
@@ -35,6 +37,7 @@ export default function App() {
           } />
         </Routes>
       </BrowserRouter>
+      </UnsavedChangesProvider>
     </AuthProvider>
   );
 }

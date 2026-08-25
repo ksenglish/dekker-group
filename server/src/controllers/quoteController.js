@@ -29,6 +29,17 @@ const ACCEPTANCE_DECLARATION =
 const OPEN_FOR_CUSTOMER = "('draft','approved','sent')";
 
 
+// Edits to a quote nobody has seen yet aren't worth recording — they were the
+// bulk of the activity log. Once a quote has been approved it may have gone to
+// the customer, so every change from then on is worth an audit trail. Resetting
+// to draft deliberately leaves approved_at in place, so edits made after a
+// reset are still logged.
+async function logIfApproved(quoteId, userId, message) {
+  const { rows } = await pool.query('SELECT approved_at FROM quotes WHERE id=$1', [quoteId]);
+  if (!rows[0]?.approved_at) return;
+  await logActivity({ type: 'quote_modified', entity_type: 'quote', entity_id: quoteId, user_id: userId, message });
+}
+
 function calcTotals(items) {
   const subtotal = items.reduce((s, i) => s + Math.round(i.unit_price * i.quantity), 0);
   const gst = Math.round(subtotal * 0.15);
@@ -236,7 +247,7 @@ async function update(req, res) {
       await syncJobLineItemsFromQuote(req.params.id, quote.rows[0].job_id);
       await advanceToSale(quote.rows[0].job_id);
     }
-    await logActivity({ type: 'quote_modified', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id, message: 'Quote modified' });
+    await logIfApproved(req.params.id, req.user?.id, 'Quote modified');
     res.json({ ...rows[0], attachment_ids: await getQuoteAttachmentIds(req.params.id) });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
@@ -262,7 +273,7 @@ async function updateLineItems(req, res) {
     const { subtotal, gst, total } = calcTotals(rows);
     await pool.query('UPDATE quotes SET subtotal=$1, gst=$2, total=$3, updated_at=NOW() WHERE id=$4',
       [subtotal, gst, total, req.params.id]);
-    await logActivity({ type: 'quote_modified', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id, message: 'Quote line items updated' });
+    await logIfApproved(req.params.id, req.user?.id, 'Quote line items updated');
     res.json({ line_items: rows, subtotal, gst, total });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -348,6 +359,30 @@ async function approve(req, res) {
     await logActivity({ type: 'quote_approved', entity_type: 'quote', entity_id: req.params.id, user_id: req.user.id, message: 'Quote approved' });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
+// Deliberately explicit: once a quote is approved, sent or accepted it may be
+// in front of the customer, so editing is locked until someone consciously
+// pulls it back to draft. approved_at is left in place — it's what marks the
+// quote as having been out, and keeps later edits in the activity log.
+async function resetToDraft(req, res) {
+  try {
+    const { rows: [quote] } = await pool.query('SELECT status FROM quotes WHERE id=$1', [req.params.id]);
+    if (!quote) return res.status(404).json({ error: 'Quote not found' });
+    if (quote.status === 'draft') return res.status(400).json({ error: 'This quote is already a draft' });
+    if (!['approved', 'sent', 'accepted'].includes(quote.status)) {
+      return res.status(400).json({ error: `A ${quote.status} quote can't be reset to draft` });
+    }
+    const { rows } = await pool.query(
+      `UPDATE quotes SET status='draft', updated_at=NOW() WHERE id=$1 RETURNING *`,
+      [req.params.id]
+    );
+    await logActivity({
+      type: 'quote_reset_to_draft', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id,
+      message: `Quote reset to draft from ${quote.status}`,
+    });
+    res.json({ ...rows[0], attachment_ids: await getQuoteAttachmentIds(req.params.id) });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
 // Admins can delete any quote; everyone else only the ones they raised.
@@ -1001,4 +1036,4 @@ async function getActivity(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, updateLineItems, remove, approve, attachJob, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, publicDrawing, publicBrochure, getActivity };
+module.exports = { list, get, create, update, resetToDraft, updateLineItems, remove, approve, attachJob, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, publicDrawing, publicBrochure, getActivity };

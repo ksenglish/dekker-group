@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useUnsavedChanges } from '../../context/UnsavedChangesContext';
 import api from '../../lib/api';
 import Dashboard from '../../pages/Dashboard';
 import CustomerList from '../../pages/customers/CustomerList';
@@ -68,8 +69,14 @@ const ADMIN_ITEMS = [
 
 export default function AppShell() {
   const { user, logout } = useAuth();
+  const { confirmLeave } = useUnsavedChanges();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // A page holding unsaved work (the quote editor) gets to ask first.
+  function guardNav(e) {
+    if (!confirmLeave()) e.preventDefault();
+  }
   const isPresenter = location.pathname === '/presenter';
   const [openLeads, setOpenLeads] = useState(0);
   const [inboxCount, setInboxCount] = useState(0);
@@ -150,6 +157,7 @@ export default function AppShell() {
               key={item.to}
               to={item.to}
               end={item.exact}
+              onClick={guardNav}
               className={({ isActive }) =>
                 `${styles.navItem} ${isActive ? styles.navItemActive : ''}`
               }
@@ -176,6 +184,7 @@ export default function AppShell() {
                 <NavLink
                   key={item.to}
                   to={item.to}
+                  onClick={guardNav}
                   className={({ isActive }) =>
                     `${styles.navItem} ${isActive ? styles.navItemActive : ''}`
                   }
