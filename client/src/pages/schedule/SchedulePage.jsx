@@ -12,6 +12,7 @@ import { isAdmin, canAct } from '../../lib/permissions';
 import AssignModal from './AssignModal';
 import AddNoteModal from './AddNoteModal';
 import DayColumnsView from './DayColumnsView';
+import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import styles from './Schedule.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
@@ -78,15 +79,23 @@ export default function SchedulePage() {
   // to a truthy value here would make every appointment fail the inDiary
   // check below and show nothing.
   const lockedDiary = ['sales', 'operations', 'subcontractor'].includes(user?.role) ? user.role : null;
-  const [filterTech, setFilterTech] = useState('');
   const viewKey = user ? `schedule_view_${user.id}` : 'schedule_view';
   const dateKey = user ? `schedule_date_${user.id}` : 'schedule_date';
   const diaryKey = user ? `schedule_diary_${user.id}` : 'schedule_diary';
-  // Diary filter, view (Day vs Month/Week — and which of those two), and the
-  // last-viewed date all persist per-user so leaving and returning to the
-  // Schedule tab picks up where you left off instead of resetting to
-  // Today/All every time.
+  const techKey = user ? `schedule_techs_${user.id}` : 'schedule_techs';
+  // Diary filter, team member selection, view (Day vs Month/Week — and which
+  // of those two), and the last-viewed date all persist per-user so leaving
+  // and returning to the Schedule tab picks up where you left off instead of
+  // resetting to Today/All every time.
   const [filterDiary, setFilterDiary] = useState(() => lockedDiary ? '' : (localStorage.getItem(diaryKey) || ''));
+  // Several team members can be shown at once. Empty means everyone, which is
+  // both the default and what clearing the selection gets you.
+  const [filterTechs, setFilterTechs] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(techKey));
+      return Array.isArray(saved) ? saved : [];
+    } catch { return []; }
+  });
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [selectedNote, setSelectedNote] = useState(null);
   const [notesDraft, setNotesDraft] = useState('');
@@ -158,6 +167,20 @@ export default function SchedulePage() {
   }, [filterDiary]);
 
   useEffect(() => {
+    localStorage.setItem(techKey, JSON.stringify(filterTechs));
+  }, [filterTechs]);
+
+  // Someone saved against the filter may since have been removed or made
+  // inactive. Drop them once the roster is known, so the count in the picker
+  // always matches the columns actually on screen.
+  useEffect(() => {
+    const ids = Object.keys(techMap);
+    if (!ids.length || !filterTechs.length) return;
+    const pruned = filterTechs.filter(id => ids.includes(id));
+    if (pruned.length !== filterTechs.length) setFilterTechs(pruned);
+  }, [techMap]);
+
+  useEffect(() => {
     if (isDayView) localStorage.setItem(dateKey, toDateStr(dayDate));
   }, [dayDate, isDayView]);
 
@@ -201,7 +224,7 @@ export default function SchedulePage() {
   // Recompute calendar events whenever the raw data, filters, status colours, or clock tick change
   useEffect(() => {
     const apptEvents = rawSchedules
-      .filter(s => !filterTech || s.user_id === filterTech)
+      .filter(s => !filterTechs.length || filterTechs.includes(s.user_id))
       .filter(s => inDiary(s.user_id))
       .map(s => {
         const d = s.scheduled_date.split('T')[0]; // strip Postgres timestamp
@@ -228,7 +251,7 @@ export default function SchedulePage() {
       });
 
     const noteEvents = rawNotes
-      .filter(n => !filterTech || n.user_id === filterTech)
+      .filter(n => !filterTechs.length || filterTechs.includes(n.user_id))
       .filter(n => inDiary(n.user_id))
       .map(n => {
         const d = n.occurrence_date;
@@ -249,7 +272,7 @@ export default function SchedulePage() {
 
     setFcEvents([...apptEvents, ...noteEvents]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawSchedules, rawNotes, filterTech, filterDiary, techDiaries, statusColours, nowTick]);
+  }, [rawSchedules, rawNotes, filterTechs, filterDiary, techDiaries, statusColours, nowTick]);
 
   // Persist a change to one appointment's date/time/team member — from the
   // custom Day view's drag/resize (notes aren't draggable, so schedId is always present here)
@@ -366,7 +389,7 @@ export default function SchedulePage() {
   // (hidden, for them) diary/team filters.
   const resources = Object.entries(techMap)
     .filter(([id]) => !lockedDiary || id === user.id)
-    .filter(([id]) => !filterTech || id === filterTech)
+    .filter(([id]) => !filterTechs.length || filterTechs.includes(id))
     .filter(([id]) => inDiary(id))
     .map(([id, name]) => ({ id, title: name }));
 
@@ -404,10 +427,20 @@ export default function SchedulePage() {
         </div>
         <div className={styles.headerActions}>
           {!lockedDiary && Object.keys(techMap).length > 0 && (
-            <select className={styles.filterSelect} value={filterTech} onChange={e => setFilterTech(e.target.value)}>
-              <option value="">All team members</option>
-              {Object.entries(techMap).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-            </select>
+            <div className={styles.techFilter}>
+              <TeamMemberMultiSelect
+                options={Object.entries(techMap).map(([id, name]) => ({ id, name }))}
+                selected={filterTechs}
+                onChange={setFilterTechs}
+                placeholder="All team members"
+              />
+              {filterTechs.length > 0 && (
+                <button type="button" className={styles.clearTechs} onClick={() => setFilterTechs([])}
+                  title="Show everyone again">
+                  Show all
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

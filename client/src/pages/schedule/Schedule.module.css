@@ -634,3 +634,13 @@
      is handled by the unconditional .dayView rule above) */
   .dayColumnHeader, .dayAllDayCell, .dayColumn { min-width: 120px; }
 }
+
+/* Team member filter — multi-select plus a quick way back to everyone */
+.techFilter { display: flex; align-items: center; gap: 8px; }
+.techFilter > :first-child { min-width: 210px; }
+.clearTechs {
+  padding: 7px 12px; font-size: 13px; font-family: inherit; white-space: nowrap;
+  background: none; border: 1px solid var(--color-border);
+  border-radius: var(--radius); cursor: pointer; color: var(--color-text-muted);
+}
+.clearTechs:hover { background: #f1f5f9; color: var(--color-text); }
