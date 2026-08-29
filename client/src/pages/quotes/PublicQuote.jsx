@@ -24,6 +24,9 @@ export default function PublicQuote() {
   const [searchParams] = useSearchParams();
   // Staff previewing from the quote editor — don't record it as a customer view.
   const isPreview = searchParams.get('preview') === '1';
+  // Per-recipient tracking id from the emailed link, so a view is recorded
+  // against whoever's copy it came from rather than assumed to be the customer.
+  const recipientId = searchParams.get('r') || '';
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState('');
@@ -36,11 +39,12 @@ export default function PublicQuote() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    axios.get(`${API}/quotes/public/${token}`, { params: isPreview ? { preview: '1' } : {} })
+    const params = isPreview ? { preview: '1' } : (recipientId ? { r: recipientId } : {});
+    axios.get(`${API}/quotes/public/${token}`, { params })
       .then(r => setQuote(r.data))
       .catch(() => setError('Quote not found or has expired.'))
       .finally(() => setLoading(false));
-  }, [token, isPreview]);
+  }, [token, isPreview, recipientId]);
 
   async function handleAccept(e) {
     e.preventDefault();

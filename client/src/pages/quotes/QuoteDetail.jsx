@@ -30,6 +30,15 @@ const ACTIVITY_LABELS = {
 };
 function activityLabel(type) { return ACTIVITY_LABELS[type] || type; }
 
+// Opens and views are recorded with no logged-in user, since nobody is signed
+// in when a customer reads a quote. The address responsible is written into the
+// message ("Quote email opened by someone@example.com"), so pull it back out
+// for the User column rather than labelling everything "Customer".
+function whoFromMessage(a) {
+  const m = /\b(?:opened|viewed) by (\S+@\S+)$/i.exec(a?.message || '');
+  return m ? m[1] : null;
+}
+
 export default function QuoteDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -538,7 +547,9 @@ export default function QuoteDetail() {
                   <div key={a.id} className={styles.activityDataRow}>
                     <span>{activityLabel(a.type)}</span>
                     <span>{new Date(a.created_at).toLocaleString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-                    <span>{a.user_name || 'Customer'}</span>
+                    {/* Opens and views have no logged-in user — the address
+                        that did it is carried in the message instead. */}
+                    <span title={a.message || ''}>{a.user_name || whoFromMessage(a) || 'Customer'}</span>
                   </div>
                 ))}
               </div>

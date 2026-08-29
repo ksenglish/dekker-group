@@ -739,9 +739,9 @@ async function sendEmail(req, res) {
     const buttonHtml = `<a href="${acceptUrl}" style="display:inline-block;background:${docTheme.brandColour || '#1e40af'};color:#ffffff;padding:12px 26px;border-radius:6px;text-decoration:none;font-weight:600;font-family:Arial,Helvetica,sans-serif;">View Quote</a>`;
     htmlBody = htmlBody.split(acceptUrl).join(buttonHtml);
 
-    // Open-tracking pixel — 1x1 gif, HTML only (plain-text fallback has no
-    // concept of it, which is normal/expected for text emails).
-    htmlBody += `<img src="${clientUrl}/api/quotes/public/${q.public_token}/pixel.gif" width="1" height="1" alt="" style="display:none;">`;
+    // The pixel and the View Quote link are stamped per recipient below, so an
+    // open can be traced to the address it came from rather than assumed to be
+    // the customer.
 
     const attachments = [{ filename: `quote-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }];
     const { attachment_ids } = req.body || {};
@@ -767,18 +767,37 @@ async function sendEmail(req, res) {
       }
     }
 
-    // The rep gets a blind copy so they have the quote as the customer received
-    // it, and sits on Reply-To alongside the sales inbox — a customer replying
+    // The rep still gets their own copy of exactly what the customer received,
+    // and sits on Reply-To alongside the sales inbox — a customer replying
     // reaches the person who knows the job, without the shared inbox losing it.
-    await sendMail({
-      to: q.customer_email,
-      subject,
-      html: htmlBody,
-      text: body,
-      attachments,
-      bcc: req.user?.email || null,
-      replyTo: [req.user?.email, SALES_EMAIL],
-    });
+    //
+    // Sent as two messages rather than one with a BCC: a BCC is byte-identical,
+    // so the rep's copy carried the customer's tracking pixel and their opening
+    // it was logged as the customer reading the quote. Separate messages let
+    // each copy carry its own tracking id.
+    const recipients = [{ email: q.customer_email, role: 'customer' }];
+    if (req.user?.email && req.user.email.toLowerCase() !== String(q.customer_email).toLowerCase()) {
+      recipients.push({ email: req.user.email, role: 'sender' });
+    }
+
+    for (const r of recipients) {
+      const { rows: [row] } = await pool.query(
+        `INSERT INTO quote_email_recipients (quote_id, email, role) VALUES ($1,$2,$3) RETURNING id`,
+        [req.params.id, r.email, r.role]
+      );
+      // Same body, but the link and pixel carry this recipient's id
+      const trackedUrl = `${acceptUrl}?r=${row.id}`;
+      const html = htmlBody.split(acceptUrl).join(trackedUrl)
+        + `<img src="${clientUrl}/api/quotes/public/${q.public_token}/pixel.gif?r=${row.id}" width="1" height="1" alt="" style="display:none;">`;
+      await sendMail({
+        to: r.email,
+        subject,
+        html,
+        text: body.split(acceptUrl).join(trackedUrl),
+        attachments,
+        replyTo: [req.user?.email, SALES_EMAIL],
+      });
+    }
     await pool.query('UPDATE quotes SET status=\'sent\', delivery_status=\'sent\', sent_at=NOW(), updated_at=NOW() WHERE id=$1', [req.params.id]);
     await logActivity({ type: 'quote_sent', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id,
       message: `Quote emailed to ${q.customer_email} ($${(q.total/100).toFixed(2)})` });
@@ -803,11 +822,22 @@ async function publicGet(req, res) {
     // link and Copy Link both omit the flag, so genuine views still record.
     const isPreview = req.query.preview === '1';
     if (!isPreview) {
-      // Mark as viewed if it was only sent/opened before
-      if (q.delivery_status === 'sent' || q.delivery_status === 'opened') {
+      const who = await identifyRecipient(req.params.token, req.query.r);
+      // The rep following the link in their own copy isn't the customer
+      // reading it, so it doesn't advance the delivery status.
+      if (who.role !== 'sender' && (q.delivery_status === 'sent' || q.delivery_status === 'opened')) {
         await pool.query('UPDATE quotes SET delivery_status=\'viewed\' WHERE public_token=$1', [req.params.token]);
       }
-      await logActivity({ type: 'quote_viewed', entity_type: 'quote', entity_id: q.id, message: 'Quote viewed by customer' });
+      await logActivity({
+        type: 'quote_viewed', entity_type: 'quote', entity_id: q.id,
+        message: `Quote viewed by ${who.label}`,
+      });
+      if (who.recipientId) {
+        await pool.query(
+          'UPDATE quote_email_recipients SET viewed_at=COALESCE(viewed_at, NOW()) WHERE id=$1',
+          [who.recipientId]
+        );
+      }
     }
     const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsForPublic(items.rows, req.params.token);
@@ -982,14 +1012,55 @@ const TRACKING_PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwA
 // Public: email open-tracking pixel (no auth). Only ever advances
 // delivery_status forward (sent -> opened) — never overwrites a later
 // 'viewed' status or a quote that's already been acted on.
+// Works out who an open/view belongs to from the ?r= tracking id carried by
+// that recipient's copy of the email. Quotes emailed before this existed have
+// no id, and links get forwarded — both fall back to naming the customer,
+// which is the old behaviour and the likeliest reader.
+async function identifyRecipient(token, recipientId) {
+  const { rows: [quote] } = await pool.query(
+    'SELECT id, customer_id FROM quotes WHERE public_token=$1', [token]
+  );
+  if (!quote) return { quoteId: null, label: 'customer', role: null, recipientId: null };
+
+  if (recipientId && /^[0-9a-f-]{36}$/i.test(recipientId)) {
+    const { rows: [r] } = await pool.query(
+      'SELECT id, email, role FROM quote_email_recipients WHERE id=$1 AND quote_id=$2',
+      [recipientId, quote.id]
+    );
+    if (r) return { quoteId: quote.id, label: r.email, role: r.role, recipientId: r.id };
+  }
+
+  // No usable id — name the customer's address if we hold one, so the log
+  // still says who rather than just "customer".
+  const { rows: [c] } = await pool.query(
+    'SELECT email FROM customers WHERE id=$1', [quote.customer_id]
+  );
+  return { quoteId: quote.id, label: c?.email || 'customer', role: null, recipientId: null };
+}
+
 async function trackOpen(req, res) {
   try {
-    const { rows } = await pool.query(
-      `UPDATE quotes SET delivery_status='opened' WHERE public_token=$1 AND delivery_status='sent' RETURNING id`,
-      [req.params.token]
-    );
-    if (rows[0]) {
-      await logActivity({ type: 'quote_email_opened', entity_type: 'quote', entity_id: rows[0].id, message: 'Quote email opened by customer' });
+    const who = await identifyRecipient(req.params.token, req.query.r);
+    // Only the customer's copy moves the quote's delivery status — the rep
+    // opening their own copy says nothing about whether it's been read.
+    if (who.role !== 'sender') {
+      await pool.query(
+        `UPDATE quotes SET delivery_status='opened' WHERE public_token=$1 AND delivery_status='sent'`,
+        [req.params.token]
+      );
+    }
+    if (who.quoteId) {
+      // Log every open, including repeats — who read it and when is the point.
+      await logActivity({
+        type: 'quote_email_opened', entity_type: 'quote', entity_id: who.quoteId,
+        message: `Quote email opened by ${who.label}`,
+      });
+      if (who.recipientId) {
+        await pool.query(
+          'UPDATE quote_email_recipients SET opened_at=COALESCE(opened_at, NOW()) WHERE id=$1',
+          [who.recipientId]
+        );
+      }
     }
   } catch { /* tracking is best-effort — never fail the pixel request */ }
   res.set({ 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' });
