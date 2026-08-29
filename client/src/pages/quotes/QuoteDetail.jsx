@@ -55,6 +55,7 @@ export default function QuoteDetail() {
   const [attachmentIds, setAttachmentIds] = useState([]);
   const [thumbs, setThumbs] = useState({});
   const [detailsSavedAt, setDetailsSavedAt] = useState(null);
+  const [lineItemsDirty, setLineItemsDirty] = useState(false);
 
   // Details, description, theme, dates and attachments all save together, so
   // one snapshot of the lot decides whether anything is outstanding.
@@ -69,6 +70,20 @@ export default function QuoteDetail() {
   // Once a quote is approved it may be in front of the customer, so the editor
   // is read-only until someone deliberately resets it to draft.
   const isLocked = ['approved', 'sent', 'accepted'].includes(quote?.status);
+
+  // Anything outstanding anywhere on the page — the details block or the line
+  // items, which save separately but should warn as one.
+  const hasUnsavedWork = hasUnsavedDetails || lineItemsDirty;
+
+  // Every in-page control that leaves the quote goes through here, so none of
+  // them can walk off with unsaved work. Returns false if the user backs out.
+  function leaveGuard() {
+    if (!hasUnsavedWork) return true;
+    return confirm('This quote has unsaved changes. Leave without saving?');
+  }
+  function guardedNavigate(to) {
+    if (leaveGuard()) navigate(to);
+  }
 
   function loadActivity() {
     api.get(`/quotes/${id}/activity`).then(r => setActivity(r.data)).catch(() => {});
@@ -100,18 +115,18 @@ export default function QuoteDetail() {
   // beforeunload for closing or reloading the tab, and the shared unsaved-work
   // guard for navigating elsewhere inside the app.
   useEffect(() => {
-    if (!hasUnsavedDetails) return;
+    if (!hasUnsavedWork) return;
     const warn = e => { e.preventDefault(); e.returnValue = ''; };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [hasUnsavedDetails]);
+  }, [hasUnsavedWork]);
 
   useEffect(() => {
-    setGuard(hasUnsavedDetails
+    setGuard(hasUnsavedWork
       ? () => confirm('This quote has unsaved changes. Leave without saving?')
       : null);
     return () => setGuard(null);
-  }, [hasUnsavedDetails, setGuard]);
+  }, [hasUnsavedWork, setGuard]);
 
   // Keyed on the job rather than loaded alongside the quote, so a quote that
   // only gets its job later picks up that job's drawings straight away.
@@ -198,6 +213,15 @@ export default function QuoteDetail() {
   // endpoint expects — so no GST conversion happens on this path.
   async function handlePresenterPick(product) {
     if (!product) { setShowPresenter(false); return; }
+    // The payload below is built from the saved line items, so typing in a row
+    // and then adding a product would quietly drop what was typed. Autosave
+    // used to close that window; now it has to be said out loud.
+    if (lineItemsDirty) {
+      setShowPresenter(false);
+      setShowPriceList(false);
+      flash('error', 'Save the line items first — otherwise adding a product would discard the row you were editing.');
+      return;
+    }
     const unitPrice = product.unit_price != null ? product.unit_price / 100
       : product.price_from > 0 ? product.price_from / 100 : 0;
     const payload = [
@@ -321,11 +345,11 @@ export default function QuoteDetail() {
 
       <div className={styles.pageHeader}>
         <div className={styles.breadcrumb}>
-          <Link to="/quotes">Quotes</Link><span>›</span>
+          <Link to="/quotes" onClick={e => { if (!leaveGuard()) e.preventDefault(); }}>Quotes</Link><span>›</span>
           <span>{quote?.quote_number ? `QT-${String(quote.quote_number).padStart(4,'0')}` : `Q-${id.slice(0,8).toUpperCase()}`}</span>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.btnSecondary} onClick={() => navigate(quote.job_id ? `/jobs/${quote.job_id}` : '/quotes')}>
+          <button className={styles.btnSecondary} onClick={() => guardedNavigate(quote.job_id ? `/jobs/${quote.job_id}` : '/quotes')}>
             ← Back{quote.job_id ? ' to Job' : ''}
           </button>
           {isLocked && (
@@ -490,6 +514,8 @@ export default function QuoteDetail() {
               items={items}
               onSave={handleSaveLineItems}
               readonly={isLocked}
+              autoSave={false}
+              onDirtyChange={setLineItemsDirty}
             />
             <div className={styles.totalsBlock}>
               <div className={styles.totalRow}><span>Subtotal</span><span>${(quote.subtotal/100).toFixed(2)}</span></div>

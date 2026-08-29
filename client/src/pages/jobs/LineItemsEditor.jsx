@@ -19,7 +19,12 @@ const nextRowKey = () => `new-${++rowSeq}`;
 
 const AUTOSAVE_DELAY = 1200;
 
-export default function LineItemsEditor({ items: initialItems, onSave, readonly }) {
+// autoSave is on by default so the Jobs line items keep behaving as they
+// always have. The quote editor turns it off: a quote is a document that gets
+// reviewed before it goes out, so it saves when you say so, and warns if you
+// leave without doing it. onDirtyChange lets that page fold unsaved line items
+// into its own leave prompt.
+export default function LineItemsEditor({ items: initialItems, onSave, readonly, autoSave = true, onDirtyChange }) {
   const [items, setItems] = useState([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -30,6 +35,8 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
   const itemsRef = useRef([]);
   const timerRef = useRef(null);
   useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
+  // Let the parent fold unsaved line items into its own leave prompt
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => { itemsRef.current = items; }, [items]);
 
   useEffect(() => {
@@ -70,13 +77,14 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
   // description, so saving mid-entry would delete the row being typed into.
   // Autosave waits until every row has something in it.
   const scheduleSave = useCallback(() => {
+    if (!autoSave) return;
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       const rows = itemsRef.current;
       if (rows.some(r => !String(r.description || '').trim())) return;
       save(rows);
     }, AUTOSAVE_DELAY);
-  }, [save]);
+  }, [save, autoSave]);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
@@ -92,7 +100,7 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
     setItems(next);
     setDirty(true);
     itemsRef.current = next;
-    if (!next.some(r => !String(r.description || '').trim())) save(next);
+    if (autoSave && !next.some(r => !String(r.description || '').trim())) save(next);
   }
 
   function update(idx, key, val) {
@@ -177,16 +185,18 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly 
       {!readonly && (
         <div className={styles.lineItemActions}>
           <button className={styles.btnSmall} onClick={addRow}>+ Add Line</button>
-          {/* Autosave handles the normal case; the button stays for a row that
-              can't save itself yet — one still waiting for a description. */}
-          {dirty && (
-            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving…' : 'Save Items'}
+          {/* With autosave on this covers a row that can't save itself yet —
+              one still waiting for a description. With it off it's the only
+              way items get saved, so it stays visible rather than appearing
+              only once something is dirty. */}
+          {(dirty || !autoSave) && (
+            <button className={styles.btnPrimary} onClick={handleSave} disabled={saving || !dirty}>
+              {saving ? 'Saving…' : dirty ? 'Save Items' : 'Saved'}
             </button>
           )}
-          <span className={styles.autosaveHint}>
+          <span className={styles.autosaveHint} style={dirty && !autoSave ? { color: '#b45309', fontWeight: 600 } : undefined}>
             {saving ? 'Saving…'
-              : dirty ? 'Unsaved changes'
+              : dirty ? '● Unsaved changes'
               : savedAt ? 'Saved' : ''}
           </span>
         </div>
