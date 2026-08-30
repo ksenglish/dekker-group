@@ -433,11 +433,14 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
           // Downscale first, then check the size. A 12MB phone photo comes out
           // a few hundred KB, so the limit applies to what's actually stored
           // rather than rejecting photos that would have fit comfortably.
+          // compressImage passes anything that isn't an image straight back,
+          // so a PDF arrives here untouched.
           const { dataUrl, mimeType, bytes, serverWillConvert } = await compressImage(file);
-          // A photo the browser couldn't downscale (HEIC) is sent as-is and
-          // converted server-side, so it gets the larger raw allowance rather
-          // than being judged against the post-compression limit it can't meet.
-          const limit = serverWillConvert ? MAX_RAW_UPLOAD_BYTES : MAX_ATTACHMENT_BYTES;
+          const isPdf = (file.type || '').includes('pdf') || /\.pdf$/i.test(file.name);
+          // Neither a PDF nor a HEIC can be downscaled in the browser, so both
+          // get the larger raw allowance rather than being judged against a
+          // post-compression limit they can't meet.
+          const limit = (serverWillConvert || isPdf) ? MAX_RAW_UPLOAD_BYTES : MAX_ATTACHMENT_BYTES;
           if (bytes > limit) {
             tooBig.push(file.name);
           } else {
@@ -473,10 +476,10 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
           padding: '7px 14px', background: 'var(--color-primary)', color: 'white', borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 500 }}>
           {uploading
             ? (uploadProgress ? `Uploading ${uploadProgress.done + 1} of ${uploadProgress.total}…` : 'Uploading…')
-            : '📷 Upload Photos'}
-          <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={handleFile} disabled={uploading} />
+            : '📷 Upload Photos or PDFs'}
+          <input type="file" accept="image/*,application/pdf,.pdf" multiple style={{ display: 'none' }} onChange={handleFile} disabled={uploading} />
         </label>
-        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>JPG, PNG, WebP or iPhone HEIC · select several at once</span>
+        <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Photos (JPG, PNG, WebP, iPhone HEIC) or PDFs · select several at once</span>
       </div>
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        attachments.length === 0 ? <div className={styles.emptySmall}>No photos uploaded yet.</div> : (

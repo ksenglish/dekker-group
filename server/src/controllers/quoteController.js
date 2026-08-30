@@ -584,16 +584,24 @@ async function getQuoteAttachmentImages(quoteId) {
   // ran the server out of memory on a quote carrying two 17MB ArcSite exports.
   // Buffers rather than data URLs for the same reason — a base64 string is a
   // third larger again, and the builder only decoded it straight back.
+  // Split by kind: images get drawn onto a Proposal page, PDFs are merged in
+  // whole at the end — pdfkit's doc.image() only understands JPEG and PNG, so
+  // a PDF sent down that path was silently dropped.
   const images = [];
+  const pdfs = [];
   for (const row of rows) {
     try {
       const full = await fileStore.readAttachmentBuffer(row);
-      images.push(await shrinkForPage(full, row.mime_type));
+      if ((row.mime_type || '').includes('pdf')) {
+        pdfs.push(full);   // shrinkForPage passes PDFs through untouched anyway
+      } else {
+        images.push(await shrinkForPage(full, row.mime_type));
+      }
     } catch (err) {
       console.error('Could not load quote attachment for the PDF:', err.message);
     }
   }
-  return images;
+  return { images, pdfs };
 }
 
 async function getQuoteAttachmentIds(quoteId) {
@@ -730,7 +738,7 @@ async function downloadPdf(req, res) {
     if (!q) return res.status(404).json({ error: 'Not found' });
     const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
-    const appendixImages = await getQuoteAttachmentImages(q.id);
+    const { images: appendixImages, pdfs: appendixPdfs } = await getQuoteAttachmentImages(q.id);
     const docTheme = await getThemeById(q.theme_id);
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
@@ -740,6 +748,7 @@ async function downloadPdf(req, res) {
       status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: docTheme.termsAndConditions || '',
       issuedAt: q.quote_date || q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
+      appendixPdfs,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="quote-${q.id.slice(0,8)}.pdf"` });
     res.send(pdf);
@@ -796,7 +805,7 @@ async function sendEmail(req, res) {
     if (!q.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
     const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [q.id]);
     const enrichedItems = await enrichItemsWithImages(items.rows);
-    const appendixImages = await getQuoteAttachmentImages(q.id);
+    const { images: appendixImages, pdfs: appendixPdfs } = await getQuoteAttachmentImages(q.id);
     const docTheme = await getThemeById(q.theme_id);
     const pdf = await buildPDF({
       type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
@@ -806,6 +815,7 @@ async function sendEmail(req, res) {
       status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: docTheme.termsAndConditions || '',
       issuedAt: q.quote_date || q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
+      appendixPdfs,
     });
 
     // A user-edited draft (subject/body) takes priority; fall back to the

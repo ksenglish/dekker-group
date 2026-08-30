@@ -30,6 +30,8 @@ const ACTIVITY_LABELS = {
 };
 function activityLabel(type) { return ACTIVITY_LABELS[type] || type; }
 
+const isPdfAttachment = a => (a?.mime_type || '').toLowerCase().includes('pdf');
+
 // Opens and views are recorded with no logged-in user, since nobody is signed
 // in when a customer reads a quote. The address responsible is written into the
 // message ("Quote email opened by someone@example.com"), so pull it back out
@@ -142,7 +144,12 @@ export default function QuoteDetail() {
   useEffect(() => {
     if (!quote?.job_id) { setJobAttachments([]); return; }
     api.get(`/jobs/${quote.job_id}/attachments`)
-      .then(a => setJobAttachments(a.data.filter(x => (x.mime_type || '').startsWith('image/'))))
+      // Photos and drawings get shown on their own page in the quote; PDFs are
+      // merged in whole. Anything else on the job isn't offered.
+      .then(a => setJobAttachments(a.data.filter(x => {
+        const m = (x.mime_type || '').toLowerCase();
+        return m.startsWith('image/') || m.includes('pdf');
+      })))
       .catch(() => {});
   }, [quote?.job_id]);
 
@@ -154,6 +161,9 @@ export default function QuoteDetail() {
     const urls = [];
     (async () => {
       for (const a of jobAttachments) {
+        // PDFs show a document tile rather than a preview, so there's no point
+        // pulling one down — a plan set can be several megabytes.
+        if (isPdfAttachment(a)) continue;
         try {
           const res = await api.get(`/jobs/${quote.job_id}/attachments/${a.id}/data`, { responseType: 'blob' });
           if (cancelled) return;
@@ -531,11 +541,13 @@ export default function QuoteDetail() {
                       <input type="checkbox" checked={picked}
                         onChange={() => setAttachmentIds(ids =>
                           ids.includes(a.id) ? ids.filter(x => x !== a.id) : [...ids, a.id])} />
-                      {thumbs[a.id]
-                        ? <img src={thumbs[a.id]} alt={a.filename} />
-                        : <div className={styles.attachPlaceholder}>{a.arcsite_drawing_id ? '📐' : '🖼'}</div>}
+                      {isPdfAttachment(a)
+                        ? <div className={styles.attachPlaceholder}>📄</div>
+                        : thumbs[a.id]
+                          ? <img src={thumbs[a.id]} alt={a.filename} />
+                          : <div className={styles.attachPlaceholder}>{a.arcsite_drawing_id ? '📐' : '🖼'}</div>}
                       <span className={styles.attachName}>
-                        {a.arcsite_drawing_id ? '📐 ' : '🖼 '}{a.filename}
+                        {isPdfAttachment(a) ? '📄 ' : a.arcsite_drawing_id ? '📐 ' : '🖼 '}{a.filename}
                       </span>
                     </label>
                   );

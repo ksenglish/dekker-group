@@ -194,7 +194,10 @@ const STATUS_COLOURS = {
   cancelled: '#6b7280', paid: '#16a34a', overdue: '#dc2626',
 };
 
-async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, paymentTerms, issuedAt, theme = {}, appendixImages = [], partyLabel = 'BILL TO' }) {
+// appendixPdfs are whole documents (a spec sheet, a council form) merged in
+// after the quote; appendixImages are drawn onto their own Proposal page.
+// They're separate because pdfkit's doc.image() only understands JPEG and PNG.
+async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, subtotal, gst, total, status, dueDate, expiresAt, notes, terms, paymentTerms, issuedAt, theme = {}, appendixImages = [], appendixPdfs = [], partyLabel = 'BILL TO' }) {
   const t = { ...DEFAULT_THEME, ...theme };
   t.companyName = stripDiacritics(t.companyName);
   t.contactDetails = stripDiacritics(t.contactDetails);
@@ -600,9 +603,24 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
   // Terms & Conditions as the very last page(s) of the document. ─────
   const brochureUrls = (items || []).filter(i => i.brochure_base64).map(i => i.brochure_base64);
   const needsTermsPage = isQuote && !!terms;
-  if (!brochureUrls.length && !needsTermsPage) return mainBuf;
+  const attachedPdfs = (appendixPdfs || []).filter(Boolean);
+  if (!brochureUrls.length && !needsTermsPage && !attachedPdfs.length) return mainBuf;
 
   const merged = await PdfLib.load(mainBuf);
+
+  // PDFs attached to the quote from the job — plans, spec sheets, consents.
+  // Merged whole, ahead of the product brochures, since they're specific to
+  // this job while brochures are generic product literature.
+  for (const buf of attachedPdfs) {
+    try {
+      const doc = await PdfLib.load(buf);
+      const copied = await merged.copyPages(doc, doc.getPageIndices());
+      copied.forEach(p => merged.addPage(p));
+    } catch (err) {
+      // A PDF we can't parse (encrypted, corrupt) shouldn't cost the whole quote
+      console.error('Could not merge an attached PDF into the quote:', err.message);
+    }
+  }
 
   const seenBrochures = new Set();
   for (const dataUrl of brochureUrls) {
