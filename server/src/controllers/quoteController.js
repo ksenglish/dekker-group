@@ -385,6 +385,98 @@ async function resetToDraft(req, res) {
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
+// Take a quote off its job without deleting either. Its own line items keep
+// quote_id but lose job_id, so they stop counting toward the job's costs.
+//
+// Refused once accepted: accepting copies the agreed scope onto the job and
+// moves the job to Sale, so unpicking the link afterwards would leave the job
+// holding work nothing explains. Reset it to draft first if that's really the
+// intent.
+async function detachJob(req, res) {
+  const client = await pool.connect();
+  try {
+    const { rows: [quote] } = await client.query('SELECT id, job_id, status FROM quotes WHERE id=$1', [req.params.id]);
+    if (!quote) return res.status(404).json({ error: 'Quote not found' });
+    if (!quote.job_id) return res.status(400).json({ error: 'This quote isn\'t attached to a job' });
+    if (quote.status === 'accepted') {
+      return res.status(400).json({
+        error: 'This quote has been accepted and its scope is on the job. Reset it to draft first if you need to unattach it.',
+      });
+    }
+    await client.query('BEGIN');
+    await client.query('UPDATE line_items SET job_id=NULL WHERE quote_id=$1', [req.params.id]);
+    await client.query('UPDATE quotes SET job_id=NULL, updated_at=NOW() WHERE id=$1', [req.params.id]);
+    await client.query('COMMIT');
+    await logActivity({
+      type: 'quote_modified', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id,
+      message: 'Quote unattached from its job',
+    });
+    const { rows } = await pool.query(
+      `SELECT q.*, j.job_number, j.external_ref FROM quotes q LEFT JOIN jobs j ON j.id=q.job_id WHERE q.id=$1`,
+      [req.params.id]
+    );
+    res.json({ ...rows[0], attachment_ids: await getQuoteAttachmentIds(req.params.id) });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
+}
+
+// Duplicate a quote as a fresh draft. Everything that describes the work is
+// copied; everything recording what happened to the original — approval,
+// sending, opens, acceptance — deliberately isn't, and the copy gets its own
+// quote number, public link and expiry.
+async function copyQuote(req, res) {
+  const client = await pool.connect();
+  try {
+    const { rows: [src] } = await client.query('SELECT * FROM quotes WHERE id=$1', [req.params.id]);
+    if (!src) return res.status(404).json({ error: 'Quote not found' });
+
+    const theme = await getTheme();
+    const expiryDays = theme.quoteExpiryDays ?? 30;
+    const expiresAt = expiryDays > 0
+      ? (() => { const d = new Date(); d.setDate(d.getDate() + expiryDays); return d.toISOString().split('T')[0]; })()
+      : null;
+
+    await client.query('BEGIN');
+    const { rows: [copy] } = await client.query(
+      `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, theme_id,
+                           quote_date, expires_at, created_by, delivery_status)
+       VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,CURRENT_DATE,$8,$9,'unsent') RETURNING *`,
+      [src.job_id, src.customer_id, src.subtotal, src.gst, src.total, src.notes, src.theme_id,
+       expiresAt, req.user?.id || null]
+    );
+
+    // The copy's own line items — same scope, owned by the new quote
+    await client.query(
+      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name)
+       SELECT job_id, $1, description, quantity, unit_price, product_id, product_name
+       FROM line_items WHERE quote_id=$2 ORDER BY created_at`,
+      [copy.id, req.params.id]
+    );
+
+    // Drawings/photos chosen for the original are chosen for the copy too
+    await client.query(
+      `INSERT INTO quote_attachments (quote_id, attachment_id)
+       SELECT $1, attachment_id FROM quote_attachments WHERE quote_id=$2
+       ON CONFLICT DO NOTHING`,
+      [copy.id, req.params.id]
+    );
+    await client.query('COMMIT');
+
+    await logActivity({
+      type: 'quote_created', entity_type: 'quote', entity_id: copy.id, user_id: req.user?.id,
+      message: `Copied from ${src.quote_number ? `QT-${String(src.quote_number).padStart(4, '0')}` : 'another quote'}`,
+    });
+    res.status(201).json(copy);
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
+}
+
 // Admins can delete any quote; everyone else only the ones they raised.
 function canDeleteQuote(user, quote) {
   return normaliseRole(user.role) === 'admin' || quote.created_by === user.id;
@@ -1107,4 +1199,4 @@ async function getActivity(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, get, create, update, resetToDraft, updateLineItems, remove, approve, attachJob, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, publicDrawing, publicBrochure, getActivity };
+module.exports = { list, get, create, update, resetToDraft, detachJob, copyQuote, updateLineItems, remove, approve, attachJob, convertToInvoice, downloadPdf, sendEmail, emailPreview, publicGet, publicAccept, publicDecline, trackOpen, publicDrawing, publicBrochure, getActivity };

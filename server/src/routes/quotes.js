@@ -22,6 +22,8 @@ router.put('/:id/line-items', c.updateLineItems);
 router.post('/:id/approve', c.approve);
 router.post('/:id/reset-to-draft', c.resetToDraft);
 router.post('/:id/job', c.attachJob);
+router.delete('/:id/job', c.detachJob);
+router.post('/:id/copy', c.copyQuote);
 router.delete('/:id', c.remove);
 router.post('/:id/convert', c.convertToInvoice);
 router.get('/:id/pdf', c.downloadPdf);

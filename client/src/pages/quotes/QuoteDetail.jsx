@@ -332,6 +332,33 @@ export default function QuoteDetail() {
     loadActivity();
   }
 
+  async function handleUnattachJob() {
+    if (!confirm('Unattach this quote from its job? The quote and the job both stay — they just stop being linked.')) return;
+    setSaving(true);
+    try {
+      const { data } = await api.delete(`/quotes/${id}/job`);
+      setQuote(q => ({ ...q, ...data, job_id: null, job_number: null, external_ref: null }));
+      flash('success', 'Quote unattached from its job');
+      loadActivity();
+    } catch (err) {
+      flash('error', err.response?.data?.error || 'Failed to unattach this quote');
+    } finally { setSaving(false); }
+  }
+
+  async function handleCopyQuote() {
+    if (!leaveGuard()) return;
+    if (!confirm('Make a copy of this quote? The copy opens as a new draft.')) return;
+    setSaving(true);
+    try {
+      const { data } = await api.post(`/quotes/${id}/copy`);
+      flash('success', 'Quote copied');
+      navigate(`/quotes/${data.id}`);
+    } catch (err) {
+      flash('error', err.response?.data?.error || 'Failed to copy this quote');
+      setSaving(false);
+    }
+  }
+
   async function handleConvert() {
     if (!confirm('Convert this accepted quote to an invoice?')) return;
     setConverting(true);
@@ -401,6 +428,8 @@ export default function QuoteDetail() {
               {converting ? 'Converting…' : '→ Convert to Invoice'}
             </button>
           )}
+          {/* Copying isn't destructive, so it isn't tied to who may delete */}
+          <button className={styles.btnSecondary} onClick={handleCopyQuote} disabled={saving}>⧉ Copy Quote</button>
           {(user?.role === 'admin' || quote.created_by === user?.id) && (
             <button className={styles.btnDanger} onClick={handleDelete}>Delete</button>
           )}
@@ -567,7 +596,23 @@ export default function QuoteDetail() {
                 <span className={styles.badge} style={{ background: STATUS_COLOURS[quote.status]+'18', color: STATUS_COLOURS[quote.status] }}>{quote.status}</span>
               </div>
               {quote.job_id
-                ? <div className={styles.summaryRow}><span>Job</span><Link to={`/jobs/${quote.job_id}`}>{formatJobNumber(quote) || 'View job'}</Link></div>
+                ? (
+                  <div className={styles.summaryRow}>
+                    <span>Job</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Link to={`/jobs/${quote.job_id}`}>{formatJobNumber(quote) || 'View job'}</Link>
+                      {/* An accepted quote's scope now lives on the job, so
+                          unpicking the link would orphan it — the server
+                          refuses, and there's no point offering it here. */}
+                      {quote.status !== 'accepted' && (
+                        <button onClick={handleUnattachJob} disabled={saving} title="Unattach this quote from its job"
+                          style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: 12 }}>
+                          Unattach
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                )
                 : (
                   // Raised before any job existed. It stays that way until the
                   // work is won — then it gets a job number, either from a new
