@@ -14,6 +14,13 @@ const GST_MULTIPLIER = 1.15;
 
 const norm = s => (s || '').trim().toLowerCase();
 
+// Public prices are shown to the dollar — "From $2,595" reads better than
+// "From $2,595.01", and the cents were only ever an artefact of adding GST to
+// a trade price anyway. Rounded up, never down, so the site can't advertise
+// less than the real figure. Applied to every price as it leaves here, so it
+// doesn't depend on how the site chooses to format it.
+const toWholeDollars = cents => (cents == null ? null : Math.ceil(cents / 100) * 100);
+
 // The "Installation from" figure for these calculator types.
 //
 // An explicit figure set against a presenter product wins — that's the number
@@ -31,7 +38,7 @@ async function installRateIncGstCents(calculatorTypes) {
     [calculatorTypes]
   );
   const source = rows[0]?.stated ?? rows[0]?.rate;
-  return source == null ? null : Math.round(source * GST_MULTIPLIER);
+  return source == null ? null : toWholeDollars(Math.round(source * GST_MULTIPLIER));
 }
 
 // GET /api/public/heat-pumps
@@ -80,10 +87,12 @@ router.get('/heat-pumps', async (req, res) => {
         kwMax: band.kwMax,
         // What the customer pays, discount already taken off, so an old build
         // of the site quotes the right number without knowing about discounts.
-        installedPriceIncGstCents: discounts.applyDiscount(listPrice, discount),
+        // Rounded after the discount — taking a percentage off a whole-dollar
+        // figure puts the cents straight back.
+        installedPriceIncGstCents: toWholeDollars(discounts.applyDiscount(listPrice, discount)),
         // The pre-discount price, for showing what it was. Equal to the above
         // when nothing is discounted.
-        listPriceIncGstCents: listPrice,
+        listPriceIncGstCents: toWholeDollars(listPrice),
       };
     });
 
@@ -152,9 +161,10 @@ router.get('/ventilation-systems', async (req, res) => {
           outlets: r.outlets,
           model: r.model,
           // Discounted, so an old build of the site still quotes the right
-          // number; listPriceIncGstCents is what it was before.
-          installedPriceIncGstCents: discounts.applyDiscount(listPrice, byFamily[r.family]),
-          listPriceIncGstCents: listPrice,
+          // number; listPriceIncGstCents is what it was before. Rounded after
+          // the discount, for the reason noted on the heat pumps above.
+          installedPriceIncGstCents: toWholeDollars(discounts.applyDiscount(listPrice, byFamily[r.family])),
+          listPriceIncGstCents: toWholeDollars(listPrice),
         };
       });
 
