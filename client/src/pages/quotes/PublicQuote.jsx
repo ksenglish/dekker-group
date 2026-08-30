@@ -232,13 +232,26 @@ export default function PublicQuote() {
           </div>
         )}
 
-        {/* Proposal (job drawing pulled from ArcSite) */}
-        {quote.arcsite_drawings?.length > 0 && (
+        {/* Proposal — drawings and photos from the job, then any PDFs attached
+            to the quote. PDFs are embedded rather than put in an <img>, which
+            is what produced a broken image icon. */}
+        {(quote.arcsite_drawings?.length > 0 || quote.proposal_pdfs?.length > 0) && (
           <div style={s.brochureSection}>
             <div style={s.label}>Proposal</div>
-            {quote.arcsite_drawings.map((src, i) => (
+            {quote.arcsite_drawings?.map((src, i) => (
               <div key={i} style={s.brochureBlock}>
                 <img src={src} alt="Proposal drawing" style={s.proposalImg} />
+              </div>
+            ))}
+            {quote.proposal_pdfs?.map((pdf, i) => (
+              <div key={`pdf-${i}`} style={s.brochureBlock}>
+                <div style={s.brochureTitle}>{pdf.filename}</div>
+                {/* Same treatment as the brochures — the link inside is the
+                    fallback for a browser that won't embed a PDF, which is
+                    most phones. */}
+                <object data={pdf.url} type="application/pdf" style={s.brochurePdf} aria-label={pdf.filename}>
+                  <a href={pdf.url} target="_blank" rel="noreferrer">Open {pdf.filename}</a>
+                </object>
               </div>
             ))}
           </div>

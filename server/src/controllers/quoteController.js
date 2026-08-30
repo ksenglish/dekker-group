@@ -947,14 +947,24 @@ async function publicGet(req, res) {
     // them inline meant a customer opening the quote on a phone downloaded
     // several megabytes of base64 inside the JSON before anything rendered.
     const { rows: drawingRows } = await pool.query(
-      `SELECT a.id
+      `SELECT a.id, a.mime_type, a.filename
        FROM quote_attachments qa
        JOIN job_attachments a ON a.id = qa.attachment_id
        WHERE qa.quote_id = $1
        ORDER BY a.arcsite_drawing_id IS NULL, a.created_at`,
       [q.id]
     );
-    const arcsiteDrawings = drawingRows.map(r => `/api/quotes/public/${req.params.token}/drawings/${r.id}`);
+    const drawingUrl = r => `/api/quotes/public/${req.params.token}/drawings/${r.id}`;
+    const isPdfRow = r => (r.mime_type || '').toLowerCase().includes('pdf');
+    // Kept to images only. The field is a plain list of URLs the page renders
+    // as <img>, so a PDF in here came out as a broken image — and a client
+    // cached by the service worker still reads it that way.
+    const arcsiteDrawings = drawingRows.filter(r => !isPdfRow(r)).map(drawingUrl);
+    // PDFs travel separately, with the filename, so the page can embed them
+    // properly and link to them by name.
+    const proposalPdfs = drawingRows.filter(isPdfRow).map(r => ({
+      url: drawingUrl(r), filename: r.filename || 'Attachment.pdf',
+    }));
     const docTheme = await getThemeById(q.theme_id);
     res.json({
       id: q.id,
@@ -987,6 +997,7 @@ async function publicGet(req, res) {
       // reaches the customer-facing quote page.
       line_items: enrichedItems.map(({ product_name, ...item }) => item),
       arcsite_drawings: arcsiteDrawings,
+      proposal_pdfs: proposalPdfs,
       company: { name: docTheme.companyName, contactDetails: docTheme.contactDetails, logo: docTheme.logoBase64,
         logoSize: docTheme.logoSize, logoPosition: docTheme.logoPosition, contactPosition: docTheme.contactPosition,
         gstNumber: docTheme.gstNumber || '' },
