@@ -23,6 +23,11 @@ STEP 2 — Extract each line item with these fields:
 STEP 3 — Also read off the supplier name and the invoice or receipt number if
 they appear. Use null for either one you cannot find.
 
+Credits, returns, refunds and discounts are real line items — keep them, and
+keep the minus sign. A line showing -50.00, (50.00), "CREDIT 50.00" or
+"RETURN 50.00" must come back as a negative unit_price of -50.00 so it comes
+off the job's costs. Never turn a credit into a positive number.
+
 Ignore totals, subtotals, GST lines, freight/delivery charges, and payment terms.
 If you cannot find any line items, return an empty "items" array.
 
@@ -60,11 +65,23 @@ async function extractLineItems({ base64, mimeType }) {
   const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
   const items = rawItems
     .filter(i => i.description && typeof i.unit_price === 'number')
-    .map(i => ({
-      description: String(i.description).slice(0, 255),
-      quantity: Math.max(0.01, parseFloat(i.quantity) || 1),
-      unit_price: Math.max(0, parseFloat(i.unit_price) || 0),
-    }));
+    .map(i => {
+      // A credit can arrive either way round — a negative price, or a negative
+      // quantity against a positive price — so what matters is the sign of the
+      // line total. That sign is carried on unit_price and the quantity kept
+      // positive, which is the shape the costs table and its totals expect.
+      // (Both negative multiplies out positive, and is left that way.)
+      const qtyRaw = parseFloat(i.quantity);
+      const priceRaw = parseFloat(i.unit_price);
+      const qty = Number.isFinite(qtyRaw) && qtyRaw !== 0 ? qtyRaw : 1;
+      const price = Number.isFinite(priceRaw) ? priceRaw : 0;
+      const isCredit = qty * price < 0;
+      return {
+        description: String(i.description).slice(0, 255),
+        quantity: Math.max(0.01, Math.abs(qty)),
+        unit_price: isCredit ? -Math.abs(price) : Math.abs(price),
+      };
+    });
 
   return {
     items,

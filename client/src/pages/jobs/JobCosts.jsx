@@ -211,10 +211,10 @@ export default function JobCosts({ jobId, readonly }) {
           <div className={styles.costsScannerTitle}>Scan Supplier Invoice / Receipt</div>
           <label className={`${styles.btnScan} ${scanning ? styles.btnScanBusy : ''}`}>
             {scanning ? <><span className={styles.scanSpinner} /> Scanning…</> : <>✨ Upload Invoice / Receipt</>}
-            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
+            <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" style={{ display: 'none' }}
               onChange={handleScanFile} disabled={scanning} />
           </label>
-          <span className={styles.scanHintText}>JPG, PNG or WebP · max 10MB</span>
+          <span className={styles.scanHintText}>Photo or PDF · max 10MB</span>
         </div>
       )}
 
@@ -277,7 +277,9 @@ export default function JobCosts({ jobId, readonly }) {
                     onChange={e => setScanResults(r => r.map((x, i) => i === idx ? { ...x, quantity: parseFloat(e.target.value) || 1 } : x))} />
                   <div className={styles.scanPriceField}>
                     <span>$</span>
-                    <input type="number" value={ex.toFixed(2)} min="0" step="0.01"
+                    {/* No min — a credit or return is a negative line, and it
+                        should stay negative through the review step */}
+                    <input type="number" value={ex.toFixed(2)} step="0.01"
                       onChange={e => setScanResults(r => r.map((x, i) => i === idx ? { ...x, unit_price: parseFloat(e.target.value) || 0 } : x))} />
                   </div>
                   <span className={styles.gstCell}>${(gst * item.quantity).toFixed(2)}</span>
@@ -307,9 +309,19 @@ export default function JobCosts({ jobId, readonly }) {
           {scanImageUrl && (
             <div className={styles.scanDocPreview}>
               <div className={styles.scanDocTitle}>Scanned Document</div>
-              <img src={scanImageUrl} alt="Scanned document" className={styles.scanDocImg}
-                onClick={() => setLightbox(scanImageUrl)} title="Click to zoom" />
-              <div className={styles.scanDocHint}>Click to zoom</div>
+              {scanImageUrl.startsWith('data:application/pdf') ? (
+                // A PDF can't go in an <img>; embed it the way the quote page
+                // shows attached PDFs, with a link for browsers that won't.
+                <object data={scanImageUrl} type="application/pdf" className={styles.scanDocImg} aria-label="Scanned invoice">
+                  <a href={scanImageUrl} target="_blank" rel="noreferrer">Open the uploaded PDF</a>
+                </object>
+              ) : (
+                <>
+                  <img src={scanImageUrl} alt="Scanned document" className={styles.scanDocImg}
+                    onClick={() => setLightbox(scanImageUrl)} title="Click to zoom" />
+                  <div className={styles.scanDocHint}>Click to zoom</div>
+                </>
+              )}
             </div>
           )}
         </div>
