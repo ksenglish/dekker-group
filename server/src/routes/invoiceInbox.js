@@ -67,6 +67,47 @@ router.post('/', authenticateAutomation, async (req, res) => {
   }
 });
 
+// Correct what the reader pulled off the PDF. Saved back onto the scan rather
+// than held in the browser, so an invoice can be fixed now and linked later —
+// and so filing it to a folder, which reads the same field, gets the corrected
+// figures too.
+router.put('/:id/items', authenticate, async (req, res) => {
+  const { items } = req.body;
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items must be a list' });
+
+  const cleaned = [];
+  for (const raw of items) {
+    const description = String(raw?.description || '').trim();
+    if (!description) return res.status(400).json({ error: 'Every line needs a description' });
+    const quantity = parseFloat(raw?.quantity);
+    const unitPrice = parseFloat(raw?.unit_price);
+    if (!Number.isFinite(unitPrice)) return res.status(400).json({ error: `"${description}" needs a unit price` });
+    cleaned.push({
+      description: description.slice(0, 255),
+      // Quantity is a magnitude; a credit is carried as a negative unit price,
+      // matching how the scanner normalises them.
+      quantity: Math.max(0.01, Math.abs(Number.isFinite(quantity) && quantity !== 0 ? quantity : 1)),
+      unit_price: unitPrice,
+    });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE job_cost_scans SET parsed_items = $1
+       WHERE id = $2 AND status = 'unmatched'
+       RETURNING id, parsed_items`,
+      [JSON.stringify(cleaned), req.params.id]
+    );
+    // Once it's been linked or filed the figures are on the job, so editing
+    // here would no longer change anything.
+    if (!rows[0]) return res.status(404).json({ error: 'Not found, or it has already been linked or filed' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Invoice inbox item edit failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Link an inbox scan to a job and post its cost items
 router.post('/:id/link', authenticate, async (req, res) => {
   const { job_id, items, gst_treatment } = req.body;

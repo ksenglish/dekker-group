@@ -138,6 +138,54 @@ export default function InvoiceInboxPage() {
   // waiting PDF down just to render a list of suppliers. One is fetched when
   // it's actually asked for, and the object URL is released on the way out.
   const [pdfUrl, setPdfUrl] = useState(null);
+  // Corrections to what the reader pulled off a PDF, keyed by scan id. Only
+  // holds the invoice currently being edited — saving writes it back to the
+  // scan and clears it.
+  const [editing, setEditing] = useState(null);   // { scanId, items: [...] }
+  const [savingItems, setSavingItems] = useState(false);
+  const [itemsError, setItemsError] = useState('');
+
+  function startEditing(scan) {
+    const items = Array.isArray(scan.parsed_items) ? scan.parsed_items : [];
+    setItemsError('');
+    setEditing({
+      scanId: scan.id,
+      items: items.map(i => ({
+        description: i.description || '',
+        quantity: String(i.quantity ?? 1),
+        unit_price: String(i.unit_price ?? 0),
+      })),
+    });
+  }
+
+  function updateItem(idx, field, value) {
+    setEditing(e => ({ ...e, items: e.items.map((it, i) => i === idx ? { ...it, [field]: value } : it) }));
+    setItemsError('');
+  }
+  function addItem() {
+    setEditing(e => ({ ...e, items: [...e.items, { description: '', quantity: '1', unit_price: '0' }] }));
+  }
+  function removeItem(idx) {
+    setEditing(e => ({ ...e, items: e.items.filter((_, i) => i !== idx) }));
+  }
+
+  async function saveItems() {
+    const payload = editing.items.map(i => ({
+      description: i.description.trim(),
+      quantity: parseFloat(i.quantity),
+      unit_price: parseFloat(i.unit_price),
+    }));
+    if (payload.some(i => !i.description)) { setItemsError('Every line needs a description'); return; }
+    if (payload.some(i => !Number.isFinite(i.unit_price))) { setItemsError('Every line needs a unit price'); return; }
+    setSavingItems(true); setItemsError('');
+    try {
+      const { data } = await api.put(`/invoice-inbox/${editing.scanId}/items`, { items: payload });
+      setScans(s => s.map(x => x.id === editing.scanId ? { ...x, parsed_items: data.parsed_items } : x));
+      setEditing(null);
+    } catch (err) {
+      setItemsError(err.response?.data?.error || 'Could not save these line items');
+    } finally { setSavingItems(false); }
+  }
 
   async function togglePdf(scanId) {
     if (pdfPreview === scanId) {
@@ -297,6 +345,10 @@ export default function InvoiceInboxPage() {
         {scans.map(scan => {
           const items = Array.isArray(scan.parsed_items) ? scan.parsed_items : [];
           const total = items.reduce((s, i) => s + (i.unit_price || 0) * (i.quantity || 1), 0);
+          const isEditing = editing?.scanId === scan.id;
+          const editingTotal = isEditing
+            ? editing.items.reduce((s, i) => s + (parseFloat(i.unit_price) || 0) * (parseFloat(i.quantity) || 0), 0)
+            : 0;
 
           return (
             <div key={scan.id} className={`${styles.card} ${selected.includes(scan.id) ? styles.cardSelected : ''}`}>
@@ -321,6 +373,11 @@ export default function InvoiceInboxPage() {
                       {pdfPreview === scan.id ? 'Hide PDF' : 'View PDF'}
                     </button>
                   )}
+                  {!isEditing && (
+                    <button className={styles.btnEditLines} onClick={() => startEditing(scan)}>
+                      Edit Lines
+                    </button>
+                  )}
                   <button className={styles.btnLink} onClick={() => openLink(scan)}>
                     Link to Job
                   </button>
@@ -339,7 +396,62 @@ export default function InvoiceInboxPage() {
                 </div>
               )}
 
-              {items.length > 0 && (
+              {isEditing ? (
+                <>
+                  {itemsError && <div className={styles.itemsError}>{itemsError}</div>}
+                  <table className={styles.itemsTable}>
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th className={styles.num}>Qty</th>
+                        <th className={styles.num}>Unit Price</th>
+                        <th className={styles.num}>Total</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editing.items.map((item, i) => {
+                        const lineTotal = (parseFloat(item.unit_price) || 0) * (parseFloat(item.quantity) || 0);
+                        return (
+                          <tr key={i}>
+                            <td>
+                              <input className={styles.editInput} value={item.description}
+                                placeholder="Description"
+                                onChange={e => updateItem(i, 'description', e.target.value)} />
+                            </td>
+                            <td className={styles.num}>
+                              <input className={styles.editNum} type="number" step="0.01" value={item.quantity}
+                                onChange={e => updateItem(i, 'quantity', e.target.value)} />
+                            </td>
+                            <td className={styles.num}>
+                              {/* No min — a credit line is negative and must stay that way */}
+                              <input className={styles.editNum} type="number" step="0.01" value={item.unit_price}
+                                onChange={e => updateItem(i, 'unit_price', e.target.value)} />
+                            </td>
+                            <td className={styles.num}>${lineTotal.toFixed(2)}</td>
+                            <td className={styles.num}>
+                              <button className={styles.rowRemove} onClick={() => removeItem(i)} title="Remove line">✕</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      <tr className={styles.totalRow}>
+                        <td colSpan={3}>Total (ex GST)</td>
+                        <td className={styles.num}>${editingTotal.toFixed(2)}</td>
+                        <td />
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div className={styles.editActions}>
+                    <button className={styles.btnAddLine} onClick={addItem}>+ Add line</button>
+                    <span style={{ flex: 1 }} />
+                    <button className={styles.btnCancelEdit} onClick={() => { setEditing(null); setItemsError(''); }}>Cancel</button>
+                    <button className={styles.btnSaveItems} onClick={saveItems} disabled={savingItems}>
+                      {savingItems ? 'Saving…' : 'Save Line Items'}
+                    </button>
+                  </div>
+                </>
+              ) : items.length > 0 ? (
                 <table className={styles.itemsTable}>
                   <thead>
                     <tr>
@@ -364,9 +476,10 @@ export default function InvoiceInboxPage() {
                     </tr>
                   </tbody>
                 </table>
-              )}
-              {items.length === 0 && (
-                <div className={styles.noItems}>No line items could be extracted from this invoice</div>
+              ) : (
+                <div className={styles.noItems}>
+                  No line items could be extracted from this invoice — use Edit Lines to enter them by hand
+                </div>
               )}
 
               {pdfPreview === scan.id && (

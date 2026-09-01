@@ -456,3 +456,50 @@
   .cardActions { flex-wrap: wrap; }
   .num { text-align: left !important; }
 }
+
+/* ── Editing what the reader pulled off the PDF ──────────────────── */
+.btnEditLines {
+  padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500;
+  cursor: pointer; border: 1px solid var(--color-border); background: white; color: var(--color-text);
+  font-family: inherit;
+}
+.btnEditLines:hover { background: #f1f5f9; }
+
+.editInput, .editNum {
+  padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 5px;
+  font-size: 13px; font-family: inherit; outline: none; background: white; width: 100%;
+  box-sizing: border-box;
+}
+.editNum { width: 90px; text-align: right; }
+.editInput:focus, .editNum:focus {
+  border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+.rowRemove {
+  background: none; border: none; color: #dc2626; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 2px 4px;
+}
+
+.editActions {
+  display: flex; align-items: center; gap: 8px; padding: 10px 0 2px; flex-wrap: wrap;
+}
+.btnAddLine {
+  padding: 6px 12px; border-radius: 6px; font-size: 12px; font-family: inherit; cursor: pointer;
+  background: none; border: 1px dashed var(--color-border); color: var(--color-text-muted);
+}
+.btnAddLine:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.btnCancelEdit {
+  padding: 6px 14px; border-radius: 6px; font-size: 13px; font-family: inherit; cursor: pointer;
+  background: none; border: 1px solid var(--color-border); color: var(--color-text-muted);
+}
+.btnCancelEdit:hover { background: #f1f5f9; }
+.btnSaveItems {
+  padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; font-family: inherit;
+  cursor: pointer; border: none; background: var(--color-primary); color: white;
+}
+.btnSaveItems:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.itemsError {
+  margin: 8px 0; padding: 8px 12px; border-radius: 6px; font-size: 13px;
+  background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
+}
