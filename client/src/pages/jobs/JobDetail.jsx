@@ -892,12 +892,21 @@ function JobQuotesTab({ job, user }) {
 
   useEffect(() => {
     api.get('/quotes', { params: { job: job.id } }).then(r => setQuotes(r.data)).finally(() => setLoading(false));
-    api.get('/settings/themes').then(r => {
-      const active = r.data.filter(t => !t.archived);
+    // The theme set against this job's type in Settings wins, so a Dekker Hire
+    // job opens on Dekker Hire branding rather than the company-wide default.
+    Promise.all([
+      api.get('/settings/themes'),
+      api.get('/settings/job-types/config').catch(() => ({ data: [] })),
+    ]).then(([themeRes, typeRes]) => {
+      const active = (themeRes.data || []).filter(t => !t.archived);
       setThemes(active);
-      setThemeId(active.find(t => t.isDefault)?.id || active[0]?.id || '');
+      const wanted = String(job.type || '').trim().toLowerCase();
+      const jobType = (typeRes.data || []).find(t => String(t.name || '').trim().toLowerCase() === wanted);
+      // Falls through if that type has no theme, or points at one since archived.
+      const typeTheme = active.find(t => t.id === jobType?.theme_id);
+      setThemeId(typeTheme?.id || active.find(t => t.isDefault)?.id || active[0]?.id || '');
     }).catch(() => {});
-  }, [job.id]);
+  }, [job.id, job.type]);
 
   async function handleCreate() {
     setCreating(true);
