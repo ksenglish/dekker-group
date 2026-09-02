@@ -59,6 +59,49 @@ async function getSenderInfo(userId) {
   return { name: rows[0]?.name || '', mobile: rows[0]?.mobile || '' };
 }
 
+// Placeholders available in a theme's Default Quote Description. Resolved once,
+// as the quote is created — the result is ordinary editable text from then on,
+// so it can't fight with someone rewriting the description afterwards.
+//
+// Deliberately excludes the quote total: the description is frozen at creation
+// but the total moves every time a line item changes, so a figure baked in here
+// would quietly go stale. Keep totals to the line items and the PDF.
+async function buildQuoteDescriptionContext({ quote, theme, senderId }) {
+  const [{ rows: [customer] }, { rows: [job] }, sender] = await Promise.all([
+    quote.customer_id
+      ? pool.query('SELECT name, company FROM customers WHERE id=$1', [quote.customer_id])
+      : Promise.resolve({ rows: [] }),
+    quote.job_id
+      ? pool.query(
+          `SELECT j.job_number, j.external_ref, COALESCE(cs.address, j.site_address) AS site_address
+             FROM jobs j LEFT JOIN customer_sites cs ON cs.id = j.site_id WHERE j.id=$1`,
+          [quote.job_id])
+      : Promise.resolve({ rows: [] }),
+    getSenderInfo(senderId),
+  ]);
+
+  // The description is HTML, so anything substituted into it has to be escaped
+  // — a customer called "Smith & Sons" would otherwise emit invalid markup.
+  const esc = v => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const name = customer?.name || '';
+  const ctx = {
+    customer_name: name,
+    customer_first_name: name.split(' ')[0] || '',
+    customer_company: customer?.company || '',
+    company_name: theme?.companyName || '',
+    sender_name: sender?.name || '',
+    sender_first_name: (sender?.name || '').trim().split(/\s+/)[0] || '',
+    sender_mobile: sender?.mobile || '',
+    quote_number: quote.quote_number ? `QT-${String(quote.quote_number).padStart(4, '0')}` : '',
+    job_number: job?.external_ref || (job?.job_number ? `JB${String(job.job_number).padStart(5, '0')}` : ''),
+    site_address: job?.site_address || '',
+    quote_date: new Date(quote.quote_date || Date.now()).toLocaleDateString('en-NZ', {
+      day: 'numeric', month: 'long', year: 'numeric',
+    }),
+  };
+  return Object.fromEntries(Object.entries(ctx).map(([k, v]) => [k, esc(v)]));
+}
+
 async function buildQuoteEmailContext(q, theme, sender) {
   const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
   return {
@@ -168,11 +211,32 @@ async function create(req, res) {
     // box, so the wording that goes on every quote doesn't have to be retyped.
     // Anything passed in explicitly wins — it's the caller being specific.
     const description = sanitizeHtml(notes) || docTheme?.quoteDescription || null;
+    // Placeholders are only filled in when the wording came from the theme —
+    // notes passed in explicitly are the caller being specific and are left alone.
+    const fillPlaceholders = !sanitizeHtml(notes) && /\{\{/.test(docTheme?.quoteDescription || '');
     const { rows } = await pool.query(
       `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by, theme_id, quote_date)
        VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,CURRENT_DATE) RETURNING *`,
       [job_id || null, customer_id || null, subtotal, gst, total, description, expiresAt ? expiresAt.toISOString().split('T')[0] : null, req.user.id, docTheme?.id || null]
     );
+    // Filled in after the insert rather than before it, so {{quote_number}} —
+    // which Postgres only assigns on the way in — resolves to a real number.
+    if (fillPlaceholders) {
+      try {
+        const ctx = await buildQuoteDescriptionContext({
+          quote: rows[0], theme: docTheme, senderId: req.user?.id,
+        });
+        const filled = resolveTemplateText(description, ctx);
+        if (filled !== description) {
+          await pool.query('UPDATE quotes SET notes=$1 WHERE id=$2', [filled, rows[0].id]);
+          rows[0].notes = filled;
+        }
+      } catch (err) {
+        // The quote itself is fine — it just opens with the placeholders still
+        // showing, which someone can edit by hand.
+        console.error('Could not fill the quote description placeholders:', err.message);
+      }
+    }
     // Take a copy of those items for the quote to own, so it can be priced
     // independently of the job and of any other quote on it.
     if (job_id) {

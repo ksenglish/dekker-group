@@ -334,6 +334,10 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
               Fills the Description box on every new quote using this theme. Products added from the
               Sales Presenter add their own wording underneath it.
             </span>
+            <PlaceholderList
+              placeholders={QUOTE_DESCRIPTION_PLACEHOLDERS}
+              note="Filled in once, as the quote is created — the result is ordinary text you can edit."
+            />
           </div>
 
           <div className={styles.field}>
@@ -1128,6 +1132,40 @@ function IntegrationsTab() {
   );
 }
 
+// A quote description is written before the quote is priced or sent, so it
+// can't offer the total or the accept link the way an email template can.
+const QUOTE_DESCRIPTION_PLACEHOLDERS = [
+  ['{{customer_name}}', 'Customer full name'],
+  ['{{customer_first_name}}', 'Customer first name'],
+  ['{{customer_company}}', 'Customer company'],
+  ['{{company_name}}', 'Your company name'],
+  ['{{sender_name}}', 'The staff member raising it'],
+  ['{{sender_first_name}}', 'Their first name only'],
+  ['{{sender_mobile}}', 'Their mobile number'],
+  ['{{quote_number}}', 'e.g. QT-0033'],
+  ['{{job_number}}', 'e.g. JB00885'],
+  ['{{site_address}}', 'The job’s site address'],
+  ['{{quote_date}}', 'e.g. 30 August 2026'],
+];
+
+// Shared by the email templates and the quote description, so the two lists
+// look and behave the same.
+function PlaceholderList({ placeholders, note }) {
+  return (
+    <div style={{ background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: 6, padding: '10px 12px', marginTop: 8 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Available placeholders</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+        {placeholders.map(([tok, desc]) => (
+          <div key={tok} style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>
+            <code style={{ color: 'var(--color-primary)' }}>{tok}</code> — {desc}
+          </div>
+        ))}
+      </div>
+      {note && <div style={{ fontSize: 11.5, color: 'var(--color-text-muted)', marginTop: 8 }}>{note}</div>}
+    </div>
+  );
+}
+
 const EMAIL_PLACEHOLDERS = [
   ['{{customer_name}}', 'Customer full name'],
   ['{{customer_first_name}}', 'Customer first name'],
@@ -1232,16 +1270,7 @@ function EmailTemplatesTab() {
                   placeholder={'Hi {{customer_first_name}},\n\nPlease find your quote attached…'}
                   style={{ width: '100%', padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }} />
               </div>
-              <div style={{ background: '#f8fafc', border: '1px solid var(--color-border)', borderRadius: 6, padding: '10px 12px' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Available placeholders</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
-                  {EMAIL_PLACEHOLDERS.map(([tok, desc]) => (
-                    <div key={tok} style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>
-                      <code style={{ color: 'var(--color-primary)' }}>{tok}</code> — {desc}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <PlaceholderList placeholders={EMAIL_PLACEHOLDERS} />
               <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={form.is_default} onChange={e => setForm(f => ({ ...f, is_default: e.target.checked }))} />
                 Use as the default quote email template
