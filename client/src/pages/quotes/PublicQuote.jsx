@@ -13,6 +13,38 @@ function fmtDate(d) {
   return d ? new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
 }
 
+// This page is styled with inline style objects, and an inline style beats any
+// stylesheet rule — so a media query could never override one. The breakpoint
+// has to be read in JS instead, and the style object picked to match.
+function useIsMobile(query = '(max-width: 640px)') {
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    // resize as well as the query's own event: turning a phone sideways is a
+    // resize that some browsers don't report as a media query change, and the
+    // layout has to follow it either way.
+    mq.addEventListener('change', sync);
+    window.addEventListener('resize', sync);
+    return () => {
+      mq.removeEventListener('change', sync);
+      window.removeEventListener('resize', sync);
+    };
+  }, [query]);
+  return isMobile;
+}
+
+// Phone styling is a set of overrides on the shared look, merged key by key, so
+// anything the mobile block doesn't mention stays as it is on a desktop.
+function stylesFor(isMobile) {
+  if (!isMobile) return base;
+  const out = { ...base };
+  for (const key of Object.keys(mobile)) out[key] = { ...base[key], ...mobile[key] };
+  return out;
+}
+
 function jobNumberDisplay(quote) {
   if (quote.job_external_ref) return quote.job_external_ref;
   if (quote.job_number != null) return 'JB' + String(quote.job_number).padStart(5, '0');
@@ -21,6 +53,8 @@ function jobNumberDisplay(quote) {
 
 export default function PublicQuote() {
   const { token } = useParams();
+  const isMobile = useIsMobile();
+  const s = stylesFor(isMobile);
   const [searchParams] = useSearchParams();
   // Staff previewing from the quote editor — don't record it as a customer view.
   const isPreview = searchParams.get('preview') === '1';
@@ -106,7 +140,7 @@ export default function PublicQuote() {
           const logoOnLeft    = (quote.company?.logoPosition    || 'left')  === 'left';
           const contactOnLeft = (quote.company?.contactPosition || 'right') === 'left';
           const companyBlock = (
-            <div style={{ ...s.companyBlock, order: logoOnLeft ? 1 : 2 }}>
+            <div style={{ ...s.companyBlock, order: isMobile ? 1 : (logoOnLeft ? 1 : 2) }}>
               {quote.company?.logo
                 ? <img src={quote.company.logo} alt="Logo" style={{ ...s.logo, height: logoSize, maxWidth: logoSize * 2.8 }} />
                 : <div style={s.companyName}>{quote.company?.name}</div>
@@ -114,14 +148,17 @@ export default function PublicQuote() {
             </div>
           );
           const contactLines = (quote.company?.contactDetails || '').split('\n').map(l => l.trim()).filter(Boolean);
+          // The theme's left/right placement is a two-column idea. Stacked on
+          // a phone there are no columns, so both blocks read from the left.
           const contactBlock = (
-            <div style={{ textAlign: contactOnLeft ? 'left' : 'right', order: contactOnLeft ? 1 : 2 }}>
+            <div style={{ textAlign: isMobile ? 'left' : (contactOnLeft ? 'left' : 'right'),
+                          order: isMobile ? 2 : (contactOnLeft ? 1 : 2) }}>
               {contactLines.map((line, i) => <div key={i} style={s.companyContact}>{line}</div>)}
             </div>
           );
           return (
             <div style={s.header}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', flexWrap: 'wrap', gap: 16 }}>
+              <div style={s.headerRow}>
                 {companyBlock}
                 {contactBlock}
               </div>
@@ -185,7 +222,25 @@ export default function PublicQuote() {
           </div>
         )}
 
-        {/* Line items */}
+        {/* Line items. Four columns cannot fit a phone without either scrolling
+            sideways or squeezing the description down to one word per line, so
+            a phone gets the same figures stacked as a card per item instead. */}
+        {isMobile ? (
+          <div style={s.itemList}>
+            {quote.line_items?.map((item, i) => (
+              <div key={i} style={s.itemCard}>
+                {item.media_base64 && <img src={item.media_base64} alt="" style={s.itemThumb} />}
+                <div style={s.itemBody}>
+                  <div style={s.itemDesc}>{item.description}</div>
+                  <div style={s.itemMeta}>
+                    <span style={s.itemMetaText}>{item.quantity} × {fmt(item.unit_price)}</span>
+                    <span style={s.itemTotal}>{fmt(item.unit_price * item.quantity)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
         <table style={s.table}>
           <thead>
             <tr style={s.tableHead}>
@@ -214,6 +269,7 @@ export default function PublicQuote() {
             ))}
           </tbody>
         </table>
+        )}
 
         {/* Totals */}
         <div style={s.totals}>
@@ -340,11 +396,21 @@ export default function PublicQuote() {
                 {(item.brochure_mime || '').startsWith('image/') ? (
                   <img src={item.brochure_url} alt={item.description} style={s.brochureImg} />
                 ) : (
-                  <object data={item.brochure_url} style={s.brochurePdf} aria-label={item.description}>
-                    <a href={item.brochure_url} target="_blank" rel="noreferrer">
-                      View the {item.description} brochure
-                    </a>
-                  </object>
+                  <>
+                    <object data={item.brochure_url} style={s.brochurePdf} aria-label={item.description}>
+                      <a href={item.brochure_url} target="_blank" rel="noreferrer">
+                        View the {item.description} brochure
+                      </a>
+                    </object>
+                    {/* Most phones won't embed a PDF and show an empty box
+                        rather than triggering the fallback above, so on a phone
+                        the link sits under it regardless. */}
+                    {isMobile && (
+                      <a href={item.brochure_url} target="_blank" rel="noreferrer" style={s.brochureLink}>
+                        Open this brochure ↗
+                      </a>
+                    )}
+                  </>
                 )}
               </div>
             ))}
@@ -372,11 +438,12 @@ export default function PublicQuote() {
   );
 }
 
-const s = {
+const base = {
   page: { minHeight: '100vh', background: '#f8fafc', display: 'flex', justifyContent: 'center', padding: '32px 16px', fontFamily: 'system-ui, -apple-system, sans-serif' },
   center: { display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontFamily: 'system-ui, sans-serif' },
   container: { background: 'white', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)', width: '100%', maxWidth: 760, overflow: 'hidden' },
   header: { background: 'white', color: '#0f172a', padding: '24px 32px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
+  headerRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%', flexWrap: 'wrap', gap: 16 },
   companyBlock: {},
   logo: { height: 52, maxWidth: 180, objectFit: 'contain', marginBottom: 8, display: 'block' },
   companyName: { fontSize: 20, fontWeight: 700, marginBottom: 4 },
@@ -399,6 +466,17 @@ const s = {
   rowOdd: { background: '#fafafa' },
   thumb: { width: 40, height: 40, objectFit: 'contain', borderRadius: 4, display: 'block' },
   thumbEmpty: { width: 40, height: 40 },
+  // The phone-only card list that stands in for the table.
+  itemList: { borderTop: '1px solid #e2e8f0' },
+  itemCard: { display: 'flex', gap: 12, alignItems: 'flex-start', padding: '14px 16px', borderBottom: '1px solid #e2e8f0' },
+  itemThumb: { width: 48, height: 48, objectFit: 'contain', borderRadius: 4, flexShrink: 0 },
+  // minWidth:0 lets a long description wrap instead of stretching the row.
+  itemBody: { flex: 1, minWidth: 0 },
+  itemDesc: { fontSize: 14, fontWeight: 600, color: '#0f172a', lineHeight: 1.35, overflowWrap: 'anywhere' },
+  itemMeta: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, marginTop: 6 },
+  itemMetaText: { fontSize: 13, color: '#475569' },
+  itemTotal: { fontSize: 14, fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap' },
+  brochureLink: { display: 'inline-block', marginTop: 10, fontSize: 14, color: '#0f172a', fontWeight: 600 },
   totals: { padding: '16px 32px', borderTop: '2px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: 6 },
   totalRow: { display: 'flex', justifyContent: 'space-between', fontSize: 14, color: '#0f172a', fontWeight: 700 },
   totalFinal: { fontSize: 16, fontWeight: 700, color: '#0f172a', borderTop: '1px solid #e2e8f0', paddingTop: 8, marginTop: 4 },
@@ -425,4 +503,38 @@ const s = {
   proposalImg: { width: '90%', margin: '0 auto', borderRadius: 6, display: 'block' },
   // height:auto so a wide brochure shrinks to fit rather than being cropped.
   brochureImg: { width: '100%', height: 'auto', borderRadius: 6, display: 'block' },
+};
+
+// Phones. Mostly: use the full width of the screen rather than a floating card
+// inside 32px gutters, and stack anything laid out in columns.
+const mobile = {
+  page: { padding: 0, background: 'white' },
+  container: { borderRadius: 0, boxShadow: 'none', maxWidth: '100%' },
+  header: { padding: '20px 16px 10px' },
+  headerRow: { flexDirection: 'column', gap: 12 },
+  titleRow: { padding: '4px 16px 16px' },
+  quoteTitle: { fontSize: 20 },
+  // Three columns on a 360px screen gives each about 100px, which broke the
+  // dates and addresses onto one word per line.
+  detailGrid: { padding: 16, gridTemplateColumns: '1fr', gap: 16 },
+  customerDetail: { fontSize: 13, overflowWrap: 'anywhere' },
+  detailFieldValue: { fontSize: 13, overflowWrap: 'anywhere' },
+  totals: { padding: '14px 16px' },
+  notes: { padding: 16, overflowWrap: 'anywhere' },
+  acceptSection: { padding: '20px 16px' },
+  acceptedBanner: { padding: '12px 14px' },
+  declinedBanner: { padding: '12px 14px' },
+  // Full-width stacked controls, the way a phone form is normally laid out.
+  acceptRow: { flexDirection: 'column', alignItems: 'stretch' },
+  // 16px because anything smaller makes iOS Safari zoom in on focus.
+  acceptInput: { minWidth: 0, width: '100%', boxSizing: 'border-box', fontSize: 16 },
+  acceptBtn: { width: '100%', padding: '13px 20px', fontSize: 15 },
+  declineBtn: { width: '100%', padding: '13px 20px' },
+  cancelDeclineBtn: { width: '100%', padding: '13px 20px' },
+  declineTextarea: { fontSize: 16 },
+  brochureSection: { padding: '20px 16px' },
+  // A phone screen is shorter than 800px, so a PDF box that tall is a whole
+  // screen of nothing to scroll past.
+  brochurePdf: { height: 420 },
+  proposalImg: { width: '100%' },
 };
