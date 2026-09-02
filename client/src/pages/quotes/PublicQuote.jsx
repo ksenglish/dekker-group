@@ -331,16 +331,21 @@ export default function PublicQuote() {
             {brochures.map((item, i) => (
               <div key={i} style={s.brochureBlock}>
                 <div style={s.brochureTitle}>{item.description}</div>
-                {/* <object> rather than an iframe or an img: the browser picks
-                    how to display it from the content type the server sends,
-                    so a PDF brochure and an image one both work without the
-                    page having to know which it is. Anything it cannot show
-                    falls back to the link. */}
-                <object data={item.brochure_url} style={s.brochurePdf} aria-label={item.description}>
-                  <a href={item.brochure_url} target="_blank" rel="noreferrer">
-                    View the {item.description} brochure
-                  </a>
-                </object>
+                {/* An image brochure gets an <img> so it scales to the page,
+                    the way it does in the price list and the downloaded PDF.
+                    Inside an <object> the browser lays it out at full size in
+                    a scrolling box instead, which showed a magnified crop.
+                    PDFs still need the <object> viewer, with the link inside
+                    as the fallback for a browser that won't embed one. */}
+                {(item.brochure_mime || '').startsWith('image/') ? (
+                  <img src={item.brochure_url} alt={item.description} style={s.brochureImg} />
+                ) : (
+                  <object data={item.brochure_url} style={s.brochurePdf} aria-label={item.description}>
+                    <a href={item.brochure_url} target="_blank" rel="noreferrer">
+                      View the {item.description} brochure
+                    </a>
+                  </object>
+                )}
               </div>
             ))}
           </div>
@@ -418,5 +423,6 @@ const s = {
   brochureTitle: { fontSize: 13, fontWeight: 600, color: '#0f172a', marginBottom: 10 },
   brochurePdf: { width: '100%', height: 800, border: 'none', borderRadius: 6 },
   proposalImg: { width: '90%', margin: '0 auto', borderRadius: 6, display: 'block' },
-  brochureImg: { width: '100%', borderRadius: 6, display: 'block' },
+  // height:auto so a wide brochure shrinks to fit rather than being cropped.
+  brochureImg: { width: '100%', height: 'auto', borderRadius: 6, display: 'block' },
 };

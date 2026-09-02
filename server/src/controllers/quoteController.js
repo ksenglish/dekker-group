@@ -717,7 +717,9 @@ async function enrichItemsForPublic(items, token) {
 
   const { rows } = await pool.query(
     `SELECT id, media_base64, media_key, brochure_key, brochure_hash,
-            (brochure_key IS NOT NULL OR brochure_base64 IS NOT NULL) AS has_brochure
+            (brochure_key IS NOT NULL OR brochure_base64 IS NOT NULL) AS has_brochure,
+            -- Just the data: URL prefix, not the megabytes behind it.
+            substring(brochure_base64 for 64) AS brochure_prefix
        FROM products WHERE id = ANY($1)`,
     [ids]
   );
@@ -728,6 +730,7 @@ async function enrichItemsForPublic(items, token) {
       media_base64: await fileStore.readDataUrl({ key: row.media_key, inline: row.media_base64 }),
       brochure_url: row.has_brochure ? `/api/quotes/public/${token}/brochures/${row.id}` : null,
       brochure_hash: row.has_brochure ? await brochureHash(row) : null,
+      brochure_mime: row.has_brochure ? await brochureMime(row) : null,
     };
   }
 
@@ -738,7 +741,23 @@ async function enrichItemsForPublic(items, token) {
     // Lets the page collapse one brochure shared across several products —
     // the URL can't, since it's keyed per product.
     brochure_hash: i.product_id ? (map[i.product_id]?.brochure_hash || null) : null,
+    // Lets the page show an image brochure as an image and a PDF one in a
+    // viewer, rather than guessing from a URL that carries no extension.
+    brochure_mime: i.product_id ? (map[i.product_id]?.brochure_mime || null) : null,
   }));
+}
+
+// The stored brochure carries no extension in its key, so its type comes from
+// the object's own content type — a HEAD, so nothing is downloaded — or, for a
+// brochure still held inline, from the prefix of its data: URL.
+//
+// Falls back to PDF: that is what a brochure almost always is, and what the
+// page rendered everything as before this existed.
+async function brochureMime(row) {
+  const m = String(row.brochure_prefix || '').match(/^data:([^;]+);base64,/);
+  if (m) return m[1];
+  if (row.brochure_key) return (await fileStore.headContentType(row.brochure_key)) || 'application/pdf';
+  return 'application/pdf';
 }
 
 // Migration 087 hashes brochures held inline; ones in object storage are done

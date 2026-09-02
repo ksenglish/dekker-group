@@ -12,7 +12,7 @@
 // bucket, and means a missing credential degrades to the old behaviour rather
 // than breaking uploads outright.
 
-const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, HeadObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const crypto = require('crypto');
 
 const BUCKET = process.env.R2_BUCKET;
@@ -68,6 +68,20 @@ async function getObject(key) {
   // The content type comes back off the object, so nothing has to carry a
   // second column recording what kind of file a key points at.
   return { buffer: Buffer.concat(chunks), contentType: res.ContentType || 'application/octet-stream' };
+}
+
+// What kind of file a key points at, without pulling the file. Brochure keys
+// carry no extension, so the object's own content type is the only record of
+// it — and a page laying out a brochure needs to know whether to show an image
+// or a PDF viewer before it fetches anything.
+async function headContentType(key) {
+  if (!key) return null;
+  try {
+    const res = await s3().send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    return res.ContentType || null;
+  } catch {
+    return null;
+  }
 }
 
 async function getObjectBuffer(key) {
@@ -142,6 +156,7 @@ module.exports = {
   putObject,
   getObject,
   getObjectBuffer,
+  headContentType,
   deleteObject,
   readAttachmentBuffer,
   readAttachmentDataUrl,
