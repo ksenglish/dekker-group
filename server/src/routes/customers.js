@@ -12,7 +12,9 @@ router.get('/', c.list);
 router.post('/', requireRole('admin', 'office'), c.create);
 router.post('/import', requireRole('admin', 'office'), c.importCsv);
 router.get('/:id', c.get);
-router.put('/:id', requireRole('admin'), c.update);
+// Sales and operations can already create a customer and add sites to one, so
+// they can correct one too. Delete and merge below stay admin-only.
+router.put('/:id', requireRole('admin', 'office'), c.update);
 router.delete('/:id', requireRole('admin'), c.remove);
 // Admin only: it moves history and deletes a record.
 router.post('/:id/merge', requireRole('admin'), c.merge);

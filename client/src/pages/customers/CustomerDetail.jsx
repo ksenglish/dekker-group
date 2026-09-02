@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { htmlToText } from '../../lib/richText';
 import { useAuth } from '../../context/AuthContext';
-import { isAdmin, canAct } from '../../lib/permissions';
+import { isAdmin, canAct, canEditCustomer } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import AddressAutocomplete from '../../components/AddressAutocomplete';
 import styles from './Customers.module.css';
@@ -276,7 +276,7 @@ export default function CustomerDetail() {
         </div>
         {!isNew && (
           <div className={styles.headerActions}>
-            {!editMode && tab === 'info' && isAdmin(user?.role) && (
+            {!editMode && tab === 'info' && canEditCustomer(user?.role) && (
               <button className={styles.btnSecondary} onClick={() => setEditMode(true)}>Edit</button>
             )}
             {!editMode && isAdmin(user?.role) && (
