@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 import ElectricalCocForm from './ElectricalCocForm';
 import FormRenderer from './FormRenderer';
+import FormReader from './FormReader';
 import styles from './Jobs.module.css';
 import formStyles from './JobFormsTab.module.css';
 
@@ -25,11 +26,15 @@ function statusLabel(sub) {
 
 export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }) {
   const [openForm, setOpenForm] = useState(null); // 'electrical_coc' | submission id
+  // A completed form opens to be read; the same form can then be reopened to
+  // edit, which is what drops it back into the renderer.
+  const [reading, setReading] = useState(null);
   const [cocStatus, setCocStatus] = useState(null);
   const [submissions, setSubmissions] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [busyId, setBusyId] = useState(null);
 
   const showCoc = stage === BUILT_IN.stage;
 
@@ -63,6 +68,48 @@ export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }
     }
   }
 
+  async function deleteForm(sub) {
+    const warning = sub.status === 'completed'
+      ? `Delete "${sub.name}"? It has been completed, and the answers and photos on it will be gone for good.`
+      : `Remove "${sub.name}" from this job?`;
+    if (!confirm(warning)) return;
+    setBusyId(sub.id);
+    try {
+      await api.delete(`/jobs/${jobId}/forms/${sub.id}`);
+      setSubmissions(subs => subs.filter(s => s.id !== sub.id));
+      setReading(null);
+      setOpenForm(null);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Could not delete that form');
+    } finally { setBusyId(null); }
+  }
+
+  async function downloadForm(sub) {
+    setBusyId(sub.id);
+    try {
+      const r = await api.get(`/jobs/${jobId}/forms/${sub.id}/pdf`, { responseType: 'blob' });
+      const match = /filename="?([^"]+)"?/.exec(r.headers['content-disposition'] || '');
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = match ? match[1] : `${sub.name || 'Form'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Could not produce the PDF. Please try again.');
+    } finally { setBusyId(null); }
+  }
+
+  // Tapping a form opens it to read once it's finished, and to fill in while
+  // it isn't — on site the common case for a completed form is checking what
+  // was recorded, not editing it.
+  function openSubmission(sub) {
+    if (sub.status === 'completed') setReading(sub.id);
+    else setOpenForm(sub.id);
+  }
+
   if (openForm === 'electrical_coc') {
     return (
       <ElectricalCocForm
@@ -84,6 +131,8 @@ export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }
       />
     );
   }
+
+  const readingSub = stageSubs.find(s => s.id === reading);
 
   const unattached = templates.filter(t => !stageSubs.some(s => s.template_id === t.id));
 
@@ -107,15 +156,35 @@ export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }
             )}
 
             {stageSubs.map(sub => (
-              <button key={sub.id} type="button" className={formStyles.formCard} onClick={() => setOpenForm(sub.id)}>
-                <div className={formStyles.formInfo}>
-                  <div className={formStyles.formName}>{sub.name}</div>
-                  {sub.description && <div className={formStyles.formDesc}>{sub.description}</div>}
+              // A row rather than a button now: the download and delete
+              // controls are their own buttons, and a button can't nest.
+              <div key={sub.id} className={formStyles.formRow}>
+                <button type="button" className={formStyles.formCard} onClick={() => openSubmission(sub)}>
+                  <div className={formStyles.formInfo}>
+                    <div className={formStyles.formName}>{sub.name}</div>
+                    {sub.description && <div className={formStyles.formDesc}>{sub.description}</div>}
+                  </div>
+                  <span className={`${formStyles.status} ${sub.status === 'completed' ? formStyles.statusDone : formStyles.statusPending}`}>
+                    {statusLabel(sub)}
+                  </span>
+                </button>
+                <div className={formStyles.rowActions}>
+                  {sub.status === 'completed' && (
+                    <button type="button" className={formStyles.iconBtn} title="Download as PDF"
+                      aria-label={`Download ${sub.name} as PDF`}
+                      disabled={busyId === sub.id} onClick={() => downloadForm(sub)}>
+                      ⬇
+                    </button>
+                  )}
+                  {sub.can_delete && (
+                    <button type="button" className={formStyles.iconBtnDanger} title="Delete this form"
+                      aria-label={`Delete ${sub.name}`}
+                      disabled={busyId === sub.id} onClick={() => deleteForm(sub)}>
+                      ✕
+                    </button>
+                  )}
                 </div>
-                <span className={`${formStyles.status} ${sub.status === 'completed' ? formStyles.statusDone : formStyles.statusPending}`}>
-                  {statusLabel(sub)}
-                </span>
-              </button>
+              </div>
             ))}
 
             {!showCoc && stageSubs.length === 0 && (
@@ -142,6 +211,17 @@ export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }
             </div>
           )}
         </>
+      )}
+
+      {readingSub && (
+        <FormReader
+          jobId={jobId}
+          job={job}
+          submission={readingSub}
+          onClose={() => setReading(null)}
+          onEdit={() => { setReading(null); setOpenForm(readingSub.id); }}
+          onDelete={readingSub.can_delete ? () => deleteForm(readingSub) : null}
+        />
       )}
     </div>
   );

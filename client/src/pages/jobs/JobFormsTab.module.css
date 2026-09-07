@@ -1,13 +1,56 @@
 .list { display: flex; flex-direction: column; }
 
+/* The row holds the tap target and its own controls side by side, so the whole
+   card stays clickable without nesting a button inside a button. */
+.formRow {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--color-border);
+}
+.formRow:last-child { border-bottom: none; }
+.formRow:hover { background: #f8fafc; }
+
 .formCard {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   width: 100%; text-align: left; background: none; border: none;
   border-bottom: 1px solid var(--color-border);
   padding: 16px 20px; cursor: pointer; font-family: inherit;
 }
+/* Inside a row the divider belongs to the row, not the button. */
+.formRow .formCard { border-bottom: none; }
 .formCard:last-child { border-bottom: none; }
 .formCard:hover { background: #f8fafc; }
+.formRow .formCard:hover { background: none; }
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 12px;
+  flex-shrink: 0;
+}
+
+.iconBtn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  /* 34px square: small enough not to crowd the row, big enough to hit on a
+     phone without catching the row underneath. */
+  width: 34px;
+  height: 34px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.iconBtn:hover { background: #e2e8f0; color: var(--color-text); }
+.iconBtn:disabled { opacity: 0.4; cursor: default; }
+
+.iconBtnDanger {
+  composes: iconBtn;
+  color: #b91c1c;
+}
+.iconBtnDanger:hover { background: #fee2e2; color: #991b1b; }
 
 .formInfo { display: flex; flex-direction: column; gap: 4px; }
 .formName { font-size: 14px; font-weight: 600; }

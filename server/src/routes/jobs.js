@@ -148,7 +148,10 @@ const jobForms = require('../controllers/jobFormController');
 router.get('/:id/forms', jobForms.list);
 router.post('/:id/forms', requireRole('admin', 'office'), jobForms.attach);
 router.put('/:id/forms/:submissionId', jobForms.save);
-router.delete('/:id/forms/:submissionId', requireRole('admin', 'office'), jobForms.remove);
+router.get('/:id/forms/:submissionId/pdf', jobForms.downloadPdf);
+// Not gated on a role here: the rule is about whose form it is, so the
+// controller decides. A field tech can delete the form they filled in.
+router.delete('/:id/forms/:submissionId', jobForms.remove);
 
 router.get('/:id/electrical-coc', c.getElectricalCoc);
 router.put('/:id/electrical-coc', c.saveElectricalCoc);
