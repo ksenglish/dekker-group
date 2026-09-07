@@ -1,0 +1,40 @@
+.page { padding: 24px 28px; max-width: 1180px; }
+.pageHeader { margin-bottom: 22px; }
+.pageTitle { font-size: 22px; font-weight: 700; }
+.pageSubtitle { font-size: 13.5px; color: var(--color-text-muted); margin-top: 4px; }
+
+/* The strip scrolls sideways on its own rather than pushing the whole page
+   wide, which is what panned the entire screen left and right on a phone. */
+.tabBar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* old Edge */
+}
+.tabBar::-webkit-scrollbar { display: none; }
+
+.tabBtn {
+  padding: 9px 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  flex-shrink: 0;       /* don't squash tabs to fit — let the strip scroll */
+  white-space: nowrap;
+}
+.tabBtn:hover { color: var(--color-text); }
+.tabBtnActive { color: var(--color-text); border-bottom-color: var(--color-primary); }
+
+@media (max-width: 768px) {
+  .page { padding: 16px; }
+}

@@ -1,0 +1,86 @@
+.page {
+  padding: 24px 28px;
+  max-width: 720px;
+}
+
+.pageHeader {
+  margin-bottom: 22px;
+}
+
+.pageTitle {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.pageSubtitle {
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Each row is a whole tap target rather than a link inside one, so there is no
+   small text to aim at on a phone. */
+.card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.1s, background 0.1s;
+}
+
+.card:hover {
+  border-color: var(--color-primary);
+  background: #f8fafc;
+}
+
+.cardIcon {
+  font-size: 24px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* minWidth:0 lets a long description wrap instead of stretching the row. */
+.cardText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cardLabel {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.cardDesc {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  line-height: 1.35;
+}
+
+.cardChevron {
+  font-size: 22px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .page {
+    padding: 16px;
+  }
+}

@@ -32,6 +32,8 @@ import StockPage from '../../pages/stock/StockPage';
 import CostsPage from '../../pages/costs/CostsPage';
 import SalesPage from '../../pages/reports/SalesPage';
 import MarketingPage from '../../pages/reports/MarketingPage';
+import AdminPage from '../../pages/admin/AdminPage';
+import { ADMIN_ITEMS } from './adminItems';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
@@ -59,13 +61,6 @@ function visibleNavItems(items, role) {
     (!item.hideForOperations || role !== 'operations')
   );
 }
-
-const ADMIN_ITEMS = [
-  { to: '/users', label: 'Users', icon: '👤' },
-  { to: '/presenter/admin', label: 'Presenter Setup', icon: '🎛' },
-  { to: '/website', label: 'Website', icon: '🌐' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
-];
 
 export default function AppShell() {
   const { user, logout } = useAuth();
@@ -248,6 +243,7 @@ export default function AppShell() {
           <Route path="/hub" element={<DekkerHub />} />
           <Route path="/invoice-inbox" element={<InvoiceInboxPage />} />
           <Route path="/todos" element={<TodosPage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="/users/*" element={<ComingSoon title="Users" />} />
         </Routes>
       </main>
@@ -272,6 +268,10 @@ export default function AppShell() {
           { to: '/reports',   icon: '📊', label: 'Reports', adminOnly: true },
           { to: '/presenter', icon: '🎯', label: 'Presenter', hideForOperations: true },
           { to: '/hub',       icon: '🏢', label: 'Hub' },
+          // The admin pages live in the desktop sidebar, which is hidden on a
+          // phone. This opens a menu of them instead of adding four more items
+          // to a rail that already has to scroll.
+          { to: '/admin',     icon: '🛠', label: 'Admin', adminOnly: true },
         ], user?.role).map(item => (
           <NavLink key={item.to} to={item.to} end={item.exact}
             className={({ isActive }) =>
