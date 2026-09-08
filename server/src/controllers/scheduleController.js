@@ -1,23 +1,28 @@
 const pool = require('../db/pool');
 const { normaliseRole } = require('../middleware/auth');
-const { getStatusConfig, findStatusByLabel } = require('../utils/jobStatusFlow');
+const { advanceJobStatusByLabel } = require('../utils/jobStatusFlow');
 
 const isSiteVisit       = l => l.includes('site visit');
 const isScheduledInstall = l => l.includes('scheduled') && l.includes('install');
 
 // Booking a sales appointment means a site visit is now on the calendar;
 // booking an operations appointment means the install is now on the calendar.
-// This applies unconditionally — even if the job is further along (e.g.
-// re-booking a callback) — since a newly-booked appointment is always the
-// most current signal of what stage the job is actually at.
+//
+// Forward only. This used to apply unconditionally, on the reasoning that a
+// newly-booked appointment is the most current signal of where a job is at —
+// but in practice it read the other way round: a job already under way would
+// drop back to "Scheduled - Install" the moment a second installer was booked
+// on, or a follow-up visit was added. The work hadn't un-started. Same for a
+// job already invoiced or complete.
+//
+// advanceJobStatusByLabel is what quoting already uses, so booking and quoting
+// now move a job through the pipeline by the same rule.
 async function applyAppointmentStatus(jobId, appointmentType) {
   if (!jobId || (appointmentType !== 'sales' && appointmentType !== 'operations')) return;
-  const config = await getStatusConfig();
-  const target = appointmentType === 'operations'
-    ? findStatusByLabel(config, isScheduledInstall)
-    : findStatusByLabel(config, isSiteVisit);
-  if (!target) return;
-  await pool.query('UPDATE jobs SET status=$1, updated_at=NOW() WHERE id=$2', [target.key, jobId]);
+  await advanceJobStatusByLabel(
+    jobId,
+    appointmentType === 'operations' ? isScheduledInstall : isSiteVisit
+  );
 }
 
 // Booking someone onto a job's diary is the same act as putting them on the
