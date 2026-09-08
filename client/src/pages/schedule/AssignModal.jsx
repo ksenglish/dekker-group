@@ -74,6 +74,11 @@ export default function AssignModal({
   const isEdit = !!source && !copy;
   const [jobs, setJobs] = useState([]);
   const [jobTechs, setJobTechs] = useState([]); // team members on the selected job
+  // The roster this modal offers. Seeded from techMap when the caller has one
+  // (the Schedule page), fetched otherwise (the job page opens this modal
+  // without one) — so the list is never empty just because of who opened it.
+  const [roster, setRoster] = useState(() =>
+    Object.entries(techMap).map(([id, name]) => ({ id, name, role: techRoles[id] })));
   const [form, setForm] = useState({
     job_id: source ? source[0].job_id : (initialJobId || ''),
     user_ids: source ? source.map(e => e.user_id) : (initialUserId ? [initialUserId] : []),
@@ -102,6 +107,22 @@ export default function AssignModal({
       setJobs(r.data.jobs.filter(j => j.status !== 'complete' && j.status !== 'cancelled'));
     });
   }, [effectiveLockJob]);
+
+  // Fetch the roster when the caller didn't hand one over. Keyed on the ids
+  // rather than techMap itself: a caller that doesn't pass one gives a fresh
+  // {} on every render, which would re-run this forever.
+  const providedIds = Object.keys(techMap).join(',');
+  useEffect(() => {
+    if (providedIds) {
+      setRoster(Object.entries(techMap).map(([id, name]) => ({ id, name, role: techRoles[id] })));
+      return;
+    }
+    api.get('/users')
+      // Someone who has left shouldn't be offered a booking.
+      .then(r => setRoster(r.data.filter(u => u.is_active !== false)
+        .map(u => ({ id: u.id, name: u.name, role: u.role }))))
+      .catch(() => setRoster([]));
+  }, [providedIds]);
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
   function selectUser(id) {
@@ -172,9 +193,18 @@ export default function AssignModal({
   // Subcontractors are left out: they're engaged per job rather than rostered,
   // so putting them on this list would be offering the wrong thing.
   const onJob = new Set(jobTechs.map(t => t.id));
-  const techOptions = Object.entries(techMap)
-    .filter(([id]) => techRoles[id] !== 'subcontractor')
-    .map(([id, name]) => ({ id, name, onJob: onJob.has(id) }))
+  // Anyone already on the job is included even if the roster hasn't loaded, so
+  // the list is never empty while the fetch is in flight.
+  const byId = new Map([
+    ...jobTechs.map(t => [t.id, { id: t.id, name: t.name, role: techRoles[t.id] }]),
+    ...roster.map(u => [u.id, u]),
+  ]);
+  const techOptions = [...byId.values()]
+    // Subcontractors are kept off the wider roster — they're engaged per job
+    // rather than rostered — but one already on this job stays bookable, which
+    // is what could be done before.
+    .filter(u => u.role !== 'subcontractor' || onJob.has(u.id))
+    .map(u => ({ id: u.id, name: u.name, onJob: onJob.has(u.id) }))
     // Already on the job first, since that's usually who is wanted.
     .sort((a, b) => (b.onJob - a.onJob) || a.name.localeCompare(b.name));
 
