@@ -59,32 +59,41 @@ function guessApptType(role) {
 // i.e. one logical appointment assigned to more than one person) to edit it instead
 // of creating a new one. Only Admins get the multi-select checkbox list (isAdmin) —
 // everyone else keeps the original single team-member dropdown.
+//
+// `copy` uses those same rows as a starting point but saves a new appointment,
+// so a booking can be repeated for another team member or another day without
+// re-entering the job, times and notes.
 export default function AssignModal({
   date, jobId: initialJobId, userId: initialUserId, techMap = {}, techRoles = {},
-  onClose, onAssigned, lockJob = false, lockedJobLabel = '', isAdmin = false, existing,
+  onClose, onAssigned, lockJob = false, lockedJobLabel = '', isAdmin = false,
+  existing, copy = false,
 }) {
-  const isEdit = !!existing?.length;
+  // Both modes read their opening values from `existing`; only editing writes
+  // back to it.
+  const source = existing?.length ? existing : null;
+  const isEdit = !!source && !copy;
   const [jobs, setJobs] = useState([]);
   const [jobTechs, setJobTechs] = useState([]); // team members on the selected job
   const [form, setForm] = useState({
-    job_id: isEdit ? existing[0].job_id : (initialJobId || ''),
-    user_ids: isEdit ? existing.map(e => e.user_id) : (initialUserId ? [initialUserId] : []),
-    scheduled_date: isEdit ? String(existing[0].scheduled_date).slice(0, 10) : (date || toLocalDateStr()),
-    start_time: isEdit ? (existing[0].start_time || '') : '',
-    end_time: isEdit ? (existing[0].end_time || '') : '',
-    appointment_type: isEdit ? (existing[0].appointment_type || '') : guessApptType(techRoles[initialUserId]),
-    notes: isEdit ? (existing[0].notes || '') : '',
+    job_id: source ? source[0].job_id : (initialJobId || ''),
+    user_ids: source ? source.map(e => e.user_id) : (initialUserId ? [initialUserId] : []),
+    scheduled_date: source ? String(source[0].scheduled_date).slice(0, 10) : (date || toLocalDateStr()),
+    start_time: source ? (source[0].start_time || '') : '',
+    end_time: source ? (source[0].end_time || '') : '',
+    appointment_type: source ? (source[0].appointment_type || '') : guessApptType(techRoles[initialUserId]),
+    notes: source ? (source[0].notes || '') : '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   // Once the user picks an end time themselves we stop re-deriving it, so
   // changing the start doesn't silently undo their choice. An appointment being
   // edited already has an end time they chose earlier.
-  const [endTouched, setEndTouched] = useState(isEdit && !!existing[0].end_time);
+  const [endTouched, setEndTouched] = useState(!!source && !!source[0].end_time);
 
-  const effectiveLockJob = lockJob || isEdit;
-  const effectiveLockedJobLabel = isEdit
-    ? `${formatJobNumber(existing[0])}${existing[0].customer_name ? ' — ' + existing[0].customer_name : ''}`
+  // A copy stays on the same job too — it is a repeat of that booking.
+  const effectiveLockJob = lockJob || !!source;
+  const effectiveLockedJobLabel = source
+    ? `${formatJobNumber(source[0])}${source[0].customer_name ? ' — ' + source[0].customer_name : ''}`
     : lockedJobLabel;
 
   useEffect(() => {
@@ -106,7 +115,7 @@ export default function AssignModal({
     api.get(`/jobs/${form.job_id}`).then(r => {
       const techs = r.data.technicians || [];
       setJobTechs(techs);
-      if (isEdit) return; // keep the existing assignees as-is, don't reset on load
+      if (source) return; // keep the assignees we opened with, don't reset on load
       if (techs.length === 0) {
         if (!initialUserId) selectUser('');
       } else if (techs.some(t => t.id === initialUserId)) {
@@ -135,11 +144,11 @@ export default function AssignModal({
     };
     try {
       if (isEdit) {
-        const originalByUser = new Map(existing.map(e => [e.user_id, e]));
+        const originalByUser = new Map(source.map(e => [e.user_id, e]));
         const newUserIds = new Set(form.user_ids);
-        const kept = existing.filter(e => newUserIds.has(e.user_id));
+        const kept = source.filter(e => newUserIds.has(e.user_id));
         const added = form.user_ids.filter(id => !originalByUser.has(id));
-        const removed = existing.filter(e => !newUserIds.has(e.user_id));
+        const removed = source.filter(e => !newUserIds.has(e.user_id));
         await Promise.all([
           ...kept.map(e => api.put(`/schedules/${e.id}`, shared)),
           ...added.map(user_id => api.post('/schedules', { ...shared, user_id })),
@@ -156,10 +165,18 @@ export default function AssignModal({
     }
   }
 
-  // Which techs to show — prefer job's assigned members, fall back to all
-  const techOptions = jobTechs.length > 0
-    ? jobTechs
-    : Object.entries(techMap).map(([id, name]) => ({ id, name }));
+  // Everyone in the organisation, not just whoever is already on the job —
+  // booking someone new is how they get added to it in the first place, so
+  // limiting the list to existing members made that impossible.
+  //
+  // Subcontractors are left out: they're engaged per job rather than rostered,
+  // so putting them on this list would be offering the wrong thing.
+  const onJob = new Set(jobTechs.map(t => t.id));
+  const techOptions = Object.entries(techMap)
+    .filter(([id]) => techRoles[id] !== 'subcontractor')
+    .map(([id, name]) => ({ id, name, onJob: onJob.has(id) }))
+    // Already on the job first, since that's usually who is wanted.
+    .sort((a, b) => (b.onJob - a.onJob) || a.name.localeCompare(b.name));
 
   const selectedJob = jobs.find(j => j.id === form.job_id);
 
@@ -167,7 +184,7 @@ export default function AssignModal({
     <div className={styles.modalOverlay} {...overlayClose(onClose)}>
       <div className={styles.eventModal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
-          <h2>{isEdit ? 'Edit Appointment' : 'Schedule Job'}</h2>
+          <h2>{isEdit ? 'Edit Appointment' : copy ? 'Copy Appointment' : 'Schedule Job'}</h2>
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
         <form onSubmit={handleSubmit}>
@@ -201,7 +218,9 @@ export default function AssignModal({
               <label>Team Member{isAdmin ? '(s)' : ''} *</label>
               {isAdmin ? (
                 <TeamMemberMultiSelect
-                  options={techOptions}
+                  options={techOptions.map(t => ({
+                    ...t, hint: t.onJob ? '' : 'not on this job yet',
+                  }))}
                   selected={form.user_ids}
                   onChange={ids => set('user_ids', ids)}
                   placeholder="Select team member(s)…"
@@ -210,13 +229,15 @@ export default function AssignModal({
                 <select value={form.user_ids[0] || ''} onChange={e => selectUser(e.target.value)}>
                   <option value="">Select team member…</option>
                   {techOptions.map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
+                    <option key={t.id} value={t.id}>
+                      {t.name}{t.onJob ? '' : ' — not on this job yet'}
+                    </option>
                   ))}
                 </select>
               )}
-              {jobTechs.length > 0 && (
-                <span className={styles.fieldHint}>Showing team members assigned to this job</span>
-              )}
+              <span className={styles.fieldHint}>
+                Anyone booked in is added to the job automatically.
+              </span>
             </div>
 
             {/* Appointment type */}
@@ -264,7 +285,9 @@ export default function AssignModal({
           <div className={styles.modalFooter}>
             <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
             <button type="submit" className={styles.btnPrimary} disabled={saving}>
-              {saving ? (isEdit ? 'Saving…' : 'Scheduling…') : (isEdit ? 'Save Changes' : 'Add to Schedule')}
+              {saving
+                ? (isEdit ? 'Saving…' : 'Scheduling…')
+                : (isEdit ? 'Save Changes' : copy ? 'Create Copy' : 'Add to Schedule')}
             </button>
           </div>
         </form>

@@ -20,6 +20,22 @@ async function applyAppointmentStatus(jobId, appointmentType) {
   await pool.query('UPDATE jobs SET status=$1, updated_at=NOW() WHERE id=$2', [target.key, jobId]);
 }
 
+// Booking someone onto a job's diary is the same act as putting them on the
+// job — otherwise they'd have the appointment in their calendar while the job
+// still listed someone else, and the job wouldn't show up in their own filters.
+//
+// Additive only: taking an appointment off, or moving it to someone else, does
+// not remove anyone from the job. They may have other appointments on it, time
+// logged against it, or forms they filled in, so that stays a deliberate edit
+// on the job itself.
+async function addToJobTeam(jobId, userId) {
+  if (!jobId || !userId) return;
+  await pool.query(
+    'INSERT INTO job_technicians (job_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+    [jobId, userId]
+  );
+}
+
 async function list(req, res) {
   const { from, to, tech, appointment_type, job } = req.query;
   const conditions = ['1=1'];
@@ -77,6 +93,7 @@ async function create(req, res) {
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [job_id, user_id, scheduled_date, start_time || null, end_time || null, appointment_type || null, notes || null]
     );
+    await addToJobTeam(job_id, user_id);
     if (appointment_type) {
       await applyAppointmentStatus(job_id, appointment_type);
     } else {
@@ -118,6 +135,11 @@ async function update(req, res) {
        WHERE id=$7 RETURNING *`,
       [merged.user_id, merged.scheduled_date, merged.start_time, merged.end_time, merged.appointment_type, merged.notes, req.params.id]
     );
+    // Reassigning an appointment puts the new person on the job, same as
+    // booking one does.
+    if (merged.user_id !== existing.user_id) {
+      await addToJobTeam(existing.job_id, merged.user_id);
+    }
     res.json(rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

@@ -2,7 +2,9 @@ import { useState } from 'react';
 import styles from './TeamMemberMultiSelect.module.css';
 
 // Checkbox dropdown for assigning more than one team member to the same
-// note/appointment. `options` is [{id, name}]; `selected` is an array of ids.
+// note/appointment. `options` is [{id, name, hint}]; `selected` is an array of
+// ids. `hint` is optional trailing text on the row — the scheduler uses it to
+// mark who isn't on the job yet.
 export default function TeamMemberMultiSelect({ options, selected, onChange, placeholder = 'Select team member(s)…' }) {
   const [open, setOpen] = useState(false);
 
@@ -31,6 +33,7 @@ export default function TeamMemberMultiSelect({ options, selected, onChange, pla
             <label key={o.id} className={styles.option}>
               <input type="checkbox" checked={selected.includes(o.id)} onChange={() => toggle(o.id)} />
               {o.name}
+              {o.hint && <span className={styles.optionHint}>{o.hint}</span>}
             </label>
           ))}
         </div>

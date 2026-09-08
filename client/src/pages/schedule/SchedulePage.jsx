@@ -350,18 +350,31 @@ export default function SchedulePage() {
     setSelectedNote(null);
   }
 
-  // Group all schedule rows sharing the same job/date/time/type as one logical
-  // appointment, so editing one team member's row lets Admin add/remove others too.
+  // All schedule rows sharing the same job/date/time/type are one logical
+  // appointment assigned to several people, so both editing and copying act on
+  // the whole group rather than the single row that was clicked.
+  function siblingsOf(event) {
+    const siblings = rawSchedules.filter(s =>
+      s.job_id === event.job_id &&
+      s.scheduled_date === event.scheduled_date &&
+      s.start_time === event.start_time &&
+      s.end_time === event.end_time &&
+      s.appointment_type === event.appointment_type
+    );
+    return siblings.length > 0 ? siblings : [event];
+  }
+
   function handleEditAppointment() {
     if (!selectedEvent) return;
-    const siblings = rawSchedules.filter(s =>
-      s.job_id === selectedEvent.job_id &&
-      s.scheduled_date === selectedEvent.scheduled_date &&
-      s.start_time === selectedEvent.start_time &&
-      s.end_time === selectedEvent.end_time &&
-      s.appointment_type === selectedEvent.appointment_type
-    );
-    setAssignTarget({ existing: siblings.length > 0 ? siblings : [selectedEvent] });
+    setAssignTarget({ existing: siblingsOf(selectedEvent) });
+    setSelectedEvent(null);
+  }
+
+  // Opens the same form pre-filled but saving a new appointment — for putting
+  // another team member on this booking, or repeating it on another day.
+  function handleCopyAppointment() {
+    if (!selectedEvent) return;
+    setAssignTarget({ existing: siblingsOf(selectedEvent), copy: true });
     setSelectedEvent(null);
   }
 
@@ -602,6 +615,9 @@ export default function SchedulePage() {
                 <button className={styles.btnSecondary} onClick={handleEditAppointment}>✏ Edit</button>
               )}
               {isAdmin(user?.role) && selectedEvent.schedId && (
+                <button className={styles.btnSecondary} onClick={handleCopyAppointment}>⧉ Copy</button>
+              )}
+              {isAdmin(user?.role) && selectedEvent.schedId && (
                 <button className={styles.btnDanger} onClick={async () => {
                   if (!confirm('Remove this appointment from the schedule?')) return;
                   await api.delete(`/schedules/${selectedEvent.schedId}`);
@@ -662,6 +678,7 @@ export default function SchedulePage() {
           jobId={assignTarget.jobId}
           userId={assignTarget.userId}
           existing={assignTarget.existing}
+          copy={assignTarget.copy}
           techMap={techMap}
           techRoles={techRoles}
           isAdmin={isAdmin(user?.role)}
