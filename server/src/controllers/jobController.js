@@ -8,6 +8,7 @@ const { quoteDeliveredSql } = require('../utils/quoteDelivery');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { attachDefaultForms } = require('./jobFormController');
 const { notifyJobNote, notifyTargets } = require('../utils/jobNoteNotify');
+const { normaliseImageDataUrl } = require('../utils/normaliseUpload');
 
 async function list(req, res) {
   const { search = '', status, tech, customer, from, to, sort, page = 1, limit = 100 } = req.query;
@@ -586,9 +587,13 @@ async function saveElectricalCoc(req, res) {
       await pool.query('DELETE FROM job_coc_photos WHERE job_id=$1', [req.params.id]);
       for (const [i, p] of f.photos.entries()) {
         if (!p?.data_base64) continue;
+        // A HEIC straight off a phone renders as nothing in the browser and
+        // nothing in the certificate PDF, so it's converted here the same way
+        // job attachments are. See utils/normaliseUpload.
+        const img = await normaliseImageDataUrl(p.data_base64);
         await pool.query(
           'INSERT INTO job_coc_photos (job_id, data_base64, mime_type, caption, sort_order) VALUES ($1,$2,$3,$4,$5)',
-          [req.params.id, p.data_base64, p.mime_type || null, (p.caption || '').slice(0, 255) || null, i]
+          [req.params.id, img.dataUrl, img.mimeType || p.mime_type || null, (p.caption || '').slice(0, 255) || null, i]
         );
       }
     }

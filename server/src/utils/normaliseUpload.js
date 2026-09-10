@@ -6,9 +6,22 @@
 // then tripped the upload size limit and was skipped, which is what the team
 // were seeing: "Skipped 3 files still over 5MB after compression".
 //
-// sharp reads HEIC (libvips is built with libheif here — heif input.buffer is
-// true), so the conversion happens server-side instead. The stored file is a
-// normal JPEG that every browser can render.
+// sharp was meant to do that conversion, and doesn't. Its prebuilt libvips
+// reports `format.heif.input.buffer === true`, which is what this file
+// originally trusted — but that flag covers the HEIF *container*, and the only
+// suffix it actually lists is ".avif". There's no HEVC decoder in the build, so
+// every real iPhone/Samsung HEIC fails, and Samsung's fail even earlier on
+// libheif's 16-reference iref limit. Both failures were caught and the photo
+// stored untouched, which is why .heic files sat in the job showing broken
+// thumbnails.
+//
+// heic-decode (libheif compiled to wasm, with libde265) does the decode
+// instead, and sharp handles the resize and JPEG encode from raw pixels. sharp
+// is still tried first — it's native and much faster on anything it can read.
+//
+// Orientation survives: iPhone and Samsung store it as an irot/imir property
+// on the HEIF item, and libheif applies that during decode. That matters
+// because the raw-pixel handoff carries no EXIF for sharp's .rotate() to read.
 
 let sharp = null;
 try {
@@ -20,8 +33,16 @@ try {
   console.warn('sharp unavailable — HEIC uploads will be stored as-is:', err.message);
 }
 
+let heicDecode = null;
+try {
+  heicDecode = require('heic-decode');
+} catch (err) {
+  console.warn('heic-decode unavailable — HEIC uploads will be stored as-is:', err.message);
+}
+
 const MAX_EDGE = 2000;
 const JPEG_QUALITY = 82;
+const PIXEL_LIMIT = 512 * 1024 * 1024;
 
 // Browsers can render these directly, so they're left alone.
 const DISPLAYABLE = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']);
@@ -62,22 +83,45 @@ async function normaliseImageDataUrl(dataUrl, { maxEdge = MAX_EDGE } = {}) {
   }
   if (!isHeic || !sharp) return { dataUrl, mimeType: parsed.mimeType, converted: false };
 
+  const out = await heicToJpeg(buffer, maxEdge);
+  if (!out) return { dataUrl, mimeType: parsed.mimeType, converted: false };
+  return {
+    dataUrl: `data:image/jpeg;base64,${out.toString('base64')}`,
+    mimeType: 'image/jpeg',
+    converted: true,
+    originalBytes: buffer.length,
+    bytes: out.length,
+  };
+}
+
+// Returns a JPEG buffer, or null if nothing here could read the file. Exported
+// so the backfill script converts the already-stored photos the same way.
+async function heicToJpeg(buffer, maxEdge = MAX_EDGE) {
+  if (!sharp) return null;
+
+  const encode = pipeline => pipeline
+    .resize({ width: maxEdge, height: maxEdge, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+    .toBuffer();
+
   try {
-    const out = await sharp(buffer, { limitInputPixels: 512 * 1024 * 1024, sequentialRead: true })
-      .rotate()                                   // honour the EXIF orientation before it's discarded
-      .resize({ width: maxEdge, height: maxEdge, fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
-      .toBuffer();
-    return {
-      dataUrl: `data:image/jpeg;base64,${out.toString('base64')}`,
-      mimeType: 'image/jpeg',
-      converted: true,
-      originalBytes: buffer.length,
-      bytes: out.length,
-    };
+    // .rotate() honours the EXIF orientation before it's discarded.
+    return await encode(sharp(buffer, { limitInputPixels: PIXEL_LIMIT, sequentialRead: true }).rotate());
+  } catch (err) {
+    if (!heicDecode) {
+      console.warn('HEIC conversion failed, storing original:', err.message);
+      return null;
+    }
+  }
+
+  try {
+    // A 12MP photo decodes to roughly 48MB of RGBA, so this is deliberately one
+    // image at a time — uploads arrive sequentially from the client anyway.
+    const { width, height, data } = await heicDecode({ buffer });
+    return await encode(sharp(Buffer.from(data), { raw: { width, height, channels: 4 } }));
   } catch (err) {
     console.warn('HEIC conversion failed, storing original:', err.message);
-    return { dataUrl, mimeType: parsed.mimeType, converted: false };
+    return null;
   }
 }
 
@@ -88,4 +132,7 @@ function normaliseFilename(filename, converted) {
   return String(filename).replace(/\.(heic|heif|hif)$/i, '.jpg');
 }
 
-module.exports = { normaliseImageDataUrl, normaliseFilename, looksLikeHeic, isSharpAvailable: () => Boolean(sharp) };
+module.exports = {
+  normaliseImageDataUrl, normaliseFilename, looksLikeHeic, heicToJpeg,
+  isSharpAvailable: () => Boolean(sharp),
+};
