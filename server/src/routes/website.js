@@ -5,52 +5,72 @@
 const router = require('express').Router();
 const multer = require('multer');
 const pool = require('../db/pool');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate, requireRole, authenticateAutomation } = require('../middleware/auth');
 const content = require('../services/websiteContent');
 const media = require('../services/websiteMedia');
 const publishing = require('../services/websitePublish');
-const discounts = require('../utils/calculatorDiscounts');
+const jobs = require('../services/websiteJobs');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
-router.use(authenticate);
-
+// Shared with the worker, which writes the same content — see
+// services/websiteNormalisers.
+const NORMALISERS = require('../services/websiteNormalisers');
 // Only keys the app knows how to edit — stops arbitrary content keys appearing.
-const EDITABLE_KEYS = ['deals', discounts.CONTENT_KEY];
+const EDITABLE_KEYS = Object.keys(NORMALISERS);
 const checkKey = (req, res, next) =>
   EDITABLE_KEYS.includes(req.params.key) ? next() : res.status(404).json({ error: 'Unknown content' });
 
 const clip = (v, n) => (v == null || v === '' ? null : String(v).slice(0, n));
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Deals arrive from a form, so everything is clipped and the expiry is checked
-// — a bad date here would silently hide a live promotion.
-function normaliseDeals(input) {
-  if (!Array.isArray(input)) throw new Error('Deals must be a list');
-  return input.map((d, i) => {
-    if (!d || !String(d.title || '').trim()) throw new Error(`Deal ${i + 1} needs a title`);
-    if (d.expires && !DATE_RE.test(d.expires)) throw new Error(`Deal ${i + 1} has an invalid expiry date`);
-    return {
-      id: clip(d.id, 100) || `deal-${i + 1}-${Date.now()}`,
-      badge: clip(d.badge, 60),
-      title: clip(d.title, 200),
-      price: clip(d.price, 60),
-      priceNote: clip(d.priceNote, 60),
-      image: clip(d.image, 600),
-      imageAlt: clip(d.imageAlt, 300),
-      hook: clip(d.hook, 400),
-      body: clip(d.body, 2000),
-      terms: clip(d.terms, 1000),
-      service: clip(d.service, 60),
-      expires: d.expires || null,
-    };
-  });
-}
+// ── The worker's endpoints ───────────────────────────────────────────────────
+// automation/website-worker.js runs on a machine the business controls and
+// authenticates with AUTOMATION_API_KEY, the same way the invoice processor
+// does. These sit above the login check on purpose; everything below it needs a
+// signed-in person.
+router.post('/jobs/claim', authenticateAutomation, requireRole('admin'), async (req, res) => {
+  try {
+    await jobs.noteWorkerSeen();
+    await jobs.releaseAbandoned();
+    const job = await jobs.claimNext();
+    if (!job) return res.json({ job: null });
 
-const NORMALISERS = {
-  deals: normaliseDeals,
-  [discounts.CONTENT_KEY]: discounts.normalise,
-};
+    // The content the app owns travels with the job, so the worker can hand it
+    // to Claude Code as editable files without needing its own credentials for
+    // a second round trip.
+    const appContent = {};
+    for (const key of EDITABLE_KEYS) appContent[key] = (await content.getContent(key)).draft;
+
+    res.json({ job: { id: job.id, instruction: job.instruction }, appContent });
+  } catch (err) { console.error('Job claim failed:', err.message); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/jobs/:id/finish', authenticateAutomation, requireRole('admin'), async (req, res) => {
+  const { status, result, commits, log, appContent } = req.body || {};
+  try {
+    // Content the worker changed goes through the same validators the editing
+    // forms use, and lands in the draft. Publishing stays a separate, human
+    // decision. A validation failure is reported rather than swallowed, so the
+    // job does not claim success on a change that never saved.
+    const rejected = [];
+    for (const [key, value] of Object.entries(appContent || {})) {
+      if (!NORMALISERS[key]) { rejected.push(`${key} is not editable`); continue; }
+      try {
+        await content.saveDraft(key, NORMALISERS[key](value), null);
+      } catch (err) { rejected.push(`${key}: ${err.message}`); }
+    }
+
+    const job = await jobs.finish(req.params.id, {
+      status: rejected.length ? 'failed' : status,
+      result: rejected.length ? `${result || ''}\n\nNot saved — ${rejected.join('; ')}`.trim() : result,
+      commits, log,
+    });
+    if (!job) return res.status(404).json({ error: 'No such job, or it was not running' });
+    res.json({ ok: true, rejected });
+  } catch (err) { console.error('Job finish failed:', err.message); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.use(authenticate);
 
 const shape = row => ({
   key: row.key,
@@ -159,7 +179,8 @@ router.post('/publish', requireRole('admin'), async (req, res) => {
 });
 
 // ── Change requests ──────────────────────────────────────────────────────────
-// A queue of things to change on the site. It records work; it cannot start it.
+// A queue of things to change on the site. Any one of them can be handed to the
+// chat below, which is what actually makes the change.
 router.get('/requests', async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -216,6 +237,81 @@ router.delete('/requests/:id', requireRole('admin', 'office'), async (req, res) 
     await pool.query('DELETE FROM website_requests WHERE id = $1', [req.params.id]);
     res.status(204).end();
   } catch (err) { console.error('Website route failed:', err.message); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ── Website jobs ─────────────────────────────────────────────────────────────
+// Describe a change here and a worker running Claude Code makes it, on the
+// staging branch. The app never calls an AI itself — see services/websiteJobs
+// for why that matters — so this is a queue plus somewhere to read the answer.
+const jobRoutes = requireRole('admin', 'office');
+
+const shapeJob = row => ({
+  id: row.id,
+  instruction: row.instruction,
+  status: row.status,
+  result: row.result,
+  commits: row.commits || [],
+  requestId: row.request_id,
+  createdAt: row.created_at,
+  finishedAt: row.finished_at,
+  createdByName: row.created_by_name || null,
+});
+
+router.get('/jobs', jobRoutes, async (req, res) => {
+  try {
+    // Clearing out jobs whose worker died is cheap and this is the page that
+    // would show them, so it happens on the way past rather than on a timer.
+    await jobs.releaseAbandoned();
+    const { rows } = await pool.query(
+      `SELECT j.*, u.name AS created_by_name
+         FROM website_jobs j LEFT JOIN users u ON u.id = j.created_by
+        ORDER BY j.created_at DESC LIMIT 40`
+    );
+    res.json({
+      jobs: rows.map(shapeJob),
+      worker: await jobs.workerStatus(),
+      previewUrl: publishing.PREVIEW_URL,
+    });
+  } catch (err) { console.error('Website jobs route failed:', err.message); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.post('/jobs', jobRoutes, async (req, res) => {
+  const { requestId } = req.body || {};
+  let instruction = String(req.body?.instruction || '').trim();
+  try {
+    // Queuing from a logged request reuses what was already written there, so
+    // nobody retypes it.
+    if (requestId && !instruction) {
+      const { rows } = await pool.query('SELECT title, details, page FROM website_requests WHERE id = $1', [requestId]);
+      if (!rows[0]) return res.status(404).json({ error: 'That request no longer exists' });
+      instruction = [rows[0].title, rows[0].page ? `Page: ${rows[0].page}` : null, rows[0].details]
+        .filter(Boolean).join('\n\n');
+    }
+    if (!instruction) return res.status(400).json({ error: 'Describe what you want changed' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO website_jobs (instruction, request_id, created_by) VALUES ($1,$2,$3) RETURNING *`,
+      [instruction.slice(0, 5000), requestId || null, req.user.id]
+    );
+    if (requestId) {
+      await pool.query(`UPDATE website_requests SET status='in_progress' WHERE id=$1 AND status='open'`, [requestId]);
+    }
+    res.status(201).json(shapeJob(rows[0]));
+  } catch (err) { console.error('Website jobs route failed:', err.message); res.status(500).json({ error: 'Server error' }); }
+});
+
+router.delete('/jobs/:id', jobRoutes, async (req, res) => {
+  try {
+    // Only something not yet picked up can be called off. A job already in
+    // Claude Code's hands has to run its course.
+    const { rows } = await pool.query(
+      `UPDATE website_jobs SET status='cancelled', finished_at=NOW()
+        WHERE id=$1 AND status='queued' RETURNING id`,
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(409).json({ error: 'That one has already started' });
+    res.status(204).end();
+  } catch (err) { console.error('Website jobs route failed:', err.message); res.status(500).json({ error: 'Server error' }); }
 });
 
 module.exports = router;

@@ -89,9 +89,26 @@ module.exports = [
     languageOptions: { sourceType: 'module', globals: { ...globals.node } },
   },
 
-  // ── Apps Script: its own runtime and globals ──────────────────────────────
+  // ── Automation: Node by default ───────────────────────────────────────────
+  // Scripts here run on a machine the business controls rather than on the
+  // server. The Apps Script ones are the exception and are named below.
   {
     files: ['automation/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'commonjs',
+      globals: { ...globals.node },
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      ...SHARED_RULES,
+      'no-undef': 'error',
+    },
+  },
+
+  // ── Apps Script: its own runtime and globals ──────────────────────────────
+  {
+    files: ['automation/gmail-invoice-processor.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'script',

@@ -20,7 +20,7 @@ const input = {
 };
 const label = { fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4, color: 'var(--color-text-muted)' };
 
-export default function WebsiteRequests() {
+export default function WebsiteRequests({ onHandOff }) {
   const [requests, setRequests] = useState([]);
   const [form, setForm] = useState({ title: '', details: '', page: '' });
   const [file, setFile] = useState(null);
@@ -56,6 +56,19 @@ export default function WebsiteRequests() {
     load();
   }
 
+  // Queues a logged request for Claude, using what was already written here so
+  // nobody retypes it.
+  async function handOff(id) {
+    setError(null);
+    try {
+      const { data } = await api.post('/website/jobs', { requestId: id });
+      load();
+      onHandOff?.(data.id);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Could not hand that to Claude');
+    }
+  }
+
   const visible = requests.filter(r => showDone || ['open', 'in_progress'].includes(r.status));
   const openCount = requests.filter(r => r.status === 'open').length;
 
@@ -64,9 +77,8 @@ export default function WebsiteRequests() {
       <form onSubmit={submit} style={{ ...card, padding: 18 }}>
         <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Log a request</h3>
         <p style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginBottom: 16, lineHeight: 1.6 }}>
-          Note anything you want changed on the site. This is a list, not a notification —
-          Claude picks these up next time you're working together, so mention it in chat if
-          it's urgent.
+          Note anything you want changed on the site. Use "Hand to Claude" on a request when
+          you want it done, and the change will be waiting on the preview site for you to check.
         </p>
 
         <div style={{ marginBottom: 12 }}>
@@ -146,6 +158,13 @@ export default function WebsiteRequests() {
               </div>
 
               <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                {['open', 'in_progress'].includes(r.status) && (
+                  <button onClick={() => handOff(r.id)}
+                    style={{ padding: '5px 11px', fontSize: 12, borderRadius: 5, border: 'none',
+                      background: 'var(--color-primary)', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
+                    Hand to Claude
+                  </button>
+                )}
                 {['open', 'in_progress', 'done', 'dismissed']
                   .filter(v => v !== r.status)
                   .map(v => (
