@@ -6,6 +6,8 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 import api from '../../lib/api';
 import styles from './SalesPresenter.module.css';
 import { overlayClose } from '../../lib/overlayClose';
+import ProductImage from '../../components/products/ProductImage';
+import { loadAuthedFile } from '../../components/products/authedFile';
 import {
   brandList, seriesList, recommend, variantLabel,
   selectionForProduct, priceProductFor, DEFAULT_SELECTION,
@@ -14,6 +16,25 @@ import {
 // A brochure held in the bucket arrives as a URL to fetch; one saved before
 // that is still a data URL on the record. Both work anywhere a src is wanted.
 const brochureSrc = p => p?.brochure_url || p?.brochure_base64 || null;
+
+// Tells the product panel which price-list product a calculator has landed on,
+// so the photo and brochure at the top of the panel follow the recommendation
+// rather than staying on the product the panel was opened for.
+//
+//   undefined — nothing recommended yet: the panel shows the product as set up
+//   null      — a model is recommended but isn't on the price list, so there is
+//               no photo or brochure of it to show
+//
+// Reported from an effect with a cleanup, not stored in the panel and reset: the
+// fence calculator swaps the panel's product in place, and a reset keyed on the
+// product would clear the recommendation that swap had just made.
+function useReportRecommendation(onRecommend, recommendedKey, priceProduct) {
+  useEffect(() => {
+    if (!onRecommend) return undefined;
+    onRecommend(recommendedKey ? (priceProduct || null) : undefined);
+    return () => onRecommend(undefined);
+  }, [onRecommend, recommendedKey, priceProduct?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+}
 
 // Use CDN worker so Vite doesn't need to bundle it
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
@@ -341,7 +362,7 @@ function parseFenceVariant(productName) {
   return { height: height || '1.8m', top: top || 'standard' };
 }
 
-function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant, onQuantityChange }) {
+function PalingFenceCalculator({ onRecommend, onPick, jobId, product, onSelectVariant, onQuantityChange }) {
   // Initial-only, so switching variant doesn't fight the user's own choice.
   const initial = useState(() => parseFenceVariant(product?.name))[0];
   const [height, setHeight] = useState(initial.height);
@@ -349,8 +370,6 @@ function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant, onQuan
   const [metres, setMetres] = useState('');
   const [scannedLength, setScannedLength] = useState(null);
   const [priceListProducts, setPriceListProducts] = useState([]);
-  const [showBrochure, setShowBrochure] = useState(false);
-  const [fullPriceProduct, setFullPriceProduct] = useState(null);
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -362,6 +381,7 @@ function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant, onQuan
     ? priceListProducts.find(p =>
         [normFenceName(p.name), normFenceName(p.description)].includes(normFenceName(tableMatch.name)))
     : null;
+  useReportRecommendation(onRecommend, tableMatch?.name, priceProduct);
 
   // Swapping a dropdown swaps the product shown at the top of the panel — name,
   // image and price — so the customer sees the option being discussed.
@@ -436,24 +456,9 @@ function PalingFenceCalculator({ onPick, jobId, product, onSelectVariant, onQuan
               + Add {runLength.toFixed(2)}m to Quote
             </button>
           )}
-          {priceProduct && (
-            <button className={styles.brochureBtn} onClick={() => {
-              if (fullPriceProduct) { setShowBrochure(true); return; }
-              api.get(`/products/${priceProduct.id}`).then(r => {
-                setFullPriceProduct(r.data);
-                if (brochureSrc(r.data)) setShowBrochure(true);
-                else alert('No brochure uploaded for this product.');
-              }).catch(() => {});
-            }}>
-              📄 View Product Brochure
-            </button>
-          )}
         </div>
       )}
 
-      {showBrochure && brochureSrc(fullPriceProduct) && (
-        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch?.name} onClose={() => setShowBrochure(false)} />
-      )}
     </div>
   );
 }
@@ -499,7 +504,7 @@ function LinearCalculator({ product, onQuantityChange }) {
 
 // ── Highwall heat pump sizing ─────────────────────────────────────────────────
 // The models, and the rules for picking one, live in ./heatpumpSizing.js.
-function HeatpumpCalculator({ product, onPick, onQuantityChange }) {
+function HeatpumpCalculator({ onRecommend, product, onPick, onQuantityChange }) {
   const [length, setLength] = useState(0);
   const [width, setWidth] = useState(0);
   const [m2, setM2] = useState('0');
@@ -507,8 +512,6 @@ function HeatpumpCalculator({ product, onPick, onQuantityChange }) {
   const [customHeight, setCustomHeight] = useState('');
   const [insulation, setInsulation] = useState('average');
   const [priceListProducts, setPriceListProducts] = useState([]);
-  const [showBrochure, setShowBrochure] = useState(false);
-  const [fullPriceProduct, setFullPriceProduct] = useState(null);
 
   // Opens on the brand and series of the price-list product this presenter
   // product is linked to — a Mitsubishi AP Smart opens on AP Smart — and on
@@ -558,6 +561,7 @@ function HeatpumpCalculator({ product, onPick, onQuantityChange }) {
   const tableMatch = variants.find(v => variantLabel(v) === variantChoice) || variants[0] || null;
 
   const priceProduct = priceProductFor(tableMatch, priceListProducts);
+  useReportRecommendation(onRecommend, tableMatch?.model, priceProduct);
   const exGst  = priceProduct ? priceProduct.unit_price / 100 : null;
   const incGst = priceProduct ? Math.round((priceProduct.unit_price / 100) * 1.15 * 100) / 100 : null;
 
@@ -696,25 +700,10 @@ function HeatpumpCalculator({ product, onPick, onQuantityChange }) {
                 + Add {tableMatch.model} to Quote
               </button>
             )}
-            {priceProduct && (
-              <button className={styles.brochureBtn} onClick={() => {
-                if (fullPriceProduct?.id === priceProduct.id) { setShowBrochure(true); return; }
-                api.get(`/products/${priceProduct.id}`).then(r => {
-                  setFullPriceProduct(r.data);
-                  if (brochureSrc(r.data)) setShowBrochure(true);
-                  else alert('No brochure uploaded for this product.');
-                }).catch(() => {});
-              }}>
-                📄 View Product Brochure
-              </button>
-            )}
           </>}
         </div>
       )}
 
-      {showBrochure && brochureSrc(fullPriceProduct) && (
-        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch?.model} onClose={() => setShowBrochure(false)} />
-      )}
     </div>
   );
 }
@@ -761,14 +750,12 @@ const SMARTVENT_LITE_TABLE = [
   { houseMin: 281, houseMax: 560, outlets: 8, model: 'SV06L+ with 2 Extension Kits',  exGst: 4661.45, incGst: 5360.67 },
 ];
 
-function SmartVentLiteCalculator({ onPick, onQuantityChange }) {
+function SmartVentLiteCalculator({ onRecommend, onPick, onQuantityChange }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
   // Drives the installation calculator underneath — install is per outlet.
   useEffect(() => { onQuantityChange?.(parseInt(outlets, 10) || 0); }, [outlets, onQuantityChange]);
   const [priceListProducts, setPriceListProducts] = useState([]);
-  const [showBrochure, setShowBrochure] = useState(false);
-  const [fullPriceProduct, setFullPriceProduct] = useState(null);
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -793,6 +780,7 @@ function SmartVentLiteCalculator({ onPick, onQuantityChange }) {
         p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase()
       )
     : null;
+  useReportRecommendation(onRecommend, tableMatch?.model, priceProduct);
 
   const exGst  = priceProduct ? priceProduct.unit_price / 100 : (tableMatch?.exGst ?? null);
   const incGst = priceProduct ? Math.round((priceProduct.unit_price / 100) * 1.15 * 100) / 100 : (tableMatch?.incGst ?? null);
@@ -828,22 +816,7 @@ function SmartVentLiteCalculator({ onPick, onQuantityChange }) {
               + Add {tableMatch.model} to Quote
             </button>
           )}
-          {priceProduct && (
-            <button className={styles.brochureBtn} onClick={() => {
-              if (fullPriceProduct) { setShowBrochure(true); return; }
-              api.get(`/products/${priceProduct.id}`).then(r => {
-                setFullPriceProduct(r.data);
-                if (brochureSrc(r.data)) setShowBrochure(true);
-                else alert('No brochure uploaded for this product.');
-              }).catch(() => {});
-            }}>
-              📄 View Product Brochure
-            </button>
-          )}
         </div>
-      )}
-      {showBrochure && brochureSrc(fullPriceProduct) && (
-        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -894,14 +867,12 @@ const PP_TABLE = [
   { system: 'SmartVent Positive Advance',  houseMin: 281, houseMax: 560, outlets: 12, model: 'SV06AD with 6 Extension Kits' },
 ];
 
-function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct, onQuantityChange }) {
+function SmartVentPositivePressureCalculator({ onRecommend, onPick, product: presenterProduct, onQuantityChange }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
   // Drives the installation calculator underneath — install is per outlet.
   useEffect(() => { onQuantityChange?.(parseInt(outlets, 10) || 0); }, [outlets, onQuantityChange]);
   const [priceListProducts, setPriceListProducts] = useState([]);
-  const [showBrochure, setShowBrochure] = useState(false);
-  const [fullPriceProduct, setFullPriceProduct] = useState(null);
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -936,6 +907,7 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
         p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase()
       )
     : null;
+  useReportRecommendation(onRecommend, tableMatch?.model, priceProduct);
 
   const exGst  = priceProduct ? priceProduct.unit_price / 100 : null;
   const incGst = priceProduct ? Math.round((priceProduct.unit_price / 100) * 1.15 * 100) / 100 : null;
@@ -972,22 +944,7 @@ function SmartVentPositivePressureCalculator({ onPick, product: presenterProduct
               + Add {tableMatch.model} to Quote
             </button>
           )}
-          {priceProduct && (
-            <button className={styles.brochureBtn} onClick={() => {
-              if (fullPriceProduct) { setShowBrochure(true); return; }
-              api.get(`/products/${priceProduct.id}`).then(r => {
-                setFullPriceProduct(r.data);
-                if (brochureSrc(r.data)) setShowBrochure(true);
-                else alert('No brochure uploaded for this product.');
-              }).catch(() => {});
-            }}>
-              📄 View Product Brochure
-            </button>
-          )}
         </div>
-      )}
-      {showBrochure && brochureSrc(fullPriceProduct) && (
-        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -1014,15 +971,13 @@ const BP_TABLE = [
 const BP_SYSTEMS = [...new Set(BP_TABLE.map(r => r.system))];
 const BP_MAX_HOUSE = Math.max(...BP_TABLE.map(r => r.houseMax));
 
-function SmartVentBalancedPressureCalculator({ onPick, onQuantityChange }) {
+function SmartVentBalancedPressureCalculator({ onRecommend, onPick, onQuantityChange }) {
   const [system, setSystem] = useState(BP_SYSTEMS[0]);
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
   // Drives the installation calculator underneath — install is per outlet.
   useEffect(() => { onQuantityChange?.(parseInt(outlets, 10) || 0); }, [outlets, onQuantityChange]);
   const [priceListProducts, setPriceListProducts] = useState([]);
-  const [showBrochure, setShowBrochure] = useState(false);
-  const [fullPriceProduct, setFullPriceProduct] = useState(null);
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -1046,6 +1001,7 @@ function SmartVentBalancedPressureCalculator({ onPick, onQuantityChange }) {
         p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase()
       )
     : null;
+  useReportRecommendation(onRecommend, tableMatch?.model, priceProduct);
 
   const exGst  = priceProduct ? priceProduct.unit_price / 100 : null;
   const incGst = priceProduct ? Math.round((priceProduct.unit_price / 100) * 1.15 * 100) / 100 : null;
@@ -1088,22 +1044,7 @@ function SmartVentBalancedPressureCalculator({ onPick, onQuantityChange }) {
               + Add {tableMatch.model} to Quote
             </button>
           )}
-          {priceProduct && (
-            <button className={styles.brochureBtn} onClick={() => {
-              if (fullPriceProduct) { setShowBrochure(true); return; }
-              api.get(`/products/${priceProduct.id}`).then(r => {
-                setFullPriceProduct(r.data);
-                if (brochureSrc(r.data)) setShowBrochure(true);
-                else alert('No brochure uploaded for this product.');
-              }).catch(() => {});
-            }}>
-              📄 View Product Brochure
-            </button>
-          )}
         </div>
-      )}
-      {showBrochure && brochureSrc(fullPriceProduct) && (
-        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -1142,14 +1083,12 @@ const BDVAIR_PP_TABLE = [
 const BDVAIR_MAX_HOUSE = Math.max(...BDVAIR_PP_TABLE.map(r => r.houseMax));
 const BDVAIR_MAX_OUTLETS = Math.max(...BDVAIR_PP_TABLE.map(r => r.outlets));
 
-function BDVAirPositivePressureCalculator({ onPick, onQuantityChange }) {
+function BDVAirPositivePressureCalculator({ onRecommend, onPick, onQuantityChange }) {
   const [m2, setM2] = useState('');
   const [outlets, setOutlets] = useState('');
   // Drives the installation calculator underneath — install is per outlet.
   useEffect(() => { onQuantityChange?.(parseInt(outlets, 10) || 0); }, [outlets, onQuantityChange]);
   const [priceListProducts, setPriceListProducts] = useState([]);
-  const [showBrochure, setShowBrochure] = useState(false);
-  const [fullPriceProduct, setFullPriceProduct] = useState(null);
 
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
@@ -1175,6 +1114,7 @@ function BDVAirPositivePressureCalculator({ onPick, onQuantityChange }) {
         p.name.trim().toLowerCase() === tableMatch.model.trim().toLowerCase()
       )
     : null;
+  useReportRecommendation(onRecommend, tableMatch?.model, priceProduct);
 
   const exGst  = priceProduct ? priceProduct.unit_price / 100 : (tableMatch?.exGst ?? null);
   const incGst = exGst != null ? Math.round(exGst * 1.15 * 100) / 100 : null;
@@ -1211,22 +1151,7 @@ function BDVAirPositivePressureCalculator({ onPick, onQuantityChange }) {
               + Add {tableMatch.model} to Quote
             </button>
           )}
-          {priceProduct && (
-            <button className={styles.brochureBtn} onClick={() => {
-              if (fullPriceProduct) { setShowBrochure(true); return; }
-              api.get(`/products/${priceProduct.id}`).then(r => {
-                setFullPriceProduct(r.data);
-                if (brochureSrc(r.data)) setShowBrochure(true);
-                else alert('No brochure uploaded for this product.');
-              }).catch(() => {});
-            }}>
-              📄 View Product Brochure
-            </button>
-          )}
         </div>
-      )}
-      {showBrochure && brochureSrc(fullPriceProduct) && (
-        <BrochureModal src={brochureSrc(fullPriceProduct)} name={tableMatch.model} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );
@@ -1250,22 +1175,25 @@ const SELF_PICK_CALCULATORS = new Set([
   'bdvair_positive_pressure',
 ]);
 
-function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange }) {
+function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange, onRecommend }) {
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} jobId={jobId} onQuantityChange={onQuantityChange} />;
   if (type === 'linear') return <LinearCalculator product={product} onQuantityChange={onQuantityChange} />;
-  if (type === 'heatpump') return <HeatpumpCalculator product={product} onPick={onPick} onQuantityChange={onQuantityChange} />;
-  if (type === 'paling_fence') return <PalingFenceCalculator onPick={onPick} jobId={jobId} product={product} onSelectVariant={onSelectVariant} onQuantityChange={onQuantityChange} />;
-  if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} onQuantityChange={onQuantityChange} />;
-  if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} onQuantityChange={onQuantityChange} />;
-  if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onPick={onPick} onQuantityChange={onQuantityChange} />;
-  if (type === 'bdvair_positive_pressure') return <BDVAirPositivePressureCalculator onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'heatpump') return <HeatpumpCalculator onRecommend={onRecommend} product={product} onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'paling_fence') return <PalingFenceCalculator onRecommend={onRecommend} onPick={onPick} jobId={jobId} product={product} onSelectVariant={onSelectVariant} onQuantityChange={onQuantityChange} />;
+  if (type === 'smartvent_lite') return <SmartVentLiteCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onRecommend={onRecommend} onPick={onPick} product={product} onQuantityChange={onQuantityChange} />;
+  if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'bdvair_positive_pressure') return <BDVAirPositivePressureCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
   return <UnitCalculator product={product} />;
 }
 
 // ── Product Detail Panel ──────────────────────────────────────────────────────
-function BrochureModal({ src, name, onClose }) {
-  const isPdf = src?.startsWith('data:application/pdf');
+// `pdf` is for a brochure loaded as a blob URL, which carries no type in the
+// string itself — without it only an inline data: URL could be recognised as a
+// PDF, and a stored one was drawn as a broken image.
+function BrochureModal({ src, name, onClose, pdf }) {
+  const isPdf = pdf ?? src?.startsWith('data:application/pdf');
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
@@ -1500,6 +1428,57 @@ function BrochureModal({ src, name, onClose }) {
   );
 }
 
+// The panel photo box sizes its contents; ProductImage's loading placeholder is
+// a div, so it needs telling to fill the box too.
+const PANEL_MEDIA_STYLE = { width: '100%', height: '100%' };
+
+// A presenter product's own photo. When a price-list product is picked in
+// Presenter Setup, its /api/products/:id/media URL is copied in here — and an
+// <img src> can't load that, since it needs the login token. So that form is
+// loaded the way the Price List loads it; anything else is an image as before.
+const PRODUCT_MEDIA_PATH = /^\/api\/products\/([^/]+)\/media$/;
+function PresenterPhoto({ src, alt }) {
+  const m = PRODUCT_MEDIA_PATH.exec(src || '');
+  if (m) return <ProductImage productId={m[1]} size="full" alt={alt} style={PANEL_MEDIA_STYLE} />;
+  return <img src={src} alt={alt} />;
+}
+
+// A price-list product's brochure, fetched with authentication. Loaded as a
+// blob, so whether it's a PDF comes from the file itself rather than the URL.
+function ProductBrochureModal({ productId, name, onClose }) {
+  const [file, setFile] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFile(null);
+    setFailed(false);
+    loadAuthedFile(`/products/${productId}/brochure`)
+      .then(f => { if (!cancelled) setFile(f); })
+      .catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, [productId]);
+
+  if (file) {
+    return <BrochureModal src={file.url} pdf={file.type.includes('pdf')} name={name} onClose={onClose} />;
+  }
+  return (
+    <div className={styles.brochureOverlay} {...overlayClose(onClose)}>
+      <div className={styles.brochureModal}>
+        <div className={styles.brochureHeader}>
+          <span className={styles.brochureTitle}>{name}</span>
+          <button className={styles.brochureClose} onClick={onClose}>✕ Close</button>
+        </div>
+        <div className={styles.brochureContent} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <p style={{ color: '#64748b', fontSize: 14 }}>
+            {failed ? "Couldn't load the brochure." : 'Loading brochure…'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVariant }) {
   // Whatever ends up being picked — this product, the price list row it's
   // linked to, or a variant a calculator worked out — carries this presenter
@@ -1520,13 +1499,47 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
   const unit = product.calculator_type === 'area' ? 'm²'
     : product.calculator_type === 'linear' ? 'm' : '';
 
+  // The photo and brochure are the price-list product's. They start as the one
+  // this presenter product is linked to, and move to whichever product the
+  // calculator recommends — a Mitsubishi EF35 shows the EF35 once it's the pick.
+  // See useReportRecommendation for what undefined and null mean here.
+  const [recommended, setRecommended] = useState(undefined);
+  const following = recommended !== undefined;
+  const shown = following ? recommended : product.price_list_product;
+
+  // The presenter product's own photo and brochure are the fallback while what's
+  // shown is still this product: before the calculator has picked anything, or
+  // when it has picked the very product this one is linked to. Once it lands on
+  // a different model, a recommendation with no photo shows none — better than
+  // a picture of the wrong unit.
+  const stillThisProduct = !following
+    || (!!recommended && recommended.id === product.price_list_product?.id);
+  const ownPhoto = stillThisProduct && product.image_base64
+    ? <PresenterPhoto src={product.image_base64} alt={product.name} />
+    : null;
+  const photo = shown?.has_image
+    ? <ProductImage key={shown.id} productId={shown.id} size="full" alt={shown.name}
+        style={PANEL_MEDIA_STYLE} fallback={ownPhoto} />
+    : ownPhoto;
+
+  const brochure = shown?.has_brochure
+    ? { productId: shown.id, name: shown.name }
+    : stillThisProduct && brochureSrc(product)
+      ? { src: brochureSrc(product), name: product.name }
+      : null;
+
   return (
     <div className={styles.panelOverlay} {...overlayClose(onClose)}>
       <div className={styles.panel}>
         <button className={styles.panelClose} onClick={onClose}>✕</button>
-        {product.image_base64 && (
+        {photo && (
           <div className={styles.panelImage}>
-            <img src={product.image_base64} alt={product.name} />
+            {photo}
+            {/* Named once it's following the calculator, so a photo of the
+                recommended model isn't read as the product in the title. */}
+            {following && shown?.has_image && (
+              <span className={styles.panelImageCaption}>{shown.name}</span>
+            )}
           </div>
         )}
         <div className={styles.panelBody}>
@@ -1548,7 +1561,8 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
             </div>
           )}
           <Calculator product={product} onPick={pickWithDescription} jobId={jobId}
-            onSelectVariant={onSelectVariant} onQuantityChange={setCalcQuantity} />
+            onSelectVariant={onSelectVariant} onQuantityChange={setCalcQuantity}
+            onRecommend={setRecommended} />
 
           {onPick && !SELF_PICK_CALCULATORS.has(product.calculator_type) && (
             <button className={styles.addToJobBtn} onClick={() => pickWithDescription({
@@ -1560,15 +1574,18 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
               {calcQuantity > 0 ? `+ Add ${calcQuantity.toFixed(2)}${unit} to Quote` : '+ Add to Quote'}
             </button>
           )}
-          {brochureSrc(product) && (
+          {brochure && (
             <button className={styles.brochureBtn} onClick={() => setShowBrochure(true)}>
               📄 View Product Brochure
             </button>
           )}
         </div>
       </div>
-      {showBrochure && (
-        <BrochureModal src={brochureSrc(product)} name={product.name} onClose={() => setShowBrochure(false)} />
+      {showBrochure && brochure?.productId && (
+        <ProductBrochureModal productId={brochure.productId} name={brochure.name} onClose={() => setShowBrochure(false)} />
+      )}
+      {showBrochure && brochure?.src && (
+        <BrochureModal src={brochure.src} name={brochure.name} onClose={() => setShowBrochure(false)} />
       )}
     </div>
   );

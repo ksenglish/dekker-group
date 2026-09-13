@@ -18,14 +18,29 @@ const installFrom = v => (v === '' || v === null || v === undefined ? null : Mat
 // `install_product` is the separate labour/construction item priced alongside
 // the supply product — see migration 084.
 function enrichProduct(r) {
-  const { pl_id, pl_name, pl_unit_price, pl_description,
+  const { pl_id, pl_name, pl_unit_price, pl_description, pl_has_image, pl_has_brochure,
     ip_id, ip_name, ip_unit_price, ip_unit, ...rest } = r;
   return {
     ...rest,
-    price_list_product: pl_id ? { id: pl_id, name: pl_name, unit_price: pl_unit_price, description: pl_description } : null,
+    price_list_product: pl_id ? {
+      id: pl_id, name: pl_name, unit_price: pl_unit_price, description: pl_description,
+      // Whether there is anything to fetch — the photo and brochure themselves
+      // come from /api/products/:id/media and /brochure, the same way the Price
+      // List loads them. See PL_MEDIA_FLAGS.
+      has_image: !!pl_has_image, has_brochure: !!pl_has_brochure,
+    } : null,
     install_product: ip_id ? { id: ip_id, name: ip_name, unit_price: ip_unit_price, unit: ip_unit } : null,
   };
 }
+
+// The linked price-list product's photo and brochure are shown on the
+// presenter, but as flags rather than bytes. Reading media_base64 directly used
+// to work, but those files moved to object storage (migration 078) and the
+// column is now empty for them — so a linked photo or brochure came through as
+// nothing at all. The flags cover both places a file can be.
+const PL_MEDIA_FLAGS = `
+         (pl.media_key IS NOT NULL OR pl.media_base64 IS NOT NULL)       AS pl_has_image,
+         (pl.brochure_key IS NOT NULL OR pl.brochure_base64 IS NOT NULL) AS pl_has_brochure,`;
 
 // Columns and join shared by every presenter product query.
 const INSTALL_SELECT = `
@@ -213,7 +228,7 @@ router.get('/sections/:id/products', async (req, res) => {
               pp.image_base64, pp.price_from, pp.features, pp.calculator_type,
               pp.calculator_config, pp.sort_order, pp.price_list_product_id, pp.install_product_id, pp.install_from_cents,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
-         pl.description AS pl_description,${INSTALL_SELECT}
+         pl.description AS pl_description,${PL_MEDIA_FLAGS}${INSTALL_SELECT}
        FROM presenter_products pp
        LEFT JOIN products pl ON pl.id = pp.price_list_product_id${INSTALL_JOIN}
        WHERE pp.section_id=$1 ORDER BY pp.sort_order, pp.name`,
@@ -230,7 +245,7 @@ router.get('/subcategories/:id/products', async (req, res) => {
               pp.image_base64, pp.price_from, pp.features, pp.calculator_type,
               pp.calculator_config, pp.sort_order, pp.price_list_product_id, pp.install_product_id, pp.install_from_cents,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
-         pl.description AS pl_description,${INSTALL_SELECT}
+         pl.description AS pl_description,${PL_MEDIA_FLAGS}${INSTALL_SELECT}
        FROM presenter_products pp
        LEFT JOIN products pl ON pl.id = pp.price_list_product_id${INSTALL_JOIN}
        WHERE pp.subcategory_id=$1 ORDER BY pp.sort_order, pp.name`,
@@ -246,23 +261,17 @@ router.get('/products/:id', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT pp.*,
          pl.id AS pl_id, pl.name AS pl_name, pl.unit_price AS pl_unit_price,
-         pl.description AS pl_description, pl.media_base64 AS pl_image,
-         pl.brochure_base64 AS pl_brochure,${INSTALL_SELECT}
+         pl.description AS pl_description,${PL_MEDIA_FLAGS}${INSTALL_SELECT}
        FROM presenter_products pp
        LEFT JOIN products pl ON pl.id = pp.price_list_product_id${INSTALL_JOIN}
        WHERE pp.id=$1`,
       [req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
-    const r = rows[0];
-    const { pl_id, pl_name, pl_unit_price, pl_description, pl_image, pl_brochure,
-      ip_id, ip_name, ip_unit_price, ip_unit, ...rest } = r;
-    res.json({
-      ...rest,
-      brochure_base64: rest.brochure_base64 || pl_brochure || null,
-      price_list_product: pl_id ? { id: pl_id, name: pl_name, unit_price: pl_unit_price, description: pl_description, image_base64: pl_image, brochure_base64: pl_brochure } : null,
-      install_product: ip_id ? { id: ip_id, name: ip_name, unit_price: ip_unit_price, unit: ip_unit } : null,
-    });
+    // Same shape as the lists. The presenter product's own brochure no longer
+    // falls back to the linked one's bytes here — the page shows the linked
+    // product's brochure itself, from wherever it's stored.
+    res.json(enrichProduct(rows[0]));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
