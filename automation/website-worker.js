@@ -84,6 +84,8 @@ Files whose job is building or deploying the site are off limits: anything under
 
 Two of the site's content sets are not in this repository. They live in the app and have been written out as JSON files in the app-content folder. If the change is to the Latest Deals cards or to the calculator discounts, edit those JSON files rather than hunting for them in the code. Keep the existing shape of each record. Leave them alone otherwise.
 
+You cannot see the site rendered, and nobody is watching this run. Do not start a dev server, open a browser, or try to check the change visually. Read the code, make the change, satisfy yourself it is right by reading it back, and commit. If you add anything temporary while working, take it out before you commit.
+
 House style: New Zealand English and spelling, prices in NZD, phone numbers in NZ format. Match the tone already on the site, which is warm and direct with no jargon and no hard sell. Match the surrounding code's style and formatting, and prefer the smallest change that does the job.
 
 When you are done, finish your reply with a short paragraph for the person who asked, in plain language, saying what you changed and what they will see. No code, no file paths, no jargon. If you could not do part of it, say which part and why.`;
@@ -146,6 +148,12 @@ const PAID_CREDENTIALS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
 function subscriptionEnv() {
   const env = { ...process.env };
   for (const key of PAID_CREDENTIALS) delete env[key];
+  // A print-mode run waits for anything Claude left running in the background,
+  // idling up to ten minutes by default. The first real job stalled for about
+  // that long after making its edit, having added a temporary marker to the
+  // page it was evidently trying to see rendered. Half a minute is plenty for
+  // work that should not be starting servers at all.
+  env.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS = env.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS || '30000';
   return env;
 }
 
