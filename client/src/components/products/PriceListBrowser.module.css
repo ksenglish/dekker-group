@@ -1,0 +1,28 @@
+/* The browse grid.
+ *
+ * This lives here rather than inline with the rest of the component's styles
+ * because the column count changes with the viewport, and a style object
+ * cannot carry a media query. Four across on a desktop is the number asked
+ * for; narrower screens fall back to fitting whatever they can, so a phone
+ * still gets two.
+ */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+@media (min-width: 700px) {
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+}
+
+@media (min-width: 1100px) {
+  .grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 22px;
+  }
+}

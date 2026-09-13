@@ -4,6 +4,7 @@ import ProductImage from './ProductImage';
 import { loadAuthedFile } from './authedFile';
 import { htmlToText } from '../../lib/richText';
 import { browseView, LEVELS, showsGstInclusive } from './priceListTree';
+import styles from './PriceListBrowser.module.css';
 
 // Browsing the price list the way a shop does: pick a category, then a
 // subcategory, then look at the products. Used both as the Price List page's
@@ -33,10 +34,14 @@ const priceOf = (product) => {
 // thousand-product category doesn't try to render at once.
 const PAGE_SIZE = 48;
 
+// Laid out as a column filling its grid cell, so every tile in a row ends at
+// the same line however long its description is. Without this the cards come
+// out ragged, which shows badly at four across.
 const card = {
   background: 'var(--color-surface)', border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius)', overflow: 'hidden', textAlign: 'left',
-  cursor: 'pointer', padding: 0, width: '100%', fontFamily: 'inherit',
+  cursor: 'pointer', padding: 0, width: '100%', height: '100%',
+  fontFamily: 'inherit', display: 'flex', flexDirection: 'column',
 };
 
 function FolderTile({ name, count, onClick }) {
@@ -45,12 +50,12 @@ function FolderTile({ name, count, onClick }) {
       onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}
       onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}>
       <div style={{
-        height: 96, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#f8fafc', fontSize: 34,
+        height: 130, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: '#f8fafc', fontSize: 42,
       }}>📁</div>
-      <div style={{ padding: '12px 14px' }}>
-        <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.35 }}>{name}</div>
-        <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 3 }}>
+      <div style={{ padding: '14px 16px' }}>
+        <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.35 }}>{name}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginTop: 3 }}>
           {count} product{count === 1 ? '' : 's'}
         </div>
       </div>
@@ -59,24 +64,38 @@ function FolderTile({ name, count, onClick }) {
 }
 
 function ProductTile({ product, onOpen }) {
+  // Descriptions hold rich text, so the markup is flattened rather than shown
+  // as literal tags. Not every product has one — an imported price list row
+  // often arrives with a code and a price and nothing else — and a tile with
+  // only a number on it identifies nothing, so the name stands in when there
+  // is no description to show.
+  const description = htmlToText(product.description).trim();
   return (
-    <button style={card} onClick={() => onOpen(product)}
+    <button style={card} onClick={() => onOpen(product)} title={product.name}
       onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}
       onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}>
       <div style={{
-        height: 150, background: '#f8fafc',
+        height: 210, flexShrink: 0, background: '#f8fafc',
         display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
       }}>
         {product.has_image
           ? <ProductImage productId={product.id} alt={product.name}
               style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-              fallback={<span style={{ fontSize: 30, opacity: 0.35 }}>🏷</span>} />
-          : <span style={{ fontSize: 30, opacity: 0.35 }}>🏷</span>}
+              fallback={<span style={{ fontSize: 38, opacity: 0.35 }}>🏷</span>} />
+          : <span style={{ fontSize: 38, opacity: 0.35 }}>🏷</span>}
       </div>
-      <div style={{ padding: '12px 14px' }}>
-        <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.35 }}>{product.name}</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 15, fontWeight: 700 }}>
+      <div style={{ padding: '14px 16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Clamped rather than truncated mid-word: a description can run to a
+            paragraph, and every tile in a row has to stay the same height. */}
+        <div style={{
+          fontSize: 14, fontWeight: 600, lineHeight: 1.45,
+          display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        }}>{description || product.name}</div>
+        {/* Pinned to the bottom, so the prices line up across a row rather
+            than floating wherever the description happens to end. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', paddingTop: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 17, fontWeight: 700 }}>
             {product.unit_price > 0 ? priceOf(product).text : 'POA'}
           </span>
           {product.unit_price > 0 && (
@@ -330,7 +349,7 @@ export default function PriceListBrowser({ onPick, onClose, title = 'Price List'
               </div>
             )}
 
-            <div style={grid}>
+            <div className={styles.grid}>
               {!searching && view.folders.map(f => (
                 <FolderTile key={f.name} name={f.name} count={f.items.length}
                   onClick={() => setPath([...path, f.name])} />
@@ -369,12 +388,6 @@ export default function PriceListBrowser({ onPick, onClose, title = 'Price List'
     </div>
   );
 }
-
-const grid = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
-  gap: 16,
-};
 
 const pagerBtn = disabled => ({
   padding: '7px 16px', borderRadius: 6, fontSize: 13.5, fontWeight: 600,
