@@ -165,7 +165,10 @@ function runClaude(instruction, scratchDir) {
     // left hanging until the timeout.
     '--permission-prompts', 'none',
     '--max-turns', '40',
-    '--model', 'opus',
+    // No --model by default: whatever the signed-in plan gives is what runs.
+    // Naming a model the plan does not include fails the job outright, and a
+    // Pro account defaults to Sonnet. Set WEBSITE_WORKER_MODEL to override.
+    ...(process.env.WEBSITE_WORKER_MODEL ? ['--model', process.env.WEBSITE_WORKER_MODEL] : []),
   ]);
 
   return new Promise((resolve, reject) => {
