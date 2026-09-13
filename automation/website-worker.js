@@ -174,16 +174,24 @@ function runClaude(instruction, scratchDir) {
   return new Promise((resolve, reject) => {
     const child = spawn(file, argv, { cwd: REPO, env: subscriptionEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
+    // Claude Code prints nothing until it is finished, so without this a job
+    // that takes ten minutes looks identical to one that has hung.
+    const started = Date.now();
+    const ticker = setInterval(
+      () => log(`  still working (${Math.round((Date.now() - started) / 60000)} min)`),
+      60000
+    );
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error(`gave up after ${Math.round(JOB_TIMEOUT_MS / 60000)} minutes`));
     }, JOB_TIMEOUT_MS);
+    const done = () => { clearTimeout(timer); clearInterval(ticker); };
 
     child.stdout.on('data', d => { stdout += d; });
     child.stderr.on('data', d => { stderr += d; });
-    child.on('error', err => { clearTimeout(timer); reject(err); });
+    child.on('error', err => { done(); reject(err); });
     child.on('close', code => {
-      clearTimeout(timer);
+      done();
       const raw = stdout + (stderr ? `\n--- stderr ---\n${stderr}` : '');
       if (code !== 0 && !stdout) return reject(new Error(stderr.slice(0, 400) || `claude exited with code ${code}`));
       try {
@@ -294,6 +302,13 @@ async function tick() {
     console.error('Claude Code is not installed, or not on PATH. See the setup notes at the top of this file.');
     process.exit(1);
   }
+
+  // Independent of the job loop on purpose. A job can take many minutes, and
+  // claiming is the only other time the app hears from us — so without this the
+  // app announces the worker has gone, halfway through a change it is making.
+  const beat = setInterval(() => { api('/jobs/heartbeat').catch(() => {}); }, 30000);
+  beat.unref();
+  api('/jobs/heartbeat').catch(() => {});
 
   log(`watching ${API} for website jobs`);
   log(`site checkout: ${REPO} (${BRANCH})`);

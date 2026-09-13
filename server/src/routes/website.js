@@ -45,6 +45,17 @@ router.post('/jobs/claim', authenticateAutomation, requireRole('admin'), async (
   } catch (err) { console.error('Job claim failed:', err.message); res.status(500).json({ error: 'Server error' }); }
 });
 
+// Claiming a job is the worker's only other check-in, and it does not claim
+// while it is busy — so on a job that runs longer than the staleness window the
+// app would tell everyone the worker had gone, mid-change. This is the
+// liveness signal on its own, sent on a timer regardless of what it is doing.
+router.post('/jobs/heartbeat', authenticateAutomation, requireRole('admin'), async (req, res) => {
+  try {
+    await jobs.noteWorkerSeen();
+    res.json({ ok: true });
+  } catch (err) { console.error('Heartbeat failed:', err.message); res.status(500).json({ error: 'Server error' }); }
+});
+
 router.post('/jobs/:id/finish', authenticateAutomation, requireRole('admin'), async (req, res) => {
   const { status, result, commits, log, appContent } = req.body || {};
   try {
