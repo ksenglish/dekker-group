@@ -18,9 +18,13 @@
  *   5. Post the summary, the commits and any app-content edits back to the app.
  *
  * SETUP (one-time):
- *   1. Install Claude Code and sign in with the subscription account:
- *        npm install -g @anthropic-ai/claude-code
- *        claude          (sign in, then quit)
+ *   1. Install Claude Code and sign in with the subscription account. In
+ *      PowerShell, not as Administrator:
+ *        irm https://claude.ai/install.ps1 | iex
+ *      Open a new terminal, then:
+ *        claude --version
+ *        claude          (sign in in the browser, run /status to check it
+ *                         says your subscription, then /exit)
  *   2. Make sure the website repo is cloned next to this one and can push:
  *        git -C ../dekkerair-website push origin staging
  *   3. Set these, either in the environment or in server/.env:
@@ -120,10 +124,29 @@ function claudeCommand(args) {
   let resolved = 'claude';
   try {
     resolved = execFileSync('where', ['claude'], { encoding: 'utf8' }).split(/\r?\n/)[0].trim() || 'claude';
-  } catch { /* not on PATH; let the spawn report it */ }
+  } catch {
+    // The native installer puts it here and adds that to PATH, but a terminal
+    // opened before the install, or a scheduled task, may not have picked the
+    // new PATH up yet.
+    const native = path.join(os.homedir(), '.local', 'bin', 'claude.exe');
+    if (fs.existsSync(native)) resolved = native;
+  }
   // A native install is an .exe and can be spawned on its own.
   if (/\.exe$/i.test(resolved)) return { file: resolved, argv: args };
   return { file: process.env.COMSPEC || 'cmd.exe', argv: ['/d', '/s', '/c', resolved, ...args] };
+}
+
+// The environment Claude Code runs in, minus anything that would take it off
+// the subscription. In print mode an ANTHROPIC_API_KEY in the environment is
+// always used ahead of the /login subscription credential, with no prompt —
+// and this script loads server/.env, which is exactly where the server keeps
+// its key. Left alone, one line in that file would bill every job as metered
+// API usage without anyone noticing.
+const PAID_CREDENTIALS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
+function subscriptionEnv() {
+  const env = { ...process.env };
+  for (const key of PAID_CREDENTIALS) delete env[key];
+  return env;
 }
 
 function runClaude(instruction, scratchDir) {
@@ -146,7 +169,7 @@ function runClaude(instruction, scratchDir) {
   ]);
 
   return new Promise((resolve, reject) => {
-    const child = spawn(file, argv, { cwd: REPO, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(file, argv, { cwd: REPO, env: subscriptionEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     const timer = setTimeout(() => {
       child.kill();
@@ -263,7 +286,7 @@ async function tick() {
   }
   const check = claudeCommand(['--version']);
   try {
-    execFileSync(check.file, check.argv, { stdio: 'ignore' });
+    execFileSync(check.file, check.argv, { stdio: 'ignore', env: subscriptionEnv() });
   } catch {
     console.error('Claude Code is not installed, or not on PATH. See the setup notes at the top of this file.');
     process.exit(1);
