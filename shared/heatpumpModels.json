@@ -1,0 +1,549 @@
+{
+  "_comment": "Highwall heat pump sizing table, shared by the Sales Presenter calculator (client) and the public website calculator endpoint (server). Generated from \"Price Lists/Dekker App/Sales Presenter/Highwall calculator data.xlsx\". kwMin/kwMax are the heating kW each model covers. Rows sharing a brand, series and band are variants of one size (usually colours).",
+  "models": [
+    {
+      "brand": "Rinnai",
+      "series": "Pro Series 2",
+      "kwMin": 0.1,
+      "kwMax": 2.8,
+      "description": "Rinnai 2.5COOL/2.8HEAT WIFI",
+      "model": "HSNRTX25"
+    },
+    {
+      "brand": "Rinnai",
+      "series": "Pro Series 2",
+      "kwMin": 2.81,
+      "kwMax": 4,
+      "description": "Rinnai 3.5COOL/4.0HEAT WIFI",
+      "model": "HSNRTX35"
+    },
+    {
+      "brand": "Rinnai",
+      "series": "Pro Series 2",
+      "kwMin": 4.01,
+      "kwMax": 5.5,
+      "description": "Rinnai 5.0COOL/5.5HEAT WIFI",
+      "model": "HSNRTX50"
+    },
+    {
+      "brand": "Rinnai",
+      "series": "Pro Series 2",
+      "kwMin": 5.51,
+      "kwMax": 6.5,
+      "description": "Rinnai 6.0COOL/6.5HEAT WIFI",
+      "model": "HSNRTX60"
+    },
+    {
+      "brand": "Rinnai",
+      "series": "Pro Series 2",
+      "kwMin": 6.51,
+      "kwMax": 7.5,
+      "description": "Rinnai 7.0COOL/7.5HEAT WIFI",
+      "model": "HSNRTX70"
+    },
+    {
+      "brand": "Rinnai",
+      "series": "Pro Series 2",
+      "kwMin": 7.51,
+      "kwMax": 8.2,
+      "description": "Rinnai 7.65COOL/8.2HEAT WIFI",
+      "model": "HSNRTX80"
+    },
+    {
+      "brand": "Rinnai",
+      "series": "Pro Series 2",
+      "kwMin": 8.21,
+      "kwMax": 9.5,
+      "description": "Rinnai 9.0COOL/9.5HEAT WIFI",
+      "model": "HSNRTX90"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Smart Series",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "AP25 Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-AP25VGKD2 SMART"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Smart Series",
+      "kwMin": 3.21,
+      "kwMax": 3.7,
+      "description": "AP35 Smart High Wall Heat Pump 3.7kW Heating / 3.5kW Cooling",
+      "model": "MSZ-AP35VGKD2 SMART"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Smart Series",
+      "kwMin": 3.71,
+      "kwMax": 5.4,
+      "description": "AP42 Smart High Wall Heat Pump 5.4kW Heating / 4.2kW Cooling",
+      "model": "MSZ-AP42VGKD2 SMART"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Smart Series",
+      "kwMin": 5.41,
+      "kwMax": 6,
+      "description": "AP50 Smart High Wall Heat Pump 6.0kW Heating / 5.0kW Cooling",
+      "model": "MSZ-AP50VGKD2 SMART"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Smart Series",
+      "kwMin": 6.01,
+      "kwMax": 6.8,
+      "description": "AP60 Smart High Wall Heat Pump 6.8kW Heating / 6.0kW Cooling",
+      "model": "MSZ-AP60VGKD2 SMART"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Smart Series",
+      "kwMin": 6.81,
+      "kwMax": 8,
+      "description": "AP71 Smart High Wall Heat Pump 8.0kW Heating / 7.1kW Cooling",
+      "model": "MSZ-AP71VGKD2 SMART"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Smart Series",
+      "kwMin": 8.01,
+      "kwMax": 9,
+      "description": "AP80 Smart High Wall Heat Pump 9.0kW Heating / 7.8kW Cooling",
+      "model": "MSZ-AP80VGKD2 SMART"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Classic Series",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "AP25 Classic High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-AP25VGD2 CLASSIC"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Classic Series",
+      "kwMin": 3.21,
+      "kwMax": 3.7,
+      "description": "AP35 Classic High Wall Heat Pump 3.7kW Heating / 3.5kW Cooling",
+      "model": "MSZ-AP35VGD2 CLASSIC"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Classic Series",
+      "kwMin": 3.71,
+      "kwMax": 5.4,
+      "description": "AP42 Classic High Wall Heat Pump 5.4kW Heating / 4.2kW Cooling",
+      "model": "MSZ-AP42VGD2 CLASSIC"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Classic Series",
+      "kwMin": 5.41,
+      "kwMax": 6,
+      "description": "AP50 Classic High Wall Heat Pump 6.0kW Heating / 5.0kW Cooling",
+      "model": "MSZ-AP50VGD2 CLASSIC"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Classic Series",
+      "kwMin": 6.01,
+      "kwMax": 6.8,
+      "description": "AP60 Classic High Wall Heat Pump 6.8kW Heating / 6.0kW Cooling",
+      "model": "MSZ-AP60VGD2 CLASSIC"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Classic Series",
+      "kwMin": 6.81,
+      "kwMax": 8,
+      "description": "AP71 Classic High Wall Heat Pump 8.0kW Heating / 7.1kW Cooling",
+      "model": "MSZ-AP71VGD2 CLASSIC"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Classic Series",
+      "kwMin": 8.01,
+      "kwMax": 9,
+      "description": "AP80 Classic High Wall Heat Pump 9.0kW Heating / 7.8kW Cooling",
+      "model": "MSZ-AP80VGD2 CLASSIC"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AP Mini Series",
+      "kwMin": 0.1,
+      "kwMax": 2.5,
+      "description": "AP20 Mini High Wall Heat Pump 2.5kW Heating / 2.0kW Cooling",
+      "model": "MSZ-AP20VGD2-A1"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "AS Large",
+      "kwMin": 0.1,
+      "kwMax": 10.3,
+      "description": "AS90 Large Capacity High Wall Heat Pump 10.3kW Heating / 9.0kW Cooling",
+      "model": "MSZ-AS90VGD2-A1"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "GS Series",
+      "kwMin": 0.1,
+      "kwMax": 3.1,
+      "description": "GS25 Standard High Wall Heat Pump 3.1kW Heating / 2.5kW Cooling",
+      "model": "MSZ-GS25VFD2"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "GS Series",
+      "kwMin": 3.11,
+      "kwMax": 3.7,
+      "description": "GS35 Standard High Wall Heat Pump 3.7kW Heating / 3.4kW Cooling",
+      "model": "MSZ-GS35VFD2"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "GS Series",
+      "kwMin": 3.71,
+      "kwMax": 5.5,
+      "description": "GS50 Standard High Wall Heat Pump 5.5kW Heating / 5.0kW Cooling",
+      "model": "MSZ-GS50VFD2"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "GS Series",
+      "kwMin": 5.51,
+      "kwMax": 6.6,
+      "description": "GS60 Standard High Wall Heat Pump 6.6kW Heating / 6.0kW Cooling",
+      "model": "MSZ-GS60VFD2"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "GS Series",
+      "kwMin": 6.61,
+      "kwMax": 8,
+      "description": "GS71 Standard High Wall Heat Pump 8.0kW Heating / 7.1kW Cooling",
+      "model": "MSZ-GS71VFD2"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "GS Series",
+      "kwMin": 8.01,
+      "kwMax": 9.1,
+      "description": "GS80 Standard High Wall Heat Pump 9.1kW Heating / 7.9kW Cooling",
+      "model": "MSZ-GS80VFD2"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "EF25 Designer Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-EF25VGKDW WHITE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "EF25 Designer Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-EF25VGKDB BLACK"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "EF25 Designer Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-EF25VGKDS SILVER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 3.21,
+      "kwMax": 4,
+      "description": "EF35 Designer Smart High Wall Heat Pump 4.0kW Heating / 3.5kW Cooling",
+      "model": "MSZ-EF35VGKDW WHITE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 3.21,
+      "kwMax": 4,
+      "description": "EF35 Designer Smart High Wall Heat Pump 4.0kW Heating / 3.5kW Cooling",
+      "model": "MSZ-EF35VGKDB BLACK"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 3.21,
+      "kwMax": 4,
+      "description": "EF35 Designer Smart High Wall Heat Pump 4.0kW Heating / 3.5kW Cooling",
+      "model": "MSZ-EF35VGKDS SILVER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 4.01,
+      "kwMax": 5.4,
+      "description": "EF42 Designer Smart High Wall Heat Pump 5.4kW Heating / 4.2kW Cooling",
+      "model": "MSZ-EF42VGKDW WHITE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 4.01,
+      "kwMax": 5.4,
+      "description": "EF42 Designer Smart High Wall Heat Pump 5.4kW Heating / 4.2kW Cooling",
+      "model": "MSZ-EF42VGKDB BLACK"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 4.01,
+      "kwMax": 5.4,
+      "description": "EF42 Designer Smart High Wall Heat Pump 5.4kW Heating / 4.2kW Cooling",
+      "model": "MSZ-EF42VGKDS SILVER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 5.41,
+      "kwMax": 5.8,
+      "description": "EF50 Designer Smart High Wall Heat Pump 5.8kW Heating / 5.0kW Cooling",
+      "model": "MSZ-EF50VGKDW WHITE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 5.41,
+      "kwMax": 5.8,
+      "description": "EF50 Designer Smart High Wall Heat Pump 5.8kW Heating / 5.0kW Cooling",
+      "model": "MSZ-EF50VGKDB BLACK"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "EF Designer Series",
+      "kwMin": 5.41,
+      "kwMax": 5.8,
+      "description": "EF50 Designer Smart High Wall Heat Pump 5.8kW Heating / 5.0kW Cooling",
+      "model": "MSZ-EF50VGKDS SILVER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "LN25 Black Diamond Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-LN25VGDV WHITE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "LN25 Black Diamond Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-LN25VGDB BLACK"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "LN25 Black Diamond Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-LN25VG2R RED"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 3.21,
+      "kwMax": 4,
+      "description": "LN35 Black Diamond Smart High Wall Heat Pump 4.0kW Heating / 3.5kW Cooling",
+      "model": "MSZ-LN35VG2V WHITE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 3.21,
+      "kwMax": 4,
+      "description": "LN35 Black Diamond Smart High Wall Heat Pump 4.0kW Heating / 3.5kW Cooling",
+      "model": "MSZ-LN35VGDB BLACK"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 3.21,
+      "kwMax": 4,
+      "description": "LN35 Black Diamond Smart High Wall Heat Pump 4.0kW Heating / 3.5kW Cooling",
+      "model": "MSZ-LN35VG2R RED"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 4.01,
+      "kwMax": 6,
+      "description": "LN50 Black Diamond Smart High Wall Heat Pump 6.0kW Heating / 5.0kW Cooling",
+      "model": "MSZ-LN50VGDV WHITE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 4.01,
+      "kwMax": 6,
+      "description": "LN50 Black Diamond Smart High Wall Heat Pump 6.0kW Heating / 5.0kW Cooling",
+      "model": "MSZ-LN50VG3B BLACK"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 4.01,
+      "kwMax": 6,
+      "description": "LN50 Black Diamond Smart High Wall Heat Pump 6.0kW Heating / 5.0kW Cooling",
+      "model": "MSZ-LN50VG3R RED"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 6.01,
+      "kwMax": 6.8,
+      "description": "LN60 Black Diamond Smart High Wall Heat Pump 6.8kW Heating / 6.1kW Cooling",
+      "model": "MSZ-LN60VGDV WHITE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 6.01,
+      "kwMax": 6.8,
+      "description": "LN60 Black Diamond Smart High Wall Heat Pump 6.8kW Heating / 6.1kW Cooling",
+      "model": "MSZ-LN60VGDB BLACK"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Smart",
+      "kwMin": 6.01,
+      "kwMax": 6.8,
+      "description": "LN60 Black Diamond Smart High Wall Heat Pump 6.8kW Heating / 6.1kW Cooling",
+      "model": "MSZ-LN60VGDR RED"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "LN25 Black Diamond HyperCore Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-LN25VGDV WHITE HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "LN25 Black Diamond HyperCore Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-LN25VGDB BLACK HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 0.1,
+      "kwMax": 3.2,
+      "description": "LN25 Black Diamond HyperCore Smart High Wall Heat Pump 3.2kW Heating / 2.5kW Cooling",
+      "model": "MSZ-LN25VG2R RED HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 3.21,
+      "kwMax": 4,
+      "description": "LN35 Black Diamond HyperCore Smart High Wall Heat Pump 4.0kW Heating / 3.5kW Cooling",
+      "model": "MSZ-LN35VGDV WHITE HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 3.21,
+      "kwMax": 4,
+      "description": "LN35 Black Diamond HyperCore Smart High Wall Heat Pump 4.0kW Heating / 3.5kW Cooling",
+      "model": "MSZ-LN35VGDB BLACK HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 3.21,
+      "kwMax": 4,
+      "description": "LN35 Black Diamond HyperCore Smart High Wall Heat Pump 4.0kW Heating / 3.5kW Cooling",
+      "model": "MSZ-LN35VG2R RED HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 4.01,
+      "kwMax": 6,
+      "description": "LN50 Black Diamond HyperCore Smart High Wall Heat Pump 6.0kW Heating / 5.0kW Cooling",
+      "model": "MSZ-LN50VGDV WHITE HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 4.01,
+      "kwMax": 6,
+      "description": "LN50 Black Diamond HyperCore Smart High Wall Heat Pump 6.0kW Heating / 5.0kW Cooling",
+      "model": "MSZ-LN50VGDB BLACK HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 4.01,
+      "kwMax": 6,
+      "description": "LN50 Black Diamond HyperCore Smart High Wall Heat Pump 6.0kW Heating / 5.0kW Cooling",
+      "model": "MSZ-LN50VG3R RED HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 6.01,
+      "kwMax": 6.8,
+      "description": "LN60 Black Diamond HyperCore Smart High Wall Heat Pump 6.8kW Heating / 6.1kW Cooling",
+      "model": "MSZ-LN60VGDV WHITE HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 6.01,
+      "kwMax": 6.8,
+      "description": "LN60 Black Diamond HyperCore Smart High Wall Heat Pump 6.8kW Heating / 6.1kW Cooling",
+      "model": "MSZ-LN60VGDB BLACK HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "LN Black Diamond Hyper",
+      "kwMin": 6.01,
+      "kwMax": 6.8,
+      "description": "LN60 Black Diamond HyperCore Smart High Wall Heat Pump 6.8kW Heating / 6.1kW Cooling",
+      "model": "MSZ-LN60VGDR RED HYPER"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "PKA Large",
+      "kwMin": 0.1,
+      "kwMax": 8,
+      "description": "PKA-M71 Large Capacity Deluxe High Wall Heat Pump 8.0kW Heating / 7.1kW Cooling",
+      "model": "PKA-M71KAL3 DELUXE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "PKA Large",
+      "kwMin": 8.01,
+      "kwMax": 11.2,
+      "description": "PKA-M100 Large Capacity Deluxe High Wall Heat Pump 11.2kW Heating / 10.0kW Cooling",
+      "model": "PKA-M100KAL3 DELUXE"
+    },
+    {
+      "brand": "Mitsubishi Electric",
+      "series": "PKA Large",
+      "kwMin": 8.01,
+      "kwMax": 11.2,
+      "description": "PKA-M100 Large Capacity Standard High Wall Heat Pump 11.2kW Heating / 10.0kW Cooling",
+      "model": "PKA-M100KAL3 STD HIGHWALL"
+    }
+  ]
+}

@@ -1,21 +1,29 @@
-// Rinnai highwall heat pump sizing bands.
+// Highwall heat pump sizing bands.
 //
-// This mirrors RINNAI_HEATPUMP_TABLE in
-// client/src/pages/presenter/SalesPresenter.jsx — the Sales Presenter keeps its
-// own copy because it runs in the browser. If the bands or models change,
-// change them in BOTH places.
+// The table itself lives in shared/heatpumpModels.json, read by both this file
+// and the Sales Presenter calculator in the browser, so there is one copy to
+// update when models change rather than two to keep in step.
 //
-// Bands are the heating kW each model covers; a recommended capacity picks the
-// first band it falls inside.
-const RINNAI_HEATPUMP_TABLE = [
-  { kwMin: 0,    kwMax: 2.8, model: 'HSNRTX25', description: 'Rinnai 2.5COOL/2.8HEAT WIFI' },
-  { kwMin: 2.81, kwMax: 4,   model: 'HSNRTX35', description: 'Rinnai 3.5COOL/4.0HEAT WIFI' },
-  { kwMin: 4.01, kwMax: 5.5, model: 'HSNRTX50', description: 'Rinnai 5.0COOL/5.5HEAT WIFI' },
-  { kwMin: 5.51, kwMax: 6.5, model: 'HSNRTX60', description: 'Rinnai 6.0COOL/6.5HEAT WIFI' },
-  { kwMin: 6.51, kwMax: 7.5, model: 'HSNRTX70', description: 'Rinnai 7.0COOL/7.5HEAT WIFI' },
-  { kwMin: 7.51, kwMax: 8.2, model: 'HSNRTX80', description: 'Rinnai 7.65COOL/8.2HEAT WIFI' },
-  { kwMin: 8.21, kwMax: 9.5, model: 'HSNRTX90', description: 'Rinnai 9.0COOL/9.5HEAT WIFI' },
-];
+// Bands are the heating kW each model covers.
+const { models: HEATPUMP_MODELS } = require('../../../shared/heatpumpModels.json');
+
+// The public website calculator (GET /api/public/heat-pumps) only offers the
+// Rinnai Pro Series 2 range. The shared table now carries Mitsubishi Electric
+// as well, but that is the Sales Presenter's to use — adding brands to the
+// public site is its own decision, so this keeps exactly what it served before.
+//
+// The first band starts at 0 rather than the spreadsheet's 0.1, matching what
+// the site has always been sent: a room needing under 0.1 kW still gets the
+// smallest unit.
+const RINNAI_HEATPUMP_TABLE = HEATPUMP_MODELS
+  .filter(m => m.brand === 'Rinnai' && m.series === 'Pro Series 2')
+  .sort((a, b) => a.kwMax - b.kwMax)
+  .map((m, i) => ({
+    kwMin: i === 0 ? 0 : m.kwMin,
+    kwMax: m.kwMax,
+    model: m.model,
+    description: m.description,
+  }));
 
 const HEATPUMP_MAX_KW = RINNAI_HEATPUMP_TABLE[RINNAI_HEATPUMP_TABLE.length - 1].kwMax;
 
@@ -26,6 +34,7 @@ const bandForKw = (kw) =>
   RINNAI_HEATPUMP_TABLE.find(r => kw >= r.kwMin && kw <= r.kwMax) || null;
 
 module.exports = {
+  HEATPUMP_MODELS,
   RINNAI_HEATPUMP_TABLE,
   HEATPUMP_MAX_KW,
   INSULATION_MULTIPLIERS,

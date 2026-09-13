@@ -6,6 +6,10 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 import api from '../../lib/api';
 import styles from './SalesPresenter.module.css';
 import { overlayClose } from '../../lib/overlayClose';
+import {
+  brandList, seriesList, recommend, variantLabel,
+  selectionForProduct, priceProductFor, DEFAULT_SELECTION,
+} from './heatpumpSizing';
 
 // A brochure held in the bucket arrives as a URL to fetch; one saved before
 // that is still a data URL on the record. Both work anywhere a src is wanted.
@@ -493,21 +497,9 @@ function LinearCalculator({ product, onQuantityChange }) {
   );
 }
 
-// ── Rinnai highwall heat pump sizing table ────────────────────────────────────
-// Bands are the heating kW each model covers; the calculator's recommended
-// capacity picks the first band it falls inside.
-const RINNAI_HEATPUMP_TABLE = [
-  { kwMin: 0,    kwMax: 2.8, model: 'HSNRTX25', description: 'Rinnai 2.5COOL/2.8HEAT WIFI' },
-  { kwMin: 2.81, kwMax: 4,   model: 'HSNRTX35', description: 'Rinnai 3.5COOL/4.0HEAT WIFI' },
-  { kwMin: 4.01, kwMax: 5.5, model: 'HSNRTX50', description: 'Rinnai 5.0COOL/5.5HEAT WIFI' },
-  { kwMin: 5.51, kwMax: 6.5, model: 'HSNRTX60', description: 'Rinnai 6.0COOL/6.5HEAT WIFI' },
-  { kwMin: 6.51, kwMax: 7.5, model: 'HSNRTX70', description: 'Rinnai 7.0COOL/7.5HEAT WIFI' },
-  { kwMin: 7.51, kwMax: 8.2, model: 'HSNRTX80', description: 'Rinnai 7.65COOL/8.2HEAT WIFI' },
-  { kwMin: 8.21, kwMax: 9.5, model: 'HSNRTX90', description: 'Rinnai 9.0COOL/9.5HEAT WIFI' },
-];
-const HEATPUMP_MAX_KW = RINNAI_HEATPUMP_TABLE[RINNAI_HEATPUMP_TABLE.length - 1].kwMax;
-
-function HeatpumpCalculator({ onPick, onQuantityChange }) {
+// ── Highwall heat pump sizing ─────────────────────────────────────────────────
+// The models, and the rules for picking one, live in ./heatpumpSizing.js.
+function HeatpumpCalculator({ product, onPick, onQuantityChange }) {
   const [length, setLength] = useState(0);
   const [width, setWidth] = useState(0);
   const [m2, setM2] = useState('0');
@@ -518,6 +510,23 @@ function HeatpumpCalculator({ onPick, onQuantityChange }) {
   const [showBrochure, setShowBrochure] = useState(false);
   const [fullPriceProduct, setFullPriceProduct] = useState(null);
 
+  // Opens on the brand and series of the price-list product this presenter
+  // product is linked to — a Mitsubishi AP Smart opens on AP Smart — and on
+  // today's Rinnai range when it isn't linked to one the table knows.
+  const linkedSelection = selectionForProduct(product?.price_list_product) || DEFAULT_SELECTION;
+  const [brand, setBrand] = useState(linkedSelection.brand);
+  const [series, setSeries] = useState(linkedSelection.series);
+  // Remembered by its label ("BLACK") rather than its model code, so a colour
+  // chosen for one size carries over when the room grows into the next size.
+  const [variantChoice, setVariantChoice] = useState('');
+
+  // Follow the product if a different one is opened in the same panel.
+  useEffect(() => {
+    setBrand(linkedSelection.brand);
+    setSeries(linkedSelection.series);
+    setVariantChoice('');
+  }, [product?.id, product?.price_list_product?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     api.get('/products').then(r => setPriceListProducts(r.data)).catch(() => {});
   }, []);
@@ -525,6 +534,12 @@ function HeatpumpCalculator({ onPick, onQuantityChange }) {
   function handleLength(v) { setLength(v); setM2((v * width).toFixed(1)); }
   function handleWidth(v)  { setWidth(v);  setM2((length * v).toFixed(1)); }
   function handleM2(v)     { setM2(v); } // manual override — sliders stay where they are
+
+  function handleBrand(b) {
+    setBrand(b);
+    setSeries(seriesList(b)[0] || '');
+    setVariantChoice('');
+  }
 
   const kwMultiplier = { good: 0.05, average: 0.055, poor: 0.06 }[insulation];
   const effectiveHeight = ceilingHeight === 'other'
@@ -538,27 +553,33 @@ function HeatpumpCalculator({ onPick, onQuantityChange }) {
   // installation once a model has actually been settled on.
   useEffect(() => { onQuantityChange?.(kwValue > 0 ? 1 : 0); }, [kwValue, onQuantityChange]);
 
-  const tableMatch = kwValue > 0
-    ? RINNAI_HEATPUMP_TABLE.find(r => kwValue >= r.kwMin && kwValue <= r.kwMax)
-    : null;
-  const overCapacity = kwValue > HEATPUMP_MAX_KW;
+  const { size, overCapacity, seriesMaxKw, alternatives } = recommend(brand, series, kwValue);
+  const variants = size?.variants || [];
+  const tableMatch = variants.find(v => variantLabel(v) === variantChoice) || variants[0] || null;
 
-  // The price list may carry either the model code or the full description as
-  // the product name, so match on both.
-  const norm = s => (s || '').trim().toLowerCase();
-  const priceProduct = tableMatch
-    ? priceListProducts.find(p => {
-        const fields = [norm(p.name), norm(p.description)];
-        return fields.includes(norm(tableMatch.model)) || fields.includes(norm(tableMatch.description));
-      })
-    : null;
-
+  const priceProduct = priceProductFor(tableMatch, priceListProducts);
   const exGst  = priceProduct ? priceProduct.unit_price / 100 : null;
   const incGst = priceProduct ? Math.round((priceProduct.unit_price / 100) * 1.15 * 100) / 100 : null;
 
   return (
     <div className={styles.calc}>
       <h3 className={styles.calcTitle}>Heat Pump Sizing Calculator</h3>
+
+      {/* Range first: it decides which models the sizing can land on. */}
+      <div className={styles.calcGrid}>
+        <div className={styles.calcField}>
+          <label>Brand</label>
+          <select value={brand} onChange={e => handleBrand(e.target.value)}>
+            {brandList().map(b => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </div>
+        <div className={styles.calcField}>
+          <label>Series</label>
+          <select value={series} onChange={e => { setSeries(e.target.value); setVariantChoice(''); }}>
+            {seriesList(brand).map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
 
       {/* Sliders */}
       <div className={styles.sliderSection}>
@@ -623,11 +644,42 @@ function HeatpumpCalculator({ onPick, onQuantityChange }) {
 
           {overCapacity && (
             <div className={styles.calcNote} style={{ marginTop: 10 }}>
-              {kw} kW is beyond the largest highwall unit ({HEATPUMP_MAX_KW} kW). This space likely needs multiple units or a ducted system — please contact us for a custom design.
+              {kw} kW is beyond the largest {series} unit ({seriesMaxKw} kW).{' '}
+              {alternatives.length > 0 ? (
+                <>
+                  A single unit that covers it:{' '}
+                  {/* The closest few only — a larger unit than that is
+                      overkill, and a long list is noise in front of a customer. */}
+                  {alternatives.slice(0, 3).map((a, i) => (
+                    <span key={`${a.brand}-${a.series}`}>
+                      {i > 0 && ', '}
+                      <button type="button" className={styles.linkBtn}
+                        onClick={() => { setBrand(a.brand); setSeries(a.series); setVariantChoice(''); }}>
+                        {a.brand} {a.series}
+                      </button>{' '}
+                      (up to {a.kwMax} kW)
+                    </span>
+                  ))}
+                  . Otherwise this space likely needs multiple units or a ducted system.
+                </>
+              ) : (
+                <>No single highwall unit covers it — this space likely needs multiple units or a ducted system. Please contact us for a custom design.</>
+              )}
             </div>
           )}
 
           {tableMatch && <>
+            {variants.length > 1 && (
+              <div className={styles.calcResultRow}>
+                <span>Option</span>
+                <select value={variantLabel(tableMatch)} onChange={e => setVariantChoice(e.target.value)}
+                  className={styles.calcInlineSelect}>
+                  {variants.map(v => (
+                    <option key={v.model} value={variantLabel(v)}>{variantLabel(v)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className={styles.calcResultRow}><span>Recommended model</span><strong>{tableMatch.model}</strong></div>
             <div className={styles.calcResultRow}><span>Unit</span><strong>{tableMatch.description}</strong></div>
             {exGst != null && <>
@@ -646,7 +698,7 @@ function HeatpumpCalculator({ onPick, onQuantityChange }) {
             )}
             {priceProduct && (
               <button className={styles.brochureBtn} onClick={() => {
-                if (fullPriceProduct) { setShowBrochure(true); return; }
+                if (fullPriceProduct?.id === priceProduct.id) { setShowBrochure(true); return; }
                 api.get(`/products/${priceProduct.id}`).then(r => {
                   setFullPriceProduct(r.data);
                   if (brochureSrc(r.data)) setShowBrochure(true);
@@ -1202,7 +1254,7 @@ function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange 
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} jobId={jobId} onQuantityChange={onQuantityChange} />;
   if (type === 'linear') return <LinearCalculator product={product} onQuantityChange={onQuantityChange} />;
-  if (type === 'heatpump') return <HeatpumpCalculator onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'heatpump') return <HeatpumpCalculator product={product} onPick={onPick} onQuantityChange={onQuantityChange} />;
   if (type === 'paling_fence') return <PalingFenceCalculator onPick={onPick} jobId={jobId} product={product} onSelectVariant={onSelectVariant} onQuantityChange={onQuantityChange} />;
   if (type === 'smartvent_lite') return <SmartVentLiteCalculator onPick={onPick} onQuantityChange={onQuantityChange} />;
   if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onPick={onPick} product={product} onQuantityChange={onQuantityChange} />;
