@@ -5,11 +5,12 @@ import WebsiteRequests from './WebsiteRequests';
 import CalculatorPricing from './CalculatorPricing';
 import PublishSite from './PublishSite';
 import WebsiteAgent from './WebsiteAgent';
+import MarketingLibrary from './MarketingLibrary';
 import styles from './Website.module.css';
 
 // Ask Claude leads, because it is now the way most changes get made — the
 // editors after it are for the ones that are quicker to type than to describe.
-const TABS = ['Ask Claude', 'Preview & Publish', 'Latest Deals', 'Calculator Pricing', 'Change Requests'];
+const TABS = ['Ask Claude', 'Preview & Publish', 'Marketing Library', 'Latest Deals', 'Calculator Pricing', 'Change Requests'];
 
 export default function WebsitePage() {
   const [searchParams] = useSearchParams();
@@ -43,6 +44,7 @@ export default function WebsitePage() {
 
       {tab === 'Ask Claude' && <WebsiteAgent openJob={openJob} />}
       {tab === 'Preview & Publish' && <PublishSite />}
+      {tab === 'Marketing Library' && <MarketingLibrary />}
       {tab === 'Latest Deals' && <DealsEditor />}
       {tab === 'Calculator Pricing' && <CalculatorPricing />}
       {tab === 'Change Requests' && <WebsiteRequests onHandOff={handOff} />}

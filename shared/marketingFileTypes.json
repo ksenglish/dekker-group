@@ -1,0 +1,17 @@
+{
+  "_comment": "What the Marketing Library accepts, and the size limit. Read by the server (server/src/services/marketingLibrary.js) and by automation/marketing-sync.js, so the sync never uploads something the server would refuse.",
+  "maxBytes": 52428800,
+  "types": {
+    ".webp": "image/webp",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".avif": "image/avif",
+    ".pdf": "application/pdf",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime"
+  }
+}

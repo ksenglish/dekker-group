@@ -102,6 +102,7 @@ app.use('/api/stock', stockRoutes);
 app.use('/api/costs', costRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/website', websiteRoutes);
+app.use('/api/marketing', require('./routes/marketing'));
 app.use('/api/forms', require('./routes/forms'));
 
 app.get('/api/health', async (req, res) => {

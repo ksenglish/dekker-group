@@ -32,6 +32,9 @@
  *        AUTOMATION_API_KEY   the same value as the Render env var
  *        WEBSITE_REPO_PATH    path to the website checkout (optional, defaults
  *                             to ../dekkerair-website next to this repo)
+ *        MARKETING_MIRROR_DIR where to keep the local copy of the Marketing
+ *                             Library (optional, defaults to
+ *                             ~/.dekker/marketing-library)
  *   4. Start it:
  *        node automation/website-worker.js
  *
@@ -53,7 +56,12 @@ const path = require('path');
 
 require('dotenv').config({ path: path.join(__dirname, '../server/.env') });
 
+const marketing = require('./marketing-mirror');
+
 const API = (process.env.DEKKER_API || 'https://dekker-group.onrender.com').replace(/\/$/, '');
+// A local copy of the app's Marketing Library, refreshed before each job so
+// Claude Code can look through the images and use them. See marketing-mirror.js.
+const MARKETING_MIRROR_DIR = process.env.MARKETING_MIRROR_DIR || path.join(os.homedir(), '.dekker', 'marketing-library');
 const KEY = process.env.AUTOMATION_API_KEY || '';
 const REPO = process.env.WEBSITE_REPO_PATH || path.join(__dirname, '../../dekkerair-website');
 const BRANCH = process.env.WEBSITE_STAGING_BRANCH || 'staging';
@@ -157,9 +165,11 @@ function subscriptionEnv() {
   return env;
 }
 
-function runClaude(instruction, scratchDir) {
+function runClaude(instruction, scratchDir, library) {
   const rulesFile = path.join(scratchDir, 'rules.md');
-  fs.writeFileSync(rulesFile, RULES);
+  // The library section only when there's a library to offer — a job run while
+  // the app's catalogue couldn't be fetched just goes ahead without it.
+  fs.writeFileSync(rulesFile, RULES + (library ? marketing.rulesFor(library) : ''));
 
   // Deliberately not --bare: bare mode skips the subscription login and expects
   // an API key, which is the one thing this whole arrangement exists to avoid.
@@ -168,6 +178,7 @@ function runClaude(instruction, scratchDir) {
     '--output-format', 'json',
     '--append-system-prompt-file', rulesFile,
     '--add-dir', path.join(scratchDir, 'app-content'),
+    ...(library ? ['--add-dir', library.mirrorDir, '--add-dir', library.requestsDir] : []),
     '--allowedTools', ALLOWED_TOOLS,
     // Nobody is watching, so anything that would prompt is denied rather than
     // left hanging until the timeout.
@@ -235,17 +246,58 @@ async function runJob(job, appContent) {
   git('pull', '--ff-only', 'origin', BRANCH);
   const startSha = git('rev-parse', 'HEAD');
 
+  // Refresh the local copy of the Marketing Library. If the app can't be asked
+  // for it, the job still runs — it just can't use library images this time.
+  let library = null;
+  try {
+    const synced = await marketing.syncMirror({ api: API, key: KEY, dir: MARKETING_MIRROR_DIR, log });
+    const requestsDir = path.join(scratch, 'marketing-requests');
+    fs.mkdirSync(requestsDir);
+    const requestsFile = path.join(requestsDir, 'use.json');
+    fs.writeFileSync(requestsFile, '[]\n');
+    library = { mirrorDir: MARKETING_MIRROR_DIR, requestsDir, requestsFile };
+    log(`  marketing library: ${synced.files} file(s)${synced.downloaded ? `, ${synced.downloaded} new` : ''}`);
+  } catch (err) {
+    log(`  marketing library unavailable: ${err.message}`);
+  }
+
   let status = 'done';
   let result;
   let raw = '';
   try {
-    const out = await runClaude(job.instruction, scratch);
+    const out = await runClaude(job.instruction, scratch, library);
     result = out.text;
     raw = out.raw;
   } catch (err) {
     status = 'failed';
     result = `That did not finish: ${err.message.slice(0, 500)}`;
     raw = err.stdout || err.message;
+  }
+
+  // Put in any library files Claude asked for, as their own commit. Done even if
+  // the run didn't finish cleanly: whatever it did commit may already refer to
+  // them, and a page pointing at an image that isn't there is worse.
+  if (library) {
+    try {
+      const { placed, rejected } = await marketing.applyRequests({
+        requestsFile: library.requestsFile, mirrorDir: library.mirrorDir, repoDir: REPO,
+      });
+      if (placed.length) {
+        git('add', '--', ...placed.map(p => p.to));
+        // Nothing staged means every file was already in the site, identical.
+        if (git('diff', '--cached', '--name-only')) {
+          git('commit', '-m', 'Add images from the Marketing Library',
+            '-m', placed.map(p => `${p.from} -> ${p.to}${p.resized ? ' (scaled down)' : ''}`).join('\n'));
+          log(`  added ${placed.length} file(s) from the marketing library`);
+        }
+      }
+      if (rejected.length) {
+        result = `${result}\n\n${rejected.length === 1 ? 'One image' : `${rejected.length} images`} from the Marketing Library couldn't be added: ` +
+          rejected.map(r => r.reason).join('; ') + '.';
+      }
+    } catch (err) {
+      result = `${result}\n\nThe images from the Marketing Library couldn't be added: ${err.message.slice(0, 300)}`;
+    }
   }
 
   const commits = commitsSince(startSha);

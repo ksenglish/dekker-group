@@ -1,0 +1,103 @@
+.library { position: relative; min-height: 300px; border-radius: var(--radius); }
+/* Files dragged over the page — the whole library is the drop target. */
+.dragging { outline: 2px dashed var(--color-accent); outline-offset: 6px; background: #f0f9ff; }
+
+.intro { font-size: 13.5px; color: var(--color-text-muted); margin-bottom: 16px; line-height: 1.6; max-width: 720px; }
+.muted { font-size: 13.5px; color: var(--color-text-muted); }
+
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+.search {
+  flex: 1; min-width: 200px; padding: 9px 12px; font-size: 14px; font-family: inherit;
+  border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface);
+}
+.toolbarActions { display: flex; gap: 8px; }
+
+.btnPrimary, .btnSecondary, .btnDanger {
+  padding: 9px 14px; font-size: 13.5px; font-weight: 600; font-family: inherit;
+  border-radius: var(--radius); cursor: pointer; white-space: nowrap;
+}
+.btnPrimary { background: var(--color-primary); color: white; border: 1px solid var(--color-primary); }
+.btnSecondary { background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); }
+.btnDanger { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.btnPrimary:disabled, .btnSecondary:disabled, .btnDanger:disabled { opacity: 0.5; cursor: default; }
+.linkBtn { background: none; border: none; padding: 0; font: inherit; color: var(--color-accent); text-decoration: underline; cursor: pointer; }
+
+.breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 14px; font-size: 14px; }
+.crumbWrap { display: inline-flex; align-items: center; gap: 4px; }
+.crumb { background: none; border: none; padding: 2px 4px; font: inherit; color: var(--color-accent); cursor: pointer; border-radius: 4px; }
+.crumb:hover { background: #f0f9ff; }
+.crumbSep { color: var(--color-text-muted); }
+.crumbCurrent { font-weight: 600; padding: 2px 4px; }
+.searchNote { font-size: 13.5px; color: var(--color-text-muted); margin-bottom: 14px; }
+
+.inlineForm { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.inlineForm input {
+  flex: 1; min-width: 180px; padding: 9px 12px; font-size: 14px; font-family: inherit;
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+
+.infoBanner, .warnBanner, .errorBanner {
+  position: relative; padding: 10px 36px 10px 14px; border-radius: var(--radius); font-size: 13.5px; margin-bottom: 14px;
+}
+.infoBanner { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.warnBanner { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.errorBanner { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.errorList { margin: 6px 0 0 18px; font-size: 12.5px; }
+.bannerClose { position: absolute; top: 8px; right: 8px; background: none; border: none; cursor: pointer; color: inherit; font-size: 13px; }
+
+.folderGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.folderTile {
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 10px; align-items: center;
+  text-align: left; padding: 12px 14px; font-family: inherit; cursor: pointer;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.folderTile:hover { border-color: #94a3b8; }
+.folderIcon { grid-row: 1 / 3; font-size: 24px; }
+.folderName { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folderCount { font-size: 12px; color: var(--color-text-muted); }
+
+.assetGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.assetTile {
+  display: flex; flex-direction: column; padding: 0; text-align: left; font-family: inherit; cursor: pointer; overflow: hidden;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.assetTile:hover { border-color: #94a3b8; }
+.thumb { aspect-ratio: 4 / 3; background: #f1f5f9; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.thumbImg { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumbLoading { width: 100%; height: 100%; background: #f1f5f9; }
+.thumbIcon { font-size: 34px; }
+.assetName { padding: 8px 10px 2px; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assetMeta { padding: 0 10px 9px; font-size: 11.5px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.empty { text-align: center; padding: 48px 16px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+/* ── Preview ── */
+.previewOverlay {
+  position: fixed; inset: 0; z-index: 1200; background: rgba(15, 23, 42, 0.7);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.preview {
+  background: var(--color-surface); border-radius: 10px; width: min(960px, 100%); max-height: 100%;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.previewHeader { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--color-border); }
+.previewTitle { flex: 1; font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.previewClose { background: none; border: none; font-size: 16px; cursor: pointer; padding: 4px 8px; color: var(--color-text-muted); }
+.previewBody { flex: 1; min-height: 0; overflow: auto; background: #f1f5f9; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.previewImg { max-width: 100%; max-height: 64vh; object-fit: contain; display: block; }
+.previewPdf { width: 100%; height: 64vh; border: 0; }
+.previewFooter { padding: 12px 16px; border-top: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 10px; }
+.previewMeta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--color-text-muted); }
+.previewActions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+@media (max-width: 768px) {
+  .toolbarActions { width: 100%; }
+  .toolbarActions button { flex: 1; }
+  .assetGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .folderGrid { grid-template-columns: 1fr; }
+  /* Full screen on a phone, where a floating card wastes most of the screen. */
+  .previewOverlay { padding: 0; }
+  .preview { border-radius: 0; height: 100dvh; width: 100%; }
+  .previewImg { max-height: none; }
+  .previewPdf { height: 100%; min-height: 60vh; }
+}
