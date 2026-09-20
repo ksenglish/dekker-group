@@ -10,6 +10,7 @@ const { logActivity } = require('../utils/activity');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { OFFICE_RECORDS_EMAIL, SALES_EMAIL } = require('../utils/recordsEmail');
 const { advanceJobStatus, advanceJobStatusByLabel } = require('../utils/jobStatusFlow');
+const { appUrl } = require('../utils/appUrl');
 const fileStore = require('../services/fileStore');
 const { shrinkForPage } = require('../utils/imageForPrint');
 
@@ -1111,12 +1112,28 @@ function acceptanceRecordHtml({ heading, declaration, name, when, reason }) {
 </div>`;
 }
 
+// A button to the job in the app, so whoever reads the email can get on with it
+// without hunting for the job. Left out when the quote has no job behind it, or
+// when the app's address isn't configured — a dead button is worse than none.
+function openJobButtonHtml(jobId, jobLabel) {
+  const base = appUrl();
+  if (!base || !jobId) return '';
+  const href = `${base}/jobs/${jobId}`;
+  // A table rather than a styled <a>: Outlook ignores padding on an anchor, and
+  // this is the shape that renders as a button everywhere.
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:22px;">
+  <tr><td style="background:#0f172a;border-radius:6px;">
+    <a href="${escapeHtml(href)}" style="display:inline-block;padding:12px 22px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;">Open ${escapeHtml(jobLabel || 'the job')}</a>
+  </td></tr>
+</table>`;
+}
+
 // Tells whoever sent the quote, and the office, that the customer has acted.
 // Best effort — a mail failure must never undo the customer's decision.
 async function notifyQuoteDecision({ quoteId, decision, name, reason, when }) {
   try {
     const { rows: [q] } = await pool.query(
-      `SELECT q.quote_number, q.id, q.total, q.accepted_terms,
+      `SELECT q.quote_number, q.id, q.total, q.accepted_terms, q.job_id,
               c.name AS customer_name, u.email AS sender_email,
               j.job_number, j.external_ref
        FROM quotes q
@@ -1144,7 +1161,8 @@ ${acceptanceRecordHtml({
   declaration: accepted ? ACCEPTANCE_DECLARATION : 'The customer declined this quote online.',
   name, when, reason,
 })}
-${accepted && q.accepted_terms ? `<p style="margin-top:18px;font-size:12px;color:#64748b;">Terms &amp; Conditions agreed to at the time of acceptance are recorded against this quote.</p>` : ''}`,
+${accepted && q.accepted_terms ? `<p style="margin-top:18px;font-size:12px;color:#64748b;">Terms &amp; Conditions agreed to at the time of acceptance are recorded against this quote.</p>` : ''}
+${openJobButtonHtml(q.job_id, jobNo)}`,
     });
   } catch (err) {
     console.error('[quote] decision notification failed:', err.message);
