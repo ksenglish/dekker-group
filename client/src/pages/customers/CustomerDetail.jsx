@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { isAdmin, canAct, canEditCustomer } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import AddressAutocomplete from '../../components/AddressAutocomplete';
+import NewQuoteModal from '../quotes/NewQuoteModal';
 import styles from './Customers.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
@@ -36,6 +37,7 @@ export default function CustomerDetail() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [tab, setTab] = useState('info');
+  const [showNewQuote, setShowNewQuote] = useState(false);
   const [editMode, setEditMode] = useState(isNew);
   const [form, setForm] = useState(EMPTY_FORM);
   const [leadSources, setLeadSources] = useState([]);
@@ -493,7 +495,11 @@ export default function CustomerDetail() {
         {tab === 'quotes' && (
           <div className={styles.tabPanel}>
             <div className={styles.tabToolbar}>
-              <Link to={`/quotes/new?customer=${id}`} className={styles.btnPrimary}>+ New Quote</Link>
+              {/* Opens the same box the Quotes page uses, with this customer
+                  filled in. It used to link to /quotes/new, which is not a
+                  route — it matched /quotes/:id and tried to open a quote whose
+                  id was the word "new". */}
+              <button className={styles.btnPrimary} onClick={() => setShowNewQuote(true)}>+ New Quote</button>
             </div>
             {quotes.length === 0 && <p className={styles.emptyState}>No quotes for this customer yet.</p>}
             {quotes.map(q => (
@@ -721,6 +727,15 @@ export default function CustomerDetail() {
             </div>
           </div>
         </div>
+      )}
+
+      {showNewQuote && (
+        <NewQuoteModal
+          customerId={id}
+          lockedCustomerLabel={`${customer?.name || ''}${customer?.company ? ` — ${customer.company}` : ''}`}
+          onClose={() => setShowNewQuote(false)}
+          onCreated={q => navigate(`/quotes/${q.id}`)}
+        />
       )}
     </div>
   );

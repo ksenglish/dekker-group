@@ -8,9 +8,12 @@ import { overlayClose } from '../../lib/overlayClose';
 // to be picked: it's what the quote is addressed to, emailed to, and later
 // invoiced against. The job (and its number) comes later, from the quote
 // itself, once the work is actually won.
-export default function NewQuoteModal({ onClose, onCreated }) {
+// Opened from a customer's page with `customerId` and `lockedCustomerLabel`:
+// the customer is already settled there, so it's shown rather than asked for.
+export default function NewQuoteModal({ onClose, onCreated, customerId: initialCustomerId = '', lockedCustomerLabel = '' }) {
   const [customers, setCustomers] = useState([]);
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(initialCustomerId);
+  const lockCustomer = !!initialCustomerId && !!lockedCustomerLabel;
   const [themes, setThemes] = useState([]);
   const [themeId, setThemeId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -65,12 +68,17 @@ export default function NewQuoteModal({ onClose, onCreated }) {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label style={{ fontSize: 13, fontWeight: 500 }}>Customer *</label>
-                <select value={customerId} onChange={e => setCustomerId(e.target.value)} required style={fieldStyle}>
-                  <option value="">— Select a customer —</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}{c.company ? ` — ${c.company}` : ''}</option>
-                  ))}
-                </select>
+                {lockCustomer ? (
+                  <input value={lockedCustomerLabel} disabled
+                    style={{ ...fieldStyle, background: '#f8fafc', color: 'var(--color-text-muted)' }} />
+                ) : (
+                  <select value={customerId} onChange={e => setCustomerId(e.target.value)} required style={fieldStyle}>
+                    <option value="">— Select a customer —</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}{c.company ? ` — ${c.company}` : ''}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {themes.length > 1 && (
