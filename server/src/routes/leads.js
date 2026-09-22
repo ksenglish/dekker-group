@@ -624,7 +624,11 @@ router.put('/:id', requireRawRole('admin', 'office'), async (req, res) => {
     const { rows } = await pool.query(
       `UPDATE leads SET
          name=$1, contact_name=$2, company=$3, email=$4, phone=$5, mobile=$6,
-         service_required=$7, message=$8, source=COALESCE($9, source), address=$10,
+         -- Set, not COALESCE'd: both forms that call this send the source they
+         -- are showing, so an empty one means "clear it" rather than "leave it
+         -- alone". With COALESCE, clearing a source set by mistake silently put
+         -- the old one back.
+         service_required=$7, message=$8, source=$9, address=$10,
          address_street=$11, address_city=$12, address_region=$13,
          address_postcode=$14, address_country=$15, updated_at=NOW()
        WHERE id=$16 RETURNING *`,

@@ -129,12 +129,15 @@ function CallResultPicker({ lead, onRecorded, onNoteAdded }) {
 
 // Details stay editable at any stage — a number taken down wrong shouldn't
 // need the lead converting first.
-function LeadEditForm({ lead, onCancel, onSaved }) {
+// `sources` are the lead sources already in use, offered as suggestions — the
+// list the manual-entry form uses, so the two stay consistent and reporting
+// doesn't end up with "Google" and "google ads" meaning the same thing.
+function LeadEditForm({ lead, sources = [], onCancel, onSaved }) {
   const [f, setF] = useState({
     name: lead.name || '', contact_name: lead.contact_name || '', company: lead.company || '',
     email: lead.email || '', phone: lead.phone || '', mobile: lead.mobile || '',
     service_required: lead.service_required || '', message: lead.message || '',
-    address: lead.address || '',
+    address: lead.address || '', source: lead.source || '',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -170,6 +173,17 @@ function LeadEditForm({ lead, onCancel, onSaved }) {
       {field('phone', 'Phone')}
       {field('address', 'Address')}
       {field('service_required', 'Service required')}
+      <label className={styles.editField}>
+        <span>Source</span>
+        {/* Free text with suggestions, matching the manual-entry form: a lead
+            can come from somewhere nobody has recorded before. */}
+        <input list="lead-edit-sources" value={f.source}
+          onChange={e => set('source', e.target.value)}
+          placeholder="e.g. Google, Referral, Facebook" />
+        <datalist id="lead-edit-sources">
+          {sources.map(s => <option key={s} value={s} />)}
+        </datalist>
+      </label>
       <label className={styles.editField}>
         <span>Message</span>
         <textarea rows={3} value={f.message} onChange={e => set('message', e.target.value)} />
@@ -590,6 +604,7 @@ export default function LeadsPage() {
             {editing ? (
               <LeadEditForm
                 lead={selected}
+                sources={sources}
                 onCancel={() => setEditing(false)}
                 onSaved={updated => {
                   setEditing(false);
