@@ -199,7 +199,8 @@ const THEME_COLOUR_PRESETS = [
 ];
 
 const EMPTY_DOC_THEME = {
-  name: '', companyName: 'DEKKER GROUP', gstNumber: '', contactDetails: '',
+  name: '', documentType: 'Quote', emailTemplateId: '',
+  companyName: 'DEKKER GROUP', gstNumber: '', contactDetails: '',
   paymentTerms: '', termsAndConditions: '', quoteDescription: '',
   brandColour: '#1e40af', logoBase64: '', logoSize: 'medium', logoPosition: 'left',
   contactPosition: 'right', transparentHeader: false,
@@ -236,8 +237,17 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [err, setErr] = useState('');
+  // For the "Default Email Template" picker. Only quote-category templates —
+  // they're the ones the Email to Customer button on a quote can use.
+  const [emailTemplates, setEmailTemplates] = useState([]);
   const fileRef = useRef();
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const docType = form.documentType === 'Estimate' ? 'Estimate' : 'Quote';
+
+  useEffect(() => {
+    api.get('/email-templates', { params: { category: 'quote' } })
+      .then(r => setEmailTemplates(r.data)).catch(() => {});
+  }, []);
   // Converted once rather than on every render — the editor writes the value
   // back as HTML, so after the first edit this passes straight through.
   const termsHtml = useMemo(() => termsToHtml(form.termsAndConditions), [form.termsAndConditions]);
@@ -305,6 +315,38 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
           </div>
 
           <div className={styles.field}>
+            <label>Document Type</label>
+            <div className={styles.segmentedControl}>
+              {['Quote', 'Estimate'].map(dt => (
+                <button key={dt} type="button"
+                  className={`${styles.segmentBtn} ${docType === dt ? styles.segmentBtnActive : ''}`}
+                  onClick={() => set('documentType', dt)}>{dt}</button>
+              ))}
+            </div>
+            <span className={styles.hint}>
+              The word printed at the top of the document, and used everywhere the customer sees it —
+              the PDF, the page they accept on, and the email. Set this to Estimate when the Terms &
+              Conditions below are written as an estimate. It's wording only: it stays a quote inside
+              the app, with the same numbering and reporting.
+            </span>
+          </div>
+
+          <div className={styles.field}>
+            <label>Default Email Template</label>
+            <select value={form.emailTemplateId || ''} onChange={e => set('emailTemplateId', e.target.value || null)}>
+              <option value="">Use the default quote template</option>
+              {emailTemplates.map(t => (
+                <option key={t.id} value={t.id}>{t.name}{t.is_default ? ' (default)' : ''}</option>
+              ))}
+            </select>
+            <span className={styles.hint}>
+              What “Email to Customer” opens with for documents on this theme — useful when an
+              Estimate needs different wording. Whoever sends it can still switch template or edit
+              the message before it goes. Edit the templates themselves under Email Templates.
+            </span>
+          </div>
+
+          <div className={styles.field}>
             <label>Company Name</label>
             <input value={form.companyName} onChange={e => set('companyName', e.target.value)} placeholder="DEKKER GROUP" />
             <span className={styles.hint}>Shown when no logo is uploaded; also used in email subject lines</span>
@@ -324,15 +366,15 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
           </div>
 
           <div className={styles.field}>
-            <label>Default Quote Description</label>
+            <label>Default {docType} Description</label>
             <RichTextEditor
               value={form.quoteDescription || ''}
               onChange={html => set('quoteDescription', html)}
-              placeholder="Wording that should start every quote on this theme…"
+              placeholder={`Wording that should start every ${docType.toLowerCase()} on this theme…`}
             />
             <span className={styles.hint}>
-              Fills the Description box on every new quote using this theme. Products added from the
-              Sales Presenter add their own wording underneath it.
+              Fills the Description box on every new {docType.toLowerCase()} using this theme. Products
+              added from the Sales Presenter add their own wording underneath it.
             </span>
             <PlaceholderList
               placeholders={QUOTE_DESCRIPTION_PLACEHOLDERS}
@@ -345,7 +387,7 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
             <textarea rows={6} value={form.paymentTerms || ''} onChange={e => set('paymentTerms', e.target.value)}
               placeholder="e.g. Deposit/payment split, bank account details…"
               className={styles.termsArea} />
-            <span className={styles.hint}>Shown on the quote right after the line items, before the job drawing</span>
+            <span className={styles.hint}>Shown on the {docType.toLowerCase()} right after the line items, before the job drawing</span>
           </div>
 
           <div className={styles.field}>
@@ -355,7 +397,7 @@ function ThemeModal({ theme, onClose, onSaved, onSilentSave }) {
               onChange={html => set('termsAndConditions', html)}
               placeholder="Enter your standard terms and conditions…"
             />
-            <span className={styles.hint}>Shown at the very end of the quote (after brochures) and on invoice PDFs</span>
+            <span className={styles.hint}>Shown at the very end of the {docType.toLowerCase()} (after brochures) and on invoice PDFs</span>
           </div>
 
           <div className={styles.field}>
@@ -563,6 +605,8 @@ function DocumentThemesTab() {
                     <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
                       {t.name}
                       {t.isDefault && <span style={{ fontSize: 10, fontWeight: 700, color: 'white', background: '#16a34a', padding: '2px 8px', borderRadius: 99 }}>DEFAULT</span>}
+                      {/* Only flagged when it isn't a Quote — that's the one worth spotting from the list */}
+                      {t.documentType === 'Estimate' && <span style={{ fontSize: 10, fontWeight: 700, color: 'white', background: '#7c3aed', padding: '2px 8px', borderRadius: 99 }}>ESTIMATE</span>}
                       {t.archived && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', background: '#e2e8f0', padding: '2px 8px', borderRadius: 99 }}>ARCHIVED</span>}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{t.companyName}</div>
@@ -1179,6 +1223,9 @@ const EMAIL_PLACEHOLDERS = [
   ['{{quote_total}}', 'e.g. $1,234.56'],
   ['{{job_number}}', 'e.g. JB00885'],
   ['{{accept_link}}', 'Link for the customer to view & accept the quote'],
+  // So a single template can serve a Quote theme and an Estimate theme.
+  ['{{document_type}}', '“Quote” or “Estimate”, per the theme'],
+  ['{{document_type_lower}}', 'The same word in lower case'],
 ];
 
 function EmailTemplatesTab() {

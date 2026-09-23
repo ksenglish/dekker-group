@@ -1,10 +1,17 @@
 const pool = require('../db/pool');
 
+// The only two words a document can call itself. Anything else — including an
+// older row written before the column existed — reads as a Quote.
+const DOCUMENT_TYPES = ['Quote', 'Estimate'];
+const documentTypeOf = theme => (DOCUMENT_TYPES.includes(theme?.documentType) ? theme.documentType : 'Quote');
+
 function themeRowToJson(row) {
   if (!row) return null;
   return {
     id: row.id,
     name: row.name,
+    documentType: DOCUMENT_TYPES.includes(row.document_type) ? row.document_type : 'Quote',
+    emailTemplateId: row.email_template_id,
     companyName: row.company_name,
     gstNumber: row.gst_number,
     contactDetails: row.contact_details,
@@ -40,4 +47,4 @@ async function getThemeById(id) {
   return themeRowToJson(rows[0]) || getDefaultTheme();
 }
 
-module.exports = { themeRowToJson, getDefaultTheme, getThemeById };
+module.exports = { themeRowToJson, getDefaultTheme, getThemeById, documentTypeOf, DOCUMENT_TYPES };

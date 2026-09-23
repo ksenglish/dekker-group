@@ -76,7 +76,9 @@ export default function PublicQuote() {
     const params = isPreview ? { preview: '1' } : (recipientId ? { r: recipientId } : {});
     axios.get(`${API}/quotes/public/${token}`, { params })
       .then(r => setQuote(r.data))
-      .catch(() => setError('Quote not found or has expired.'))
+      // Neither state knows the theme yet, so both stay neutral rather than
+      // calling it a quote in front of a customer who was sent an estimate.
+      .catch(() => setError('This link is no longer valid — it may have expired.'))
       .finally(() => setLoading(false));
   }, [token, isPreview, recipientId]);
 
@@ -106,9 +108,14 @@ export default function PublicQuote() {
     } finally { setDeclining(false); }
   }
 
-  if (loading) return <div style={s.center}><p>Loading quote…</p></div>;
+  if (loading) return <div style={s.center}><p>Loading…</p></div>;
   if (error && !quote) return <div style={s.center}><p style={{ color: '#dc2626' }}>{error}</p></div>;
 
+  // The theme decides whether this document calls itself a Quote or an
+  // Estimate, and the whole page follows it so the wording matches the PDF the
+  // customer was emailed. Anything unexpected reads as Quote.
+  const docType = quote.document_type === 'Estimate' ? 'Estimate' : 'Quote';
+  const doc = docType.toLowerCase();
   const alreadyAccepted = quote.status === 'accepted';
   const alreadyDeclined = quote.status === 'declined';
   const isExpired = quote.is_expired;
@@ -168,7 +175,7 @@ export default function PublicQuote() {
 
         {/* Title row — quote name + number, its own row above Bill To, matching the PDF */}
         <div style={s.titleRow}>
-          <div style={s.quoteTitle}>Quote</div>
+          <div style={s.quoteTitle}>{docType}</div>
           <div style={s.quoteNumber}>{quote.number}</div>
         </div>
 
@@ -317,16 +324,16 @@ export default function PublicQuote() {
         <div style={s.acceptSection}>
           {isExpired && !alreadyAccepted ? (
             <div style={{ ...s.acceptedBanner, background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626' }}>
-              ✕ This quote expired on {fmtDate(quote.expires_at)}. Please contact us for an updated quote.
+              ✕ This {doc} expired on {fmtDate(quote.expires_at)}. Please contact us for an updated {doc}.
             </div>
           ) : alreadyAccepted ? (
             <div style={s.acceptedBanner}>
-              ✓ This quote was accepted{quote.accepted_name ? ` by ${quote.accepted_name}` : ''}
+              ✓ This {doc} was accepted{quote.accepted_name ? ` by ${quote.accepted_name}` : ''}
               {quote.accepted_at ? ` on ${fmtDate(quote.accepted_at)}` : ''}.
             </div>
           ) : alreadyDeclined ? (
             <div style={s.declinedBanner}>
-              This quote was declined{quote.declined_name ? ` by ${quote.declined_name}` : ''}
+              This {doc} was declined{quote.declined_name ? ` by ${quote.declined_name}` : ''}
               {quote.declined_at ? ` on ${fmtDate(quote.declined_at)}` : ''}.
             </div>
           ) : accepted ? (
@@ -335,39 +342,39 @@ export default function PublicQuote() {
             </div>
           ) : declined ? (
             <div style={s.declinedBanner}>
-              Thank you, {name}. We've recorded that you've declined this quote and someone will be in touch.
+              Thank you, {name}. We've recorded that you've declined this {doc} and someone will be in touch.
             </div>
           ) : (
             <>
               <form onSubmit={handleAccept} style={s.acceptForm}>
-                <div style={s.acceptTitle}>Accept this quote</div>
+                <div style={s.acceptTitle}>Accept this {doc}</div>
                 <p style={s.acceptHint}>
                   {quote.acceptance_declaration
-                    || 'By entering my name and clicking Accept, I agree to proceed with the work described above and accept the Terms & Conditions of Sale set out in this quote.'}
+                    || `By entering my name and clicking Accept, I agree to proceed with the work described above and accept the Terms & Conditions of Sale set out in this ${doc}.`}
                 </p>
                 {error && <p style={{ color: '#dc2626', fontSize: 13 }}>{error}</p>}
                 <div style={s.acceptRow}>
                   <input value={name} onChange={e => setName(e.target.value)}
                     placeholder="Your full name" required style={s.acceptInput} />
                   <button type="submit" disabled={accepting || !name.trim()} style={s.acceptBtn}>
-                    {accepting ? 'Accepting…' : 'Accept Quote'}
+                    {accepting ? 'Accepting…' : `Accept ${docType}`}
                   </button>
                 </div>
               </form>
 
               {!showDecline ? (
                 <button type="button" onClick={() => setShowDecline(true)} style={s.declineLink}>
-                  Not proceeding? Decline this quote
+                  Not proceeding? Decline this {doc}
                 </button>
               ) : (
                 <form onSubmit={handleDecline} style={s.declineForm}>
-                  <div style={s.declineTitle}>Decline this quote</div>
+                  <div style={s.declineTitle}>Decline this {doc}</div>
                   <p style={s.acceptHint}>Let us know why if you'd like — it's optional, and it helps us improve.</p>
                   <textarea value={declineReason} onChange={e => setDeclineReason(e.target.value)}
                     placeholder="Reason (optional)" rows={2} style={s.declineTextarea} />
                   <div style={s.acceptRow}>
                     <button type="submit" disabled={declining || !name.trim()} style={s.declineBtn}>
-                      {declining ? 'Declining…' : 'Decline Quote'}
+                      {declining ? 'Declining…' : `Decline ${docType}`}
                     </button>
                     <button type="button" onClick={() => setShowDecline(false)} style={s.cancelDeclineBtn}>
                       Cancel

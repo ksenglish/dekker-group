@@ -206,7 +206,10 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
   const logoH = LOGO_SIZES[t.logoSize] || 58;
   const logoOnLeft  = (t.logoPosition  || 'left')  === 'left';
   const contactOnLeft = (t.contactPosition || 'right') === 'left';
-  const isQuote = type === 'Quote';
+  // An Estimate is a quote by another name — same three-column layout, same
+  // terms page, no internal status badge. Only the heading differs, and that
+  // comes straight from `type`.
+  const isQuote = type === 'Quote' || type === 'Estimate';
 
   // Sanitize every free-text field once, up front, rather than at each call
   // site — covers customer/job data (often sourced from geocoded addresses)

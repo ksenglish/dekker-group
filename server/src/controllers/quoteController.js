@@ -5,7 +5,7 @@ const { normaliseRole } = require('../middleware/auth');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getTheme } = require('./settingsController');
-const { getThemeById, getDefaultTheme } = require('../utils/documentThemes');
+const { getThemeById, getDefaultTheme, documentTypeOf } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { OFFICE_RECORDS_EMAIL, SALES_EMAIL } = require('../utils/recordsEmail');
@@ -21,9 +21,11 @@ const advanceToSale = jobId => advanceJobStatusByLabel(jobId, isSale);
 
 // The wording the customer confirms when they accept. Served to the public
 // quote page as well, so what they read and what the notification records are
-// always the same text.
-const ACCEPTANCE_DECLARATION =
-  'By entering my name and clicking Accept, I agree to proceed with the work described above and accept the Terms & Conditions of Sale set out in this quote.';
+// always the same text. The document calls itself whatever its theme says —
+// a theme whose terms are written as an estimate shouldn't ask the customer to
+// accept "this quote".
+const acceptanceDeclaration = (docType = 'Quote') =>
+  `By entering my name and clicking Accept, I agree to proceed with the work described above and accept the Terms & Conditions of Sale set out in this ${docType.toLowerCase()}.`;
 
 // A statuses a customer is still able to act on. 'approved' is included so a
 // quote shared by link — rather than emailed — can still be accepted.
@@ -110,6 +112,10 @@ async function buildQuoteEmailContext(q, theme, sender) {
     customer_first_name: (q.customer_name || '').split(' ')[0] || '',
     customer_company: q.customer_company || '',
     company_name: theme.companyName,
+    // So one template can serve both kinds of theme: "Please find your
+    // {{document_type_lower}} attached" reads correctly either way.
+    document_type: documentTypeOf(theme),
+    document_type_lower: documentTypeOf(theme).toLowerCase(),
     company_logo: theme.logoBase64 ? `<img src="${theme.logoBase64}" alt="${theme.companyName}" style="max-height:48px;max-width:220px;">` : '',
     sender_name: sender?.name || theme.companyName,
     sender_first_name: (sender?.name || '').trim().split(/\s+/)[0] || '',
@@ -824,8 +830,9 @@ async function downloadPdf(req, res) {
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const { images: appendixImages, pdfs: appendixPdfs } = await getQuoteAttachmentImages(q.id);
     const docTheme = await getThemeById(q.theme_id);
+    const docType = documentTypeOf(docTheme);
     const pdf = await buildPDF({
-      type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
+      type: docType, number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
@@ -834,7 +841,7 @@ async function downloadPdf(req, res) {
       appendixImages,
       appendixPdfs,
     });
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="quote-${q.id.slice(0,8)}.pdf"` });
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${docType.toLowerCase()}-${q.id.slice(0,8)}.pdf"` });
     res.send(pdf);
   } catch (err) { console.error(err); res.status(500).json({ error: 'PDF generation failed' }); }
 }
@@ -849,6 +856,21 @@ async function getQuoteForEmail(id) {
     [id]
   );
   return q;
+}
+
+// Which email the compose modal opens with: the one the document's theme
+// nominates, else the default for the quote category. A theme pointing at a
+// template that has since been deleted falls back rather than failing — the FK
+// nulls the column, but an older row could still be holding a stale id.
+async function defaultTemplateForTheme(theme) {
+  if (theme?.emailTemplateId) {
+    const { rows } = await pool.query(`SELECT * FROM email_templates WHERE id=$1 AND category='quote'`, [theme.emailTemplateId]);
+    if (rows[0]) return rows[0];
+  }
+  const { rows } = await pool.query(
+    `SELECT * FROM email_templates WHERE category='quote' ORDER BY is_default DESC, name LIMIT 1`
+  );
+  return rows[0] || null;
 }
 
 // Resolve a saved template (or the category default) against this quote's real data,
@@ -866,12 +888,7 @@ async function emailPreview(req, res) {
       const { rows } = await pool.query('SELECT * FROM email_templates WHERE id=$1', [req.query.templateId]);
       template = rows[0];
     }
-    if (!template) {
-      const { rows } = await pool.query(
-        `SELECT * FROM email_templates WHERE category='quote' ORDER BY is_default DESC, name LIMIT 1`
-      );
-      template = rows[0];
-    }
+    if (!template) template = await defaultTemplateForTheme(docTheme);
     if (!template) return res.status(404).json({ error: 'No email template found' });
 
     res.json({
@@ -891,8 +908,9 @@ async function sendEmail(req, res) {
     const enrichedItems = await enrichItemsWithImages(items.rows);
     const { images: appendixImages, pdfs: appendixPdfs } = await getQuoteAttachmentImages(q.id);
     const docTheme = await getThemeById(q.theme_id);
+    const docType = documentTypeOf(docTheme);
     const pdf = await buildPDF({
-      type: 'Quote', number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
+      type: docType, number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
@@ -908,28 +926,26 @@ async function sendEmail(req, res) {
     if (!subject || !body) {
       const sender = await getSenderInfo(req.user?.id);
       const ctx = await buildQuoteEmailContext(q, docTheme, sender);
-      const { rows } = await pool.query(
-        `SELECT * FROM email_templates WHERE category='quote' ORDER BY is_default DESC, name LIMIT 1`
-      );
-      const template = rows[0];
-      subject = subject || (template ? resolveTemplateText(template.subject, ctx) : `Quote from ${docTheme.companyName} — ${ctx.quote_total}`);
-      body = body || (template ? resolveTemplateText(template.body, ctx) : `Hi ${ctx.customer_first_name},\n\nPlease find your quote attached.`);
+      const template = await defaultTemplateForTheme(docTheme);
+      subject = subject || (template ? resolveTemplateText(template.subject, ctx) : `${docType} from ${docTheme.companyName} — ${ctx.quote_total}`);
+      body = body || (template ? resolveTemplateText(template.body, ctx) : `Hi ${ctx.customer_first_name},\n\nPlease find your ${docType.toLowerCase()} attached.`);
     }
     let htmlBody = body.split('\n').map(line => `<p>${line || '&nbsp;'}</p>`).join('\n');
 
     // The plain-text body (shown/edited in the compose modal) keeps the raw
     // accept link as visible text; the HTML version sent to the customer
-    // gets that same URL swapped for a styled "View Quote" button instead.
+    // gets that same URL swapped for a styled "View Quote"/"View Estimate"
+    // button instead, worded to match the theme.
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
     const acceptUrl = `${clientUrl}/q/${q.public_token}`;
-    const buttonHtml = `<a href="${acceptUrl}" style="display:inline-block;background:${docTheme.brandColour || '#1e40af'};color:#ffffff;padding:12px 26px;border-radius:6px;text-decoration:none;font-weight:600;font-family:Arial,Helvetica,sans-serif;">View Quote</a>`;
+    const buttonHtml = `<a href="${acceptUrl}" style="display:inline-block;background:${docTheme.brandColour || '#1e40af'};color:#ffffff;padding:12px 26px;border-radius:6px;text-decoration:none;font-weight:600;font-family:Arial,Helvetica,sans-serif;">View ${docType}</a>`;
     htmlBody = htmlBody.split(acceptUrl).join(buttonHtml);
 
     // The pixel and the View Quote link are stamped per recipient below, so an
     // open can be traced to the address it came from rather than assumed to be
     // the customer.
 
-    const attachments = [{ filename: `quote-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }];
+    const attachments = [{ filename: `${docType.toLowerCase()}-${q.id.slice(0,8)}.pdf`, content: pdf, contentType: 'application/pdf' }];
     const { attachment_ids } = req.body || {};
     if (Array.isArray(attachment_ids) && attachment_ids.length) {
       const extra = await pool.query(
@@ -1053,6 +1069,9 @@ async function publicGet(req, res) {
     res.json({
       id: q.id,
       number: q.quote_number ? `QT-${String(q.quote_number).padStart(4,'0')}` : `Q-${q.id.slice(0,8).toUpperCase()}`,
+      // What this document calls itself, so the page the customer accepts on
+      // is headed the same way as the PDF attached to their email.
+      document_type: documentTypeOf(docTheme),
       status: q.status,
       customer_name: q.customer_name,
       customer_company: q.customer_company,
@@ -1076,7 +1095,7 @@ async function publicGet(req, res) {
       declined_name: q.declined_name,
       // Served rather than duplicated in the client, so the wording the
       // customer agrees to is the same wording recorded in the notification.
-      acceptance_declaration: ACCEPTANCE_DECLARATION,
+      acceptance_declaration: acceptanceDeclaration(documentTypeOf(docTheme)),
       // product_name is the internal ordering code — strip it so it never
       // reaches the customer-facing quote page.
       line_items: enrichedItems.map(({ product_name, ...item }) => item),
@@ -1135,11 +1154,12 @@ async function notifyQuoteDecision({ quoteId, decision, name, reason, when }) {
     const { rows: [q] } = await pool.query(
       `SELECT q.quote_number, q.id, q.total, q.accepted_terms, q.job_id,
               c.name AS customer_name, u.email AS sender_email,
-              j.job_number, j.external_ref
+              j.job_number, j.external_ref, t.document_type
        FROM quotes q
        LEFT JOIN customers c ON c.id = q.customer_id
        LEFT JOIN users u ON u.id = q.created_by
        LEFT JOIN jobs j ON j.id = q.job_id
+       LEFT JOIN document_themes t ON t.id = q.theme_id
        WHERE q.id = $1`,
       [quoteId]
     );
@@ -1150,18 +1170,22 @@ async function notifyQuoteDecision({ quoteId, decision, name, reason, when }) {
     const quoteNo = q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : `Q-${q.id.slice(0, 8).toUpperCase()}`;
     const jobNo = q.external_ref || (q.job_number != null ? `JB${String(q.job_number).padStart(5, '0')}` : '');
     const accepted = decision === 'accepted';
+    // The same word the customer saw on the page they acted on, so the record
+    // reads as what they were actually shown.
+    const docType = documentTypeOf({ documentType: q.document_type });
+    const doc = docType.toLowerCase();
 
     await sendMail({
       to: to.join(', '),
-      subject: `Quote ${quoteNo} ${accepted ? 'accepted' : 'declined'} by ${name}`,
-      html: `<p>${escapeHtml(q.customer_name || 'The customer')} has <strong>${accepted ? 'accepted' : 'declined'}</strong> quote <strong>${escapeHtml(quoteNo)}</strong>${jobNo ? ` (job ${escapeHtml(jobNo)})` : ''} online.</p>
-<p>Quote total: <strong>$${(q.total / 100).toFixed(2)}</strong> incl. GST</p>
+      subject: `${docType} ${quoteNo} ${accepted ? 'accepted' : 'declined'} by ${name}`,
+      html: `<p>${escapeHtml(q.customer_name || 'The customer')} has <strong>${accepted ? 'accepted' : 'declined'}</strong> ${doc} <strong>${escapeHtml(quoteNo)}</strong>${jobNo ? ` (job ${escapeHtml(jobNo)})` : ''} online.</p>
+<p>${docType} total: <strong>$${(q.total / 100).toFixed(2)}</strong> incl. GST</p>
 ${acceptanceRecordHtml({
-  heading: accepted ? 'Accept this quote' : 'Decline this quote',
-  declaration: accepted ? ACCEPTANCE_DECLARATION : 'The customer declined this quote online.',
+  heading: accepted ? `Accept this ${doc}` : `Decline this ${doc}`,
+  declaration: accepted ? acceptanceDeclaration(docType) : `The customer declined this ${doc} online.`,
   name, when, reason,
 })}
-${accepted && q.accepted_terms ? `<p style="margin-top:18px;font-size:12px;color:#64748b;">Terms &amp; Conditions agreed to at the time of acceptance are recorded against this quote.</p>` : ''}
+${accepted && q.accepted_terms ? `<p style="margin-top:18px;font-size:12px;color:#64748b;">Terms &amp; Conditions agreed to at the time of acceptance are recorded against this ${doc}.</p>` : ''}
 ${openJobButtonHtml(q.job_id, jobNo)}`,
     });
   } catch (err) {

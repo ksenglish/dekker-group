@@ -5,7 +5,7 @@ const { buildPDF } = require('../utils/pdf');
 const { testConnection, getEmailSettings } = require('../utils/email');
 const { getXeroConnection, saveXeroConnection } = require('../utils/xero');
 const jobTypes = require('../services/jobTypes');
-const { themeRowToJson, getDefaultTheme, getThemeById } = require('../utils/documentThemes');
+const { themeRowToJson, getDefaultTheme, getThemeById, DOCUMENT_TYPES } = require('../utils/documentThemes');
 // Terms are written in the rich text editor now, so they arrive as HTML from a
 // client that could have been modified. Same allowlist the quote description
 // uses — it already covers exactly the tags that editor emits.
@@ -41,6 +41,14 @@ router.put('/website-pricing', authenticate, requireRole('admin'), async (req, r
 // Quotes and invoices each pick a theme (logo, trading name, brand colour,
 // free-text contact details) instead of a single global company profile.
 
+// Whether the document calls itself a Quote or an Estimate. The column has a
+// CHECK constraint, so an unknown value would be a 500 rather than a 400 —
+// catch it here and fall back to Quote if it's simply missing.
+const documentTypeOrNull = value => {
+  if (value == null || value === '') return 'Quote';
+  return DOCUMENT_TYPES.includes(value) ? value : null;
+};
+
 router.get('/themes', authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM document_themes ORDER BY archived, is_default DESC, name');
@@ -49,13 +57,15 @@ router.get('/themes', authenticate, async (req, res) => {
 });
 
 router.post('/themes', authenticate, requireRole('admin', 'office'), async (req, res) => {
-  const { name, companyName, gstNumber, contactDetails, paymentTerms, termsAndConditions, quoteDescription, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
+  const { name, documentType, emailTemplateId, companyName, gstNumber, contactDetails, paymentTerms, termsAndConditions, quoteDescription, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Theme name is required' });
+  const docType = documentTypeOrNull(documentType);
+  if (!docType) return res.status(400).json({ error: 'Document type must be Quote or Estimate' });
   try {
     const { rows } = await pool.query(
-      `INSERT INTO document_themes (name, company_name, gst_number, contact_details, payment_terms, terms_and_conditions, quote_description, brand_colour, logo_base64, logo_size, logo_position, contact_position, transparent_header, footer_line1, footer_line2)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null,
+      `INSERT INTO document_themes (name, document_type, email_template_id, company_name, gst_number, contact_details, payment_terms, terms_and_conditions, quote_description, brand_colour, logo_base64, logo_size, logo_position, contact_position, transparent_header, footer_line1, footer_line2)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+      [name.trim(), docType, emailTemplateId || null, companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null,
        quoteDescription ? sanitizeHtml(quoteDescription) : null, brandColour || '#1e40af',
        logoBase64 || null, logoSize || 'medium', logoPosition || 'left', contactPosition || 'right', !!transparentHeader,
        footerLine1 || 'Thank you for your business.', footerLine2 || '']
@@ -71,15 +81,17 @@ router.post('/themes', authenticate, requireRole('admin', 'office'), async (req,
 });
 
 router.put('/themes/:id', authenticate, requireRole('admin', 'office'), async (req, res) => {
-  const { name, companyName, gstNumber, contactDetails, paymentTerms, termsAndConditions, quoteDescription, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
+  const { name, documentType, emailTemplateId, companyName, gstNumber, contactDetails, paymentTerms, termsAndConditions, quoteDescription, brandColour, logoBase64, logoSize, logoPosition, contactPosition, transparentHeader, footerLine1, footerLine2 } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Theme name is required' });
+  const docType = documentTypeOrNull(documentType);
+  if (!docType) return res.status(400).json({ error: 'Document type must be Quote or Estimate' });
   try {
     const { rows } = await pool.query(
-      `UPDATE document_themes SET name=$1, company_name=$2, gst_number=$3, contact_details=$4, payment_terms=$5, terms_and_conditions=$6, quote_description=$7, brand_colour=$8,
-         logo_base64=$9, logo_size=$10, logo_position=$11, contact_position=$12, transparent_header=$13,
-         footer_line1=$14, footer_line2=$15, updated_at=NOW()
-       WHERE id=$16 RETURNING *`,
-      [name.trim(), companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null,
+      `UPDATE document_themes SET name=$1, document_type=$2, email_template_id=$3, company_name=$4, gst_number=$5, contact_details=$6, payment_terms=$7, terms_and_conditions=$8, quote_description=$9, brand_colour=$10,
+         logo_base64=$11, logo_size=$12, logo_position=$13, contact_position=$14, transparent_header=$15,
+         footer_line1=$16, footer_line2=$17, updated_at=NOW()
+       WHERE id=$18 RETURNING *`,
+      [name.trim(), docType, emailTemplateId || null, companyName || 'DEKKER GROUP', gstNumber || null, contactDetails || null, paymentTerms || null, termsAndConditions ? sanitizeHtml(termsAndConditions) : null,
        quoteDescription ? sanitizeHtml(quoteDescription) : null, brandColour || '#1e40af',
        logoBase64 || null, logoSize || 'medium', logoPosition || 'left', contactPosition || 'right', !!transparentHeader,
        footerLine1 || 'Thank you for your business.', footerLine2 || '', req.params.id]
@@ -120,7 +132,9 @@ router.get('/preview-pdf', authenticate, requireRole('admin', 'office'), async (
   try {
     const theme = req.query.theme_id ? await getThemeById(req.query.theme_id) : await getDefaultTheme();
     const pdf = await buildPDF({
-      type: 'Quote',
+      // Headed the same way a real document on this theme would be, so the
+      // preview is the way to check Quote vs Estimate before sending one.
+      type: theme?.documentType === 'Estimate' ? 'Estimate' : 'Quote',
       number: 'Q-PREVIEW',
       customer: { name: 'Sample Customer', company: 'Sample Company Ltd', email: 'customer@example.com', phone: '+64 21 000 000' },
       items: [
@@ -129,7 +143,7 @@ router.get('/preview-pdf', authenticate, requireRole('admin', 'office'), async (
         { description: 'Refrigerant pipework', quantity: 1, unit_price: 45000 },
       ],
       subtotal: 347500, gst: 52125, total: 399625, status: 'draft',
-      notes: 'This is a sample quote to preview your theme. All values are for demonstration only.',
+      notes: `This is a sample ${theme?.documentType === 'Estimate' ? 'estimate' : 'quote'} to preview your theme. All values are for demonstration only.`,
       issuedAt: new Date(), theme,
     });
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="preview.pdf"' });
