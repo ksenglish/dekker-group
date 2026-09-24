@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
@@ -543,10 +543,82 @@ function toHHMM(iso) {
 function fmtTimeAmPm(iso) {
   return new Date(iso).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' });
 }
-const HOUR_MARKS = Array.from({ length: 24 }, (_, i) => i);
 function fmtHourMark(h) {
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}${h < 12 ? 'am' : 'pm'}`;
+}
+
+const minutesInto = iso => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
+
+// The window the hour axis covers, shared by every day on the job so the days
+// stay comparable. A full midnight-to-midnight axis spends most of its width on
+// hours nobody works, squeezing a day's entries into a sliver — the point of
+// this view is spotting overlaps, and you cannot spot them at that scale. So
+// the axis is trimmed to the hours actually worked, rounded out to whole hours
+// and never narrower than eight, which keeps the proportions honest.
+const MIN_WINDOW_HOURS = 8;
+function axisWindow(entries) {
+  const timed = entries.filter(e => e.start_time && e.end_time);
+  if (!timed.length) return { startHour: 6, endHour: 18 };
+  let lo = 24 * 60, hi = 0;
+  for (const e of timed) {
+    lo = Math.min(lo, minutesInto(e.start_time));
+    hi = Math.max(hi, minutesInto(e.end_time), minutesInto(e.start_time) + 15);
+  }
+  let startHour = Math.max(0, Math.floor(lo / 60) - 1);
+  let endHour = Math.min(24, Math.ceil(hi / 60) + 1);
+  // Grow to the minimum span, preferring to extend later in the day — work
+  // starts early far more often than it runs past midnight.
+  while (endHour - startHour < MIN_WINDOW_HOURS) {
+    if (endHour < 24) endHour++;
+    else if (startHour > 0) startHour--;
+    else break;
+  }
+  return { startHour, endHour };
+}
+
+// Hour ticks for the axis, thinned out on narrow windows so the labels don't
+// collide — every hour normally, every second or third when the span is wide.
+function hourMarks({ startHour, endHour }) {
+  const span = endHour - startHour;
+  const step = span <= 10 ? 1 : span <= 16 ? 2 : 3;
+  const marks = [];
+  for (let h = startHour; h <= endHour; h += step) marks.push(h);
+  // Close the axis off at the end hour, but only when there's room — appending
+  // it next to the previous tick overlaps the two labels.
+  if (endHour - marks[marks.length - 1] >= step) marks.push(endHour);
+  return marks;
+}
+
+// Packs one person's entries for one day into as few rows as possible: an
+// entry joins the first row it doesn't collide with. One row means a clean day;
+// more than one means their times overlap, which is exactly what this view is
+// for, so those entries are flagged rather than quietly stacked.
+function packLanes(entries) {
+  const timed = entries
+    .filter(e => e.start_time && e.end_time)
+    .map(e => {
+      const s = minutesInto(e.start_time);
+      return { entry: e, start: s, end: Math.max(minutesInto(e.end_time), s + 15) };
+    })
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+
+  const lanes = [];
+  for (const item of timed) {
+    const lane = lanes.find(l => l[l.length - 1].end <= item.start);
+    if (lane) lane.push(item); else lanes.push([item]);
+  }
+  // Which entries actually clash with another, so only those are marked —
+  // a second row can exist without every bar on it being an overlap.
+  const clashing = new Set();
+  for (let i = 0; i < timed.length; i++) {
+    for (let j = i + 1; j < timed.length; j++) {
+      if (timed[i].start < timed[j].end && timed[j].start < timed[i].end) {
+        clashing.add(timed[i].entry.id); clashing.add(timed[j].entry.id);
+      }
+    }
+  }
+  return { lanes, clashing, untimed: entries.filter(e => !e.start_time || !e.end_time) };
 }
 
 // Add/edit popup for a single timesheet entry — click a bar in the timeline to edit
@@ -667,55 +739,193 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
   );
 }
 
-// One day's worth of entries laid out as bars along a 24-hour axis, Tradify-style
-function TimeDayGroup({ dateKey, entries, billingRates, currentUser, onEntryClick }) {
+// One day's entries, one row per team member so a person's whole day reads
+// along a single line and two entries that overlap are impossible to miss.
+function TimeDayGroup({ dateKey, entries, billingRates, currentUser, onEntryClick, window: win }) {
   const dateLabel = new Date(`${dateKey}T12:00:00`).toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const sorted = [...entries].sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+  const winStart = win.startHour * 60;
+  const winSpan = (win.endHour - win.startHour) * 60;
+  const pct = min => ((min - winStart) / winSpan) * 100;
+
+  // One lane per person, ordered by who started first that day.
+  const byUser = new Map();
+  for (const e of entries) {
+    const key = e.user_id || e.user_name || 'unknown';
+    if (!byUser.has(key)) byUser.set(key, { name: e.user_name || 'Unknown', entries: [] });
+    byUser.get(key).entries.push(e);
+  }
+  const people = [...byUser.entries()]
+    .map(([key, v]) => ({ key, ...v, ...packLanes(v.entries) }))
+    .sort((a, b) => {
+      const first = p => p.lanes[0]?.[0]?.start ?? Infinity;
+      return first(a) - first(b) || a.name.localeCompare(b.name);
+    });
+
   return (
     <div className={styles.timeDayGroup}>
       <div className={styles.timeDayHeader}>{dateLabel}</div>
-      <div className={styles.timeDayRows}>
-        {sorted.map(e => {
-          const billable = isBillable(e, billingRates);
-          const colourClass = billable ? styles.timeBarBillable : styles.timeBarNonBillable;
-          const canModify = isAdmin(currentUser.role) || e.user_id === currentUser.id;
-          const hasTimes = e.start_time && e.end_time;
-          if (!hasTimes) {
-            return (
-              <div key={e.id} className={styles.timeDayRowAuto}>
-                <div className={`${styles.timeBarNoTime} ${colourClass}`}
-                  style={{ cursor: canModify ? 'pointer' : 'default' }}
-                  onClick={() => canModify && onEntryClick(e)}>
-                  {e.user_name} · {parseFloat(e.hours).toFixed(2)}h{e.description ? ` — ${e.description}` : ''}
-                </div>
-              </div>
-            );
-          }
-          const s = new Date(e.start_time), en = new Date(e.end_time);
-          const sMin = s.getHours() * 60 + s.getMinutes();
-          const eMin = Math.max(en.getHours() * 60 + en.getMinutes(), sMin + 15);
-          const leftPct = (sMin / 1440) * 100;
-          const widthPct = Math.min(((eMin - sMin) / 1440) * 100, 100 - leftPct);
-          return (
-            <div key={e.id} className={styles.timeDayRow}>
-              <div
-                className={`${styles.timeBar} ${colourClass}`}
-                style={{ left: `${leftPct}%`, width: `${Math.max(widthPct, 3)}%`, cursor: canModify ? 'pointer' : 'default' }}
-                onClick={() => canModify && onEntryClick(e)}
-                title={`${fmtTimeAmPm(e.start_time)} – ${fmtTimeAmPm(e.end_time)}\n${e.user_name}${e.description ? ' — ' + e.description : ''}`}
-              >
-                <span className={styles.timeBarRange}>{fmtTimeAmPm(e.start_time)} - {fmtTimeAmPm(e.end_time)}</span>
-                <span className={styles.timeBarStaff}>{e.user_name}</span>
-              </div>
+
+      {people.map(p => {
+        const dayHours = p.entries.reduce((s, e) => s + parseFloat(e.hours || 0), 0);
+        const hasClash = p.clashing.size > 0;
+        return (
+          <div key={p.key} className={styles.timePersonRow}>
+            <div className={styles.timePersonName}>
+              <span className={styles.timePersonNameText}>{p.name}</span>
+              <span className={styles.timePersonHours}>{dayHours.toFixed(2)}h</span>
+              {hasClash && <span className={styles.timeClashFlag} title="This person has overlapping entries on this day">⚠ overlap</span>}
             </div>
-          );
-        })}
+            <div className={styles.timePersonTrack}>
+              {/* An hour grid behind the bars, so a bar's start and finish can
+                  be read off the axis without hovering it. */}
+              {hourMarks(win).map(h => (
+                <span key={h} className={styles.timeGridLine} style={{ left: `${pct(h * 60)}%` }} />
+              ))}
+              {p.lanes.map((lane, li) => (
+                <div key={li} className={styles.timeLane}>
+                  {lane.map(({ entry: e, start, end }) => {
+                    const billable = isBillable(e, billingRates);
+                    const canModify = isAdmin(currentUser.role) || e.user_id === currentUser.id;
+                    const clash = p.clashing.has(e.id);
+                    const left = Math.max(0, pct(start));
+                    const width = Math.max(pct(end) - pct(start), 2.5);
+                    return (
+                      <div key={e.id}
+                        className={[
+                          styles.timeBar,
+                          billable ? styles.timeBarBillable : styles.timeBarNonBillable,
+                          clash ? styles.timeBarClash : '',
+                        ].filter(Boolean).join(' ')}
+                        style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%`, cursor: canModify ? 'pointer' : 'default' }}
+                        onClick={() => canModify && onEntryClick(e)}
+                        title={[
+                          `${fmtTimeAmPm(e.start_time)} – ${fmtTimeAmPm(e.end_time)} (${parseFloat(e.hours).toFixed(2)}h)`,
+                          e.user_name,
+                          rateLabel(e, billingRates),
+                          e.description || '',
+                          clash ? 'Overlaps another entry for this person' : '',
+                        ].filter(Boolean).join('\n')}
+                      >
+                        <span className={styles.timeBarRange}>{fmtTimeAmPm(e.start_time)} - {fmtTimeAmPm(e.end_time)}</span>
+                        <span className={styles.timeBarStaff}>{rateLabel(e, billingRates) || `${parseFloat(e.hours).toFixed(2)}h`}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              {/* Entries logged as a number of hours with no start or finish
+                  can't sit on the axis, so they line up after it instead. */}
+              {p.untimed.length > 0 && (
+                <div className={styles.timeUntimedRow}>
+                  <span className={styles.timeUntimedLabel}>No times logged</span>
+                  {p.untimed.map(e => {
+                    const canModify = isAdmin(currentUser.role) || e.user_id === currentUser.id;
+                    return (
+                      <span key={e.id}
+                        className={`${styles.timeBarNoTime} ${isBillable(e, billingRates) ? styles.timeBarBillable : styles.timeBarNonBillable}`}
+                        style={{ cursor: canModify ? 'pointer' : 'default' }}
+                        onClick={() => canModify && onEntryClick(e)}
+                        title={e.description || ''}>
+                        {parseFloat(e.hours).toFixed(2)}h
+                        {rateLabel(e, billingRates) ? ` · ${rateLabel(e, billingRates)}` : ''}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      <div className={styles.timeAxisRow}>
+        <div className={styles.timePersonName} />
+        <div className={styles.timeHourAxis}>
+          {hourMarks(win).map(h => (
+            <span key={h} style={{ left: `${pct(h * 60)}%` }}>{fmtHourMark(h % 24)}</span>
+          ))}
+        </div>
       </div>
-      <div className={styles.timeHourAxis}>
-        {HOUR_MARKS.map(h => (
-          <span key={h} style={{ left: `${(h / 24) * 100}%` }}>{fmtHourMark(h)}</span>
+    </div>
+  );
+}
+
+const rateLabel = (entry, billingRates) =>
+  billingRates.find(r => r.id === entry.billing_rate_id)?.label || '';
+
+const money = n => `$${(Number(n) || 0).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// The totals under the timeline: hours split by billing rate for everyone, and
+// what those hours cost, charge and earn for admins.
+function TimeSummary({ summary }) {
+  if (!summary) return null;
+  const f = summary.financials;
+  return (
+    <div className={styles.timeSummary}>
+      <div className={styles.timeSummaryRates}>
+        <div className={styles.timeSummaryHead}>
+          <span>Billing Rate</span><span>Hours</span><span>Charge</span>
+        </div>
+        {summary.rates.map(r => (
+          <div key={r.id} className={styles.timeSummaryRow}>
+            <span className={styles.timeSummaryLabel}>
+              {r.label}
+              {!r.billable && <em className={styles.timeSummaryNonBillable}>non-billable</em>}
+            </span>
+            <span className={styles.timeSummaryNum}>{r.hours.toFixed(2)}h</span>
+            <span className={styles.timeSummaryNum}>{r.billable ? money(r.charge) : '—'}</span>
+          </div>
         ))}
+        <div className={`${styles.timeSummaryRow} ${styles.timeSummaryTotalRow}`}>
+          <span className={styles.timeSummaryLabel}>Total hours</span>
+          <span className={styles.timeSummaryNum}>{summary.total_hours.toFixed(2)}h</span>
+          <span className={styles.timeSummaryNum}>{f ? money(f.charge) : ''}</span>
+        </div>
+        <div className={styles.timeSummarySplit}>
+          {summary.billable_hours.toFixed(2)}h billable · {summary.non_billable_hours.toFixed(2)}h non-billable
+        </div>
       </div>
+
+      {f && (
+        <div className={styles.timeSummaryMoney}>
+          <div className={styles.timeSummaryMoneyHead}>Job profitability <span>Admin only</span></div>
+          <div className={styles.timeSummaryMoneyRow}>
+            <span>Labour cost</span><strong>{money(f.cost)}</strong>
+          </div>
+          <div className={styles.timeSummaryMoneyHint}>
+            All {summary.total_hours.toFixed(2)}h, billable or not
+          </div>
+          <div className={styles.timeSummaryMoneyRow}>
+            <span>Charges</span><strong>{money(f.charge)}</strong>
+          </div>
+          <div className={styles.timeSummaryMoneyHint}>
+            {summary.billable_hours.toFixed(2)}h at their billing rates
+          </div>
+          <div className={`${styles.timeSummaryMoneyRow} ${styles.timeSummaryProfit} ${f.gross_profit < 0 ? styles.timeSummaryLoss : ''}`}>
+            <span>Gross profit</span>
+            <strong>{money(f.gross_profit)}{f.margin_pct != null ? ` · ${f.margin_pct.toFixed(0)}%` : ''}</strong>
+          </div>
+          {f.by_user.length > 0 && (
+            <div className={styles.timeSummaryByUser}>
+              {f.by_user.map(u => (
+                <div key={u.user_id} className={styles.timeSummaryByUserRow}>
+                  <span>{u.name}</span>
+                  <span>{u.hours.toFixed(2)}h</span>
+                  <span>{u.cost_rate == null ? '—' : money(u.cost)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {f.missing_cost_rate.length > 0 && (
+            // Without this the profit simply reads high, with nothing on screen
+            // to say why — so name who is missing an hourly cost.
+            <div className={styles.timeSummaryWarn}>
+              No hourly cost set for {f.missing_cost_rate.join(', ')} — their time adds nothing to the
+              cost above, so the profit is overstated. Set it on their user record.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -724,6 +934,7 @@ function JobTimesheets({ jobId, user }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [billingRates, setBillingRates] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [modalEntry, setModalEntry] = useState(undefined); // undefined = closed, null = new entry
 
   useEffect(() => {
@@ -732,6 +943,14 @@ function JobTimesheets({ jobId, user }) {
       .finally(() => setLoading(false));
   }, [jobId]);
 
+  // The totals are worked out on the server — the rates a job was charged at
+  // and what the team costs are not things the browser should be trusted with,
+  // and the cost figures never leave the server for a non-admin at all.
+  const loadSummary = useCallback(() => {
+    api.get(`/jobs/${jobId}/time-summary`).then(r => setSummary(r.data)).catch(() => setSummary(null));
+  }, [jobId]);
+  useEffect(() => { loadSummary(); }, [loadSummary]);
+
   useEffect(() => {
     api.get('/settings/billing-rates').then(r => setBillingRates(r.data)).catch(() => {});
   }, []);
@@ -739,14 +958,14 @@ function JobTimesheets({ jobId, user }) {
   function handleSaved(saved) {
     setEntries(es => es.some(x => x.id === saved.id) ? es.map(x => x.id === saved.id ? saved : x) : [saved, ...es]);
     setModalEntry(undefined);
+    loadSummary();
   }
 
   function handleDeleted(id) {
     setEntries(es => es.filter(e => e.id !== id));
     setModalEntry(undefined);
+    loadSummary();
   }
-
-  const total = entries.reduce((s, e) => s + parseFloat(e.hours || 0), 0);
 
   const byDate = {};
   entries.forEach(e => {
@@ -754,6 +973,9 @@ function JobTimesheets({ jobId, user }) {
     (byDate[key] ||= []).push(e);
   });
   const dateKeys = Object.keys(byDate).sort();
+  // One axis for the whole job, so a bar on one day is the same width as the
+  // same number of hours on another.
+  const win = useMemo(() => axisWindow(entries), [entries]);
 
   return (
     <div className={styles.card}>
@@ -765,9 +987,9 @@ function JobTimesheets({ jobId, user }) {
         <>
           {dateKeys.map(dk => (
             <TimeDayGroup key={dk} dateKey={dk} entries={byDate[dk]} billingRates={billingRates}
-              currentUser={user} onEntryClick={setModalEntry} />
+              currentUser={user} onEntryClick={setModalEntry} window={win} />
           ))}
-          <div className={styles.tsTotal}>Total: <strong>{total.toFixed(2)}h</strong></div>
+          <TimeSummary summary={summary} />
         </>
       )}
       {modalEntry !== undefined && (

@@ -122,6 +122,11 @@ router.put('/:id', requireRole('admin'), c.update);
 router.patch('/:id/status', requireRole('admin', 'office'), c.updateStatus);
 router.delete('/:id', requireRole('admin'), c.remove);
 
+// Hours on this job broken down by billing rate, and — for admins — what they
+// cost and can be charged for. Scoped the same way the timesheet list is, so
+// the totals match the entries the caller can actually see.
+router.get('/:id/time-summary', require('../controllers/timesheetController').jobSummary);
+
 // Line items
 router.put('/:id/line-items', requireRole('admin', 'office'), c.updateLineItems);
 

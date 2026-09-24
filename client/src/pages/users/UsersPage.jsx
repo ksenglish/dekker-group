@@ -48,6 +48,7 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
     role: user?.role || 'operations',
     diaries: user ? (user.diaries || []) : diariesFromRole('operations'),
     default_billing_rate_id: user?.default_billing_rate_id || '',
+    cost_rate: user?.cost_rate != null ? String(user.cost_rate) : '',
     licence_number: user?.licence_number || '',
     mobile: user?.mobile || '',
     address: user?.address || '',
@@ -85,6 +86,9 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
       const payload = {
         name: form.name, email: form.email, role: form.role, diaries: form.diaries,
         default_billing_rate_id: form.default_billing_rate_id || null, is_active: form.is_active,
+        // Sent as '' when cleared, which the server stores as "not set" rather
+        // than zero — zero would read as free labour in the job profit figures.
+        cost_rate: form.cost_rate === '' ? '' : form.cost_rate,
         licence_number: form.licence_number || null, mobile: form.mobile || null,
         address: form.address || null, gst_number: form.gst_number || null,
         gst_registered: form.gst_registered,
@@ -151,6 +155,17 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
                 <option value="">No default</option>
                 {billingRates.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
               </select>
+            </div>
+            <div className={styles.field} style={{ gridColumn: '1/-1' }}>
+              <label>Hourly Cost</label>
+              <p className={styles.hint}>
+                What this person costs the business per hour, excl. GST. Applied to every hour they log
+                on a job — including non-billable time — to work out the job’s cost and gross profit on
+                the Time tab. Leave blank if you’d rather not track it; their hours then add nothing to
+                the cost, and the Time tab says so.
+              </p>
+              <input type="number" min="0" step="0.50" value={form.cost_rate}
+                onChange={e => set('cost_rate', e.target.value)} placeholder="e.g. 38.00" />
             </div>
             <div className={styles.field}>
               <label>Licence Number</label>

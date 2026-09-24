@@ -117,4 +117,126 @@ async function summary(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
-module.exports = { list, create, update, remove, summary };
+// ── Job time summary ────────────────────────────────────────────────────────
+// Hours on a job broken down by billing rate, plus — for admins only — what
+// those hours cost, what they can be charged for, and the difference.
+//
+// Scoped exactly like list() above: someone who only sees their own entries in
+// the timeline gets a summary of only their own entries, so the totals always
+// add up to the bars actually on screen.
+
+const DEFAULT_BILLING_RATES = [
+  { id: 'standard', label: 'Standard', rate: 0 },
+];
+
+async function getBillingRates() {
+  const { rows } = await pool.query(`SELECT value FROM settings WHERE key='billing_rates'`);
+  const value = rows[0]?.value;
+  return Array.isArray(value) && value.length ? value : DEFAULT_BILLING_RATES;
+}
+
+// Mirrors client/src/lib/billing.js: an entry is billable when it is on a job
+// and its rate actually charges. A rate of $0 — Travel, typically — is time
+// worth recording but not worth billing.
+function rateOf(entry, rates) {
+  if (!entry.billing_rate_id) return null;
+  return rates.find(r => r.id === entry.billing_rate_id) || null;
+}
+
+async function jobSummary(req, res) {
+  const jobId = req.params.id;
+  const isAdmin = req.user.role === 'admin';
+  const params = [jobId];
+  let where = 't.job_id = $1';
+  if (SELF_ONLY_ROLES.includes(req.user.role)) {
+    params.push(req.user.id);
+    where += ` AND t.user_id = $${params.length}`;
+  }
+
+  try {
+    const [rates, { rows }] = await Promise.all([
+      getBillingRates(),
+      pool.query(
+        `SELECT t.id, t.hours, t.billing_rate_id, t.user_id,
+                u.name AS user_name, u.cost_rate
+           FROM timesheets t
+           LEFT JOIN users u ON u.id = t.user_id
+          WHERE ${where}`,
+        params
+      ),
+    ]);
+
+    // One line per rate that has hours against it, in the order the rates are
+    // configured, so the breakdown reads the same way as the Settings list.
+    const buckets = new Map();
+    const bucketFor = (key, label, rate) => {
+      if (!buckets.has(key)) buckets.set(key, { id: key, label, rate, hours: 0, charge: 0, billable: rate > 0 });
+      return buckets.get(key);
+    };
+    rates.forEach(r => bucketFor(r.id, r.label, parseFloat(r.rate) || 0));
+
+    let totalHours = 0, billableHours = 0, charge = 0, cost = 0;
+    const byUser = new Map();
+
+    for (const e of rows) {
+      const hours = parseFloat(e.hours) || 0;
+      totalHours += hours;
+
+      const rate = rateOf(e, rates);
+      // An entry with no rate chosen is still worked time, so it has to appear
+      // somewhere — it just cannot be charged until someone picks a rate.
+      const b = rate
+        ? bucketFor(rate.id, rate.label, parseFloat(rate.rate) || 0)
+        : bucketFor('__unrated', 'No rate selected', 0);
+      b.hours += hours;
+
+      const hourly = rate ? (parseFloat(rate.rate) || 0) : 0;
+      if (hourly > 0) { billableHours += hours; b.charge += hours * hourly; charge += hours * hourly; }
+
+      const userCost = e.cost_rate == null ? null : parseFloat(e.cost_rate);
+      if (userCost != null) cost += hours * userCost;
+
+      const u = byUser.get(e.user_id) || { user_id: e.user_id, name: e.user_name, hours: 0, cost_rate: userCost, cost: 0 };
+      u.hours += hours;
+      if (userCost != null) u.cost += hours * userCost;
+      byUser.set(e.user_id, u);
+    }
+
+    const round2 = n => Math.round(n * 100) / 100;
+    const breakdown = [...buckets.values()]
+      .filter(b => b.hours > 0)
+      .map(b => ({ ...b, hours: round2(b.hours), charge: round2(b.charge) }));
+
+    const payload = {
+      entry_count: rows.length,
+      total_hours: round2(totalHours),
+      billable_hours: round2(billableHours),
+      non_billable_hours: round2(totalHours - billableHours),
+      rates: breakdown,
+    };
+
+    // Money is admin-only, and it is left off the payload entirely rather than
+    // zeroed — a zero would read as "this job made nothing".
+    if (isAdmin) {
+      // Anyone without a cost rate set contributes no cost, which would quietly
+      // overstate profit. Name them so the figure can be read for what it is.
+      const missing = [...byUser.values()].filter(u => u.cost_rate == null && u.hours > 0);
+      payload.financials = {
+        cost: round2(cost),
+        charge: round2(charge),
+        gross_profit: round2(charge - cost),
+        margin_pct: charge > 0 ? round2(((charge - cost) / charge) * 100) : null,
+        by_user: [...byUser.values()]
+          .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+          .map(u => ({ ...u, hours: round2(u.hours), cost: round2(u.cost) })),
+        missing_cost_rate: missing.map(u => u.name).filter(Boolean),
+      };
+    }
+    res.json(payload);
+  } catch (err) {
+    console.error('[timesheets] job summary failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+module.exports = { list, create, update, remove, summary, jobSummary };

@@ -625,34 +625,133 @@
 
 .emptySmall { padding: 16px 20px; font-size: 13px; color: var(--color-text-muted); }
 
-/* Time tab — Tradify-style day timeline */
-.timeDayGroup { padding: 16px 16px 28px; border-bottom: 1px solid var(--color-border); }
+/* Time tab — one row per team member per day, Tradify-style, so a person's
+   whole day reads along a single line and overlapping entries are obvious. */
+.timeDayGroup { padding: 14px 16px 20px; border-bottom: 1px solid var(--color-border); }
 .timeDayGroup:last-of-type { border-bottom: none; }
 .timeDayHeader { font-size: 13px; font-weight: 600; color: var(--color-text-muted); padding-bottom: 10px; }
-.timeDayRows { display: flex; flex-direction: column; gap: 8px; }
-.timeDayRow { position: relative; height: 46px; }
-.timeDayRowAuto { position: relative; }
+
+/* Name gutter + track. The gutter width is shared by the axis row below, so
+   the hour labels line up with the bars above them. */
+.timePersonRow { display: grid; grid-template-columns: 150px 1fr; align-items: stretch; gap: 10px; padding: 5px 0; }
+.timePersonRow + .timePersonRow { border-top: 1px dashed var(--color-border); }
+.timePersonName {
+  display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  min-width: 0; padding-right: 4px;
+}
+.timePersonNameText { font-size: 13px; font-weight: 600; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timePersonHours { font-size: 11px; color: var(--color-text-muted); }
+.timeClashFlag { font-size: 10px; font-weight: 700; color: #b91c1c; }
+
+.timePersonTrack { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.timeGridLine { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--color-border); opacity: 0.55; }
+.timeLane { position: relative; height: 40px; }
+/* Entries with no start or finish can't sit anywhere meaningful on the axis,
+   so they get their own hatched strip — left where they are, a chip under the
+   6am tick reads as if it happened at 6am. */
+.timeUntimedRow {
+  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 6px;
+  background: repeating-linear-gradient(45deg, #f8fafc, #f8fafc 6px, #f1f5f9 6px, #f1f5f9 12px);
+  border: 1px dashed var(--color-border);
+}
+.timeUntimedLabel {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
 .timeBar {
-  position: absolute; top: 0; height: 100%; min-width: 32px;
-  border-radius: 6px; padding: 4px 8px;
+  position: absolute; top: 0; height: 100%; min-width: 30px;
+  border-radius: 6px; padding: 4px 7px;
   overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   display: flex; flex-direction: column; justify-content: center; gap: 1px;
   border: 1px solid transparent; transition: filter 0.1s;
 }
 .timeBar:hover { filter: brightness(0.96); }
-.timeBarRange { font-size: 10px; font-weight: 600; }
-.timeBarStaff { font-size: 11px; font-weight: 500; }
+.timeBarRange { font-size: 10px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.timeBarStaff { font-size: 10px; font-weight: 500; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; }
 .timeBarNoTime {
-  display: inline-block; padding: 8px 10px; border-radius: 6px;
-  font-size: 12px; border: 1px solid transparent;
+  display: inline-block; padding: 6px 9px; border-radius: 6px;
+  font-size: 11px; border: 1px solid transparent;
 }
 .timeBarBillable { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
 .timeBarBillable:hover { background: #fecaca; }
 .timeBarNonBillable { background: #ffedd5; color: #9a3412; border-color: #fed7aa; }
 .timeBarNonBillable:hover { background: #fed7aa; }
-.timeHourAxis { position: relative; height: 18px; margin-top: 10px; border-top: 1px solid var(--color-border); }
-.timeHourAxis span { position: absolute; top: 4px; font-size: 9px; color: var(--color-text-muted); white-space: nowrap; }
-.tsTotal { padding: 10px 16px; font-size: 13px; color: var(--color-text-muted); text-align: right; border-top: 2px solid var(--color-border); }
+/* Two entries for the same person covering the same minutes — almost always a
+   forgotten timer. Outlined rather than recoloured so the billable/non-billable
+   colour still reads. */
+.timeBarClash { border: 2px solid #b91c1c; box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.12); }
+
+.timeAxisRow { display: grid; grid-template-columns: 150px 1fr; gap: 10px; margin-top: 6px; }
+.timeHourAxis { position: relative; height: 16px; border-top: 1px solid var(--color-border); }
+.timeHourAxis span {
+  position: absolute; top: 3px; font-size: 9px; color: var(--color-text-muted);
+  white-space: nowrap; transform: translateX(-50%);
+}
+
+/* Totals under the timeline */
+.timeSummary {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  gap: 20px; align-items: start;
+  padding: 16px; border-top: 2px solid var(--color-border); background: #fafafa;
+}
+.timeSummaryRates { min-width: 0; }
+.timeSummaryHead, .timeSummaryRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 90px 100px; gap: 10px;
+  padding: 6px 0; font-size: 13px; align-items: baseline;
+}
+.timeSummaryHead {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--color-text-muted); border-bottom: 1px solid var(--color-border);
+}
+.timeSummaryHead span:not(:first-child), .timeSummaryNum { text-align: right; }
+.timeSummaryRow + .timeSummaryRow { border-top: 1px solid var(--color-border); }
+.timeSummaryLabel { overflow: hidden; text-overflow: ellipsis; }
+.timeSummaryNonBillable { font-size: 11px; font-style: normal; color: #9a3412; margin-left: 8px; }
+.timeSummaryNum { font-variant-numeric: tabular-nums; }
+.timeSummaryTotalRow { border-top: 2px solid var(--color-border) !important; font-weight: 700; }
+.timeSummarySplit { font-size: 12px; color: var(--color-text-muted); padding-top: 6px; }
+
+.timeSummaryMoney {
+  background: white; border: 1px solid var(--color-border); border-radius: 8px; padding: 14px;
+}
+.timeSummaryMoneyHead {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 13px; font-weight: 700; margin-bottom: 10px;
+}
+.timeSummaryMoneyHead span {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: white; background: #64748b; padding: 2px 7px; border-radius: 99px;
+}
+.timeSummaryMoneyRow {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  font-size: 13px; padding: 5px 0;
+}
+.timeSummaryMoneyRow strong { font-variant-numeric: tabular-nums; }
+.timeSummaryMoneyHint { font-size: 11px; color: var(--color-text-muted); margin: -3px 0 6px; }
+.timeSummaryProfit {
+  border-top: 2px solid var(--color-border); margin-top: 6px; padding-top: 10px;
+  font-size: 14px; font-weight: 700; color: #15803d;
+}
+.timeSummaryLoss { color: #b91c1c; }
+.timeSummaryByUser { border-top: 1px solid var(--color-border); margin-top: 10px; padding-top: 8px; }
+.timeSummaryByUserRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 62px 80px; gap: 8px;
+  font-size: 12px; color: var(--color-text-muted); padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+.timeSummaryByUserRow span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timeSummaryByUserRow span:not(:first-child) { text-align: right; }
+.timeSummaryWarn {
+  margin-top: 10px; padding: 8px 10px; border-radius: 6px;
+  background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: 11.5px; line-height: 1.45;
+}
+
+@media (max-width: 900px) {
+  .timeSummary { grid-template-columns: 1fr; }
+  .timePersonRow, .timeAxisRow { grid-template-columns: 96px 1fr; }
+}
 
 /* Sidebar summary */
 .summaryList { padding: 8px 0; }
