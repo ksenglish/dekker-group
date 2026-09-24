@@ -49,6 +49,12 @@ async function advanceJobStatus(jobId, target) {
   if (currentIdx !== -1 && currentIdx >= targetIdx) return false;
 
   await pool.query('UPDATE jobs SET status=$1, updated_at=NOW() WHERE id=$2', [target, jobId]);
+  // Required here rather than at the top: jobCompleteNotify reads the status
+  // config from this module, and requiring it up front would be a cycle.
+  // Nothing advances a job to Complete automatically today, but if a pipeline
+  // ever does, the office still hears about it.
+  const { onJobStatusChanged } = require('./jobCompleteNotify');
+  await onJobStatusChanged({ jobId, status: target });
   return true;
 }
 

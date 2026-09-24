@@ -3,6 +3,7 @@ const router = express.Router();
 const c = require('../controllers/invoiceController');
 const { authenticate, requireRawRole } = require('../middleware/auth');
 const xero = require('../utils/xero');
+const { onJobStatusChanged } = require('../utils/jobCompleteNotify');
 
 router.use(authenticate);
 // Raw role check — sales/operations must NOT get in via the sales/operations
@@ -44,6 +45,10 @@ async function applyInvoicePayment(invoiceId, { amountCents, method, reference, 
   if (parseInt(totals.paid) >= inv.total) {
     await pool.query(`UPDATE invoices SET status='paid', paid_at=NOW(), updated_at=NOW() WHERE id=$1`, [invoiceId]);
     await pool.query(`UPDATE jobs SET status='complete', updated_at=NOW() WHERE id=$1`, [inv.job_id]);
+    // A payment that settles the invoice finishes the job. This runs from the
+    // Xero webhook too, where there is no user behind it — the office is told
+    // either way, just without a name on it.
+    await onJobStatusChanged({ jobId: inv.job_id, status: 'complete' });
   }
   return payment;
 }

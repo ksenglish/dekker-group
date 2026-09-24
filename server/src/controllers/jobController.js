@@ -8,6 +8,7 @@ const { quoteDeliveredSql } = require('../utils/quoteDelivery');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { attachDefaultForms } = require('./jobFormController');
 const { notifyJobNote, notifyTargets } = require('../utils/jobNoteNotify');
+const { onJobStatusChanged } = require('../utils/jobCompleteNotify');
 const { normaliseImageDataUrl } = require('../utils/normaliseUpload');
 
 async function list(req, res) {
@@ -238,6 +239,10 @@ async function update(req, res) {
     await attachDefaultForms(client, req.params.id, type);
     await client.query('COMMIT');
     res.json(rows[0]);
+
+    // The status can change through this form too, not just the board. After
+    // responding — nobody editing a job should wait on a mail server.
+    onJobStatusChanged({ jobId: rows[0].id, status: rows[0].status, actor: req.user });
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: 'Server error' });
@@ -283,6 +288,10 @@ async function updateStatus(req, res) {
       );
     }
     res.json(rows[0]);
+
+    // Moving a job to Complete tells the office; moving it back off clears the
+    // record of that, so finishing it again is announced again.
+    onJobStatusChanged({ jobId: req.params.id, status, actor: req.user });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

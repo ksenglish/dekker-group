@@ -3,6 +3,7 @@ const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getThemeById } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
+const { onJobStatusChanged } = require('../utils/jobCompleteNotify');
 
 async function enrichItemsWithImages(items) {
   const ids = items.map(i => i.product_id).filter(Boolean);
@@ -72,6 +73,9 @@ async function update(req, res) {
       await pool.query(`UPDATE jobs SET status='complete', updated_at=NOW() WHERE id=$1`, [rows[0].job_id]);
       await logActivity({ type: 'invoice_paid', entity_type: 'invoice', entity_id: rows[0].id, user_id: req.user?.id,
         message: `Invoice ${rows[0].invoice_number ? `INV-${String(rows[0].invoice_number).padStart(4,'0')}` : `INV-${rows[0].id.slice(0,8).toUpperCase()}`} marked as paid ($${(rows[0].total/100).toFixed(2)})` });
+      // Paying the invoice finishes the job, so the office hears about it the
+      // same way as a job finished by hand.
+      onJobStatusChanged({ jobId: rows[0].job_id, status: 'complete', actor: req.user });
     }
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
@@ -85,6 +89,7 @@ async function markPaid(req, res) {
     );
     await pool.query(`UPDATE jobs SET status='complete', updated_at=NOW() WHERE id=$1`, [rows[0].job_id]);
     res.json(rows[0]);
+    onJobStatusChanged({ jobId: rows[0].job_id, status: 'complete', actor: req.user });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
