@@ -15,11 +15,14 @@ export function fmtHourMark(h) {
 // An entry that can actually be placed on the axis.
 export const isTimed = e => !!(e.start_time && e.end_time);
 
-// Start and end of an entry in minutes from midnight. A zero-length entry would
-// be invisible, so it gets a quarter-hour floor.
+// Start and end of an entry in minutes from midnight, exactly as logged.
+//
+// Nothing is padded here. A short entry is kept visible by a minimum bar width
+// at render time, which is a display concern; stretching the end time itself
+// made a 9:10–9:19 entry reach 9:25 and collide with the 9:20 that followed it,
+// reporting an overlap that never happened.
 export function spanOf(e) {
-  const start = minutesInto(e.start_time);
-  return { start, end: Math.max(minutesInto(e.end_time), start + 15) };
+  return { start: minutesInto(e.start_time), end: minutesInto(e.end_time) };
 }
 
 // The window the hour axis covers, shared across every day being shown so the
