@@ -14,8 +14,14 @@
 .todayBtn:hover { background: #f1f5f9; }
 
 /* Weekly grid */
-.gridWrap { overflow-x: auto; }
-.weekGrid { border-collapse: collapse; width: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden; font-size: 13px; }
+/* The frame lives on the scrolling wrapper, not the table. `overflow: hidden`
+   on the table made IT the containing block for anything sticky inside, which
+   stopped the expanded timeline pinning to the left edge as the grid scrolls. */
+.gridWrap {
+  overflow-x: auto; background: var(--color-surface);
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.weekGrid { border-collapse: collapse; width: 100%; font-size: 13px; }
 .weekGrid thead tr { background: #f8fafc; border-bottom: 2px solid var(--color-border); }
 .weekGrid th { padding: 10px 12px; text-align: center; font-size: 11px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; border-right: 1px solid var(--color-border); }
 .weekGrid th:last-child { border-right: none; }
@@ -43,19 +49,88 @@
 
 /* Per-day breakdown, expanded under a staff row */
 .expandChevron { font-size: 10px; color: var(--color-text-muted); width: 10px; flex-shrink: 0; }
-.detailRow { background: #f8fafc; }
-.detailCell { padding: 12px 16px; border-bottom: 1px solid var(--color-border); }
-.detailDays { display: flex; gap: 10px; overflow-x: auto; }
-.detailDay { flex: 1; min-width: 108px; display: flex; flex-direction: column; gap: 4px; }
-.detailDayHeader { font-size: 11px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 2px; }
-.detailEmpty { font-size: 12px; color: var(--color-text-muted); }
-.entryPill { display: flex; flex-direction: column; gap: 1px; padding: 5px 8px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
-.entryPillJob { font-size: 12px; font-weight: 600; }
-.entryPillHours { font-size: 11px; opacity: 0.85; }
+/* The expanded person's week, below the grid rather than inside it */
+.timelinePanel {
+  margin-top: 12px; padding: 14px 16px 12px;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.timelinePanelHead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.timelinePanelName { font-size: 14px; font-weight: 700; }
+.timelinePanelWeek { font-size: 12px; color: var(--color-text-muted); }
+.timelinePanelClose {
+  margin-left: auto; background: none; border: none; cursor: pointer;
+  font-size: 14px; color: var(--color-text-muted); padding: 4px 6px; line-height: 1;
+}
+.timelinePanelClose:hover { color: var(--color-text); }
+
 .entryPillBillable { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
 .entryPillBillable:hover { background: #fecaca; }
 .entryPillNonBillable { background: #ffedd5; color: #9a3412; border-color: #fed7aa; }
 .entryPillNonBillable:hover { background: #fed7aa; }
+
+/* Expanded person: one row per day, entries along a shared hour axis. Matches
+   the job's Time tab, turned the other way up — there it is one row per person
+   for a day, here one row per day for a person. */
+.weekTimeline { display: flex; flex-direction: column; }
+.tlDayRow { display: grid; grid-template-columns: 150px 1fr; gap: 10px; align-items: stretch; padding: 5px 0; }
+.tlDayRow + .tlDayRow { border-top: 1px dashed var(--color-border); }
+.tlDayLabel { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 0; padding-right: 4px; }
+.tlDayName { font-size: 12.5px; font-weight: 600; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tlDayHours { font-size: 11px; color: var(--color-text-muted); }
+.tlClashFlag { font-size: 10px; font-weight: 700; color: #b91c1c; }
+
+.tlTrack { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tlGridLine { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--color-border); opacity: 0.55; }
+.tlLane { position: relative; height: 34px; }
+/* A day with nothing on it still gets a row, so the week reads as a week —
+   just a short one, since there is nothing to show. */
+.tlEmptyLane { height: 18px; }
+
+.tlBar {
+  position: absolute; top: 0; height: 100%; min-width: 28px;
+  border-radius: 6px; padding: 3px 7px; cursor: pointer;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  display: flex; flex-direction: column; justify-content: center; gap: 1px;
+  border: 1px solid transparent; transition: filter 0.1s;
+}
+.tlBar:hover { filter: brightness(0.96); }
+.tlBarJob { font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.tlBarTime { font-size: 10px; opacity: 0.85; overflow: hidden; text-overflow: ellipsis; }
+/* Two entries covering the same minutes — almost always a forgotten timer.
+   Outlined rather than recoloured so the billable colour still reads. */
+.tlBarClash { border: 2px solid #b91c1c; box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.12); }
+
+.tlUntimedRow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 6px;
+  background: repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 6px, #e7edf3 6px, #e7edf3 12px);
+  border: 1px dashed var(--color-border);
+}
+.tlUntimedLabel {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+.tlUntimedChip {
+  display: inline-block; padding: 4px 8px; border-radius: 6px;
+  font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid transparent;
+}
+
+.tlAxisRow { display: grid; grid-template-columns: 150px 1fr; gap: 10px; margin-top: 6px; }
+.tlAxis { position: relative; height: 16px; border-top: 1px solid var(--color-border); }
+.tlAxis span {
+  position: absolute; top: 3px; font-size: 9px; color: var(--color-text-muted);
+  white-space: nowrap; transform: translateX(-50%);
+}
+
+/* Overlaps flagged in the collapsed grid too, so a double-booked day shows up
+   without opening every row. */
+.dayCellClash { position: relative; box-shadow: inset 0 0 0 2px #b91c1c; }
+.dayCellClashMark { position: absolute; top: 2px; right: 3px; font-size: 9px; color: #b91c1c; line-height: 1; }
+.staffClashFlag { margin-left: 6px; font-size: 11px; color: #b91c1c; }
+
+@media (max-width: 900px) {
+  .tlDayRow, .tlAxisRow { grid-template-columns: 92px 1fr; }
+}
 
 /* Filters */
 .filters { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }

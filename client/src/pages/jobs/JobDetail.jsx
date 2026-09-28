@@ -10,6 +10,7 @@ import { isHtml, safeHtml } from '../../lib/richText';
 import { compressImage } from '../../lib/image';
 import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import { isBillable } from '../../lib/billing';
+import { axisWindow, hourMarks, packLanes, pctFor, fmtHourMark, fmtTimeAmPm } from '../../lib/timeline';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
@@ -540,86 +541,8 @@ function toHHMM(iso) {
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
-function fmtTimeAmPm(iso) {
-  return new Date(iso).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' });
-}
-function fmtHourMark(h) {
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}${h < 12 ? 'am' : 'pm'}`;
-}
-
-const minutesInto = iso => { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); };
-
-// The window the hour axis covers, shared by every day on the job so the days
-// stay comparable. A full midnight-to-midnight axis spends most of its width on
-// hours nobody works, squeezing a day's entries into a sliver — the point of
-// this view is spotting overlaps, and you cannot spot them at that scale. So
-// the axis is trimmed to the hours actually worked, rounded out to whole hours
-// and never narrower than eight, which keeps the proportions honest.
-const MIN_WINDOW_HOURS = 8;
-function axisWindow(entries) {
-  const timed = entries.filter(e => e.start_time && e.end_time);
-  if (!timed.length) return { startHour: 6, endHour: 18 };
-  let lo = 24 * 60, hi = 0;
-  for (const e of timed) {
-    lo = Math.min(lo, minutesInto(e.start_time));
-    hi = Math.max(hi, minutesInto(e.end_time), minutesInto(e.start_time) + 15);
-  }
-  let startHour = Math.max(0, Math.floor(lo / 60) - 1);
-  let endHour = Math.min(24, Math.ceil(hi / 60) + 1);
-  // Grow to the minimum span, preferring to extend later in the day — work
-  // starts early far more often than it runs past midnight.
-  while (endHour - startHour < MIN_WINDOW_HOURS) {
-    if (endHour < 24) endHour++;
-    else if (startHour > 0) startHour--;
-    else break;
-  }
-  return { startHour, endHour };
-}
-
-// Hour ticks for the axis, thinned out on narrow windows so the labels don't
-// collide — every hour normally, every second or third when the span is wide.
-function hourMarks({ startHour, endHour }) {
-  const span = endHour - startHour;
-  const step = span <= 10 ? 1 : span <= 16 ? 2 : 3;
-  const marks = [];
-  for (let h = startHour; h <= endHour; h += step) marks.push(h);
-  // Close the axis off at the end hour, but only when there's room — appending
-  // it next to the previous tick overlaps the two labels.
-  if (endHour - marks[marks.length - 1] >= step) marks.push(endHour);
-  return marks;
-}
-
-// Packs one person's entries for one day into as few rows as possible: an
-// entry joins the first row it doesn't collide with. One row means a clean day;
-// more than one means their times overlap, which is exactly what this view is
-// for, so those entries are flagged rather than quietly stacked.
-function packLanes(entries) {
-  const timed = entries
-    .filter(e => e.start_time && e.end_time)
-    .map(e => {
-      const s = minutesInto(e.start_time);
-      return { entry: e, start: s, end: Math.max(minutesInto(e.end_time), s + 15) };
-    })
-    .sort((a, b) => a.start - b.start || a.end - b.end);
-
-  const lanes = [];
-  for (const item of timed) {
-    const lane = lanes.find(l => l[l.length - 1].end <= item.start);
-    if (lane) lane.push(item); else lanes.push([item]);
-  }
-  // Which entries actually clash with another, so only those are marked —
-  // a second row can exist without every bar on it being an overlap.
-  const clashing = new Set();
-  for (let i = 0; i < timed.length; i++) {
-    for (let j = i + 1; j < timed.length; j++) {
-      if (timed[i].start < timed[j].end && timed[j].start < timed[i].end) {
-        clashing.add(timed[i].entry.id); clashing.add(timed[j].entry.id);
-      }
-    }
-  }
-  return { lanes, clashing, untimed: entries.filter(e => !e.start_time || !e.end_time) };
-}
+// Axis layout and overlap detection are shared with the weekly Timesheets
+// page, so the two views read the same way.
 
 // Add/edit popup for a single timesheet entry — click a bar in the timeline to edit
 function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDelete, onClose }) {
@@ -743,9 +666,7 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
 // along a single line and two entries that overlap are impossible to miss.
 function TimeDayGroup({ dateKey, entries, billingRates, currentUser, onEntryClick, window: win }) {
   const dateLabel = new Date(`${dateKey}T12:00:00`).toLocaleDateString('en-NZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const winStart = win.startHour * 60;
-  const winSpan = (win.endHour - win.startHour) * 60;
-  const pct = min => ((min - winStart) / winSpan) * 100;
+  const pct = pctFor(win);
 
   // One lane per person, ordered by who started first that day.
   const byUser = new Map();
@@ -789,6 +710,10 @@ function TimeDayGroup({ dateKey, entries, billingRates, currentUser, onEntryClic
                     const clash = p.clashing.has(e.id);
                     const left = Math.max(0, pct(start));
                     const width = Math.max(pct(end) - pct(start), 2.5);
+                    // A short bar has no room for a label — truncated text is
+                    // just noise, so it carries its colour alone and the
+                    // detail stays on the tooltip.
+                    const tiny = width < 6;
                     return (
                       <div key={e.id}
                         className={[
@@ -806,8 +731,10 @@ function TimeDayGroup({ dateKey, entries, billingRates, currentUser, onEntryClic
                           clash ? 'Overlaps another entry for this person' : '',
                         ].filter(Boolean).join('\n')}
                       >
-                        <span className={styles.timeBarRange}>{fmtTimeAmPm(e.start_time)} - {fmtTimeAmPm(e.end_time)}</span>
-                        <span className={styles.timeBarStaff}>{rateLabel(e, billingRates) || `${parseFloat(e.hours).toFixed(2)}h`}</span>
+                        {!tiny && <>
+                          <span className={styles.timeBarRange}>{fmtTimeAmPm(e.start_time)} - {fmtTimeAmPm(e.end_time)}</span>
+                          <span className={styles.timeBarStaff}>{rateLabel(e, billingRates) || `${parseFloat(e.hours).toFixed(2)}h`}</span>
+                        </>}
                       </div>
                     );
                   })}

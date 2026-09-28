@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../lib/permissions';
@@ -6,6 +6,7 @@ import { formatJobNumber } from '../../lib/formatJobNumber';
 import { toLocalDateStr } from '../../lib/date';
 import { htmlToText } from '../../lib/richText';
 import { isBillable } from '../../lib/billing';
+import { axisWindow, hourMarks, packLanes, pctFor, fmtHourMark, fmtTimeAmPm, hasOverlap } from '../../lib/timeline';
 import styles from './Timesheets.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
@@ -235,6 +236,103 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
   );
 }
 
+// One person's week, a row per day, entries laid along a shared hour axis so
+// the day reads as a single line and anything double-booked is impossible to
+// miss. The same layout the job's Time tab uses, turned the other way up:
+// there it is one row per person for one day, here one row per day for one
+// person.
+function WeekTimeline({ dates, dayLabels, entries, billingRates, onEntryClick, formatJob }) {
+  // One axis for the whole week, so a bar on Monday is the same width as the
+  // same number of hours on Friday.
+  const win = axisWindow(entries);
+  const pct = pctFor(win);
+  const marks = hourMarks(win);
+
+  return (
+    <div className={styles.weekTimeline}>
+      {dates.map((d, i) => {
+        const dayEntries = entries.filter(e => e.date?.slice(0, 10) === d);
+        const { lanes, clashing, untimed } = packLanes(dayEntries);
+        const dayHours = dayEntries.reduce((s, e) => s + parseFloat(e.hours || 0), 0);
+        return (
+          <div key={d} className={styles.tlDayRow}>
+            <div className={styles.tlDayLabel}>
+              <span className={styles.tlDayName}>
+                {dayLabels[i]} {new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}
+              </span>
+              <span className={styles.tlDayHours}>{dayHours > 0 ? fmtHours(dayHours) : '—'}</span>
+              {clashing.size > 0 && (
+                <span className={styles.tlClashFlag} title="Overlapping entries on this day">⚠ overlap</span>
+              )}
+            </div>
+            <div className={styles.tlTrack}>
+              {marks.map(h => (
+                <span key={h} className={styles.tlGridLine} style={{ left: `${pct(h * 60)}%` }} />
+              ))}
+              {lanes.length === 0 && untimed.length === 0 && <div className={styles.tlEmptyLane} />}
+              {lanes.map((lane, li) => (
+                <div key={li} className={styles.tlLane}>
+                  {lane.map(({ entry: e, start, end }) => {
+                    const left = Math.max(0, pct(start));
+                    const width = Math.max(pct(end) - pct(start), 2.5);
+                    // A quarter-hour bar has no room for a label — truncated
+                    // text is just noise, so short bars carry their colour
+                    // alone and the detail stays on the tooltip.
+                    const tiny = width < 6;
+                    return (
+                      <div key={e.id}
+                        className={[
+                          styles.tlBar,
+                          isBillable(e, billingRates) ? styles.entryPillBillable : styles.entryPillNonBillable,
+                          clashing.has(e.id) ? styles.tlBarClash : '',
+                        ].filter(Boolean).join(' ')}
+                        style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
+                        onClick={() => onEntryClick(e)}
+                        title={[
+                          `${fmtTimeAmPm(e.start_time)} – ${fmtTimeAmPm(e.end_time)} (${fmtHours(e.hours)})`,
+                          formatJob(e),
+                          e.description || '',
+                          clashing.has(e.id) ? 'Overlaps another entry on this day' : '',
+                        ].filter(Boolean).join('\n')}>
+                        {!tiny && <>
+                          <span className={styles.tlBarJob}>{formatJob(e)}</span>
+                          <span className={styles.tlBarTime}>{fmtTimeAmPm(e.start_time)} - {fmtTimeAmPm(e.end_time)}</span>
+                        </>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              {/* Entries logged as a number of hours with no start or finish
+                  can't sit anywhere honest on the axis — left where they are,
+                  a chip under the first tick reads as if it happened then. */}
+              {untimed.length > 0 && (
+                <div className={styles.tlUntimedRow}>
+                  <span className={styles.tlUntimedLabel}>No times logged</span>
+                  {untimed.map(e => (
+                    <span key={e.id}
+                      className={`${styles.tlUntimedChip} ${isBillable(e, billingRates) ? styles.entryPillBillable : styles.entryPillNonBillable}`}
+                      onClick={() => onEntryClick(e)}
+                      title={e.description || ''}>
+                      {formatJob(e)} · {fmtHours(e.hours)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <div className={styles.tlAxisRow}>
+        <div className={styles.tlDayLabel} />
+        <div className={styles.tlAxis}>
+          {marks.map(h => <span key={h} style={{ left: `${pct(h * 60)}%` }}>{fmtHourMark(h % 24)}</span>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function exportCsv(entries, from, to) {
   const headers = ['Date', 'Team Member', 'Job', 'Hours', 'Description'];
   const rows = entries.map(e => [
@@ -399,23 +497,39 @@ export default function TimesheetsPage() {
                 const billable = billableTotalForUser(u.id);
                 const expanded = expandedUser === u.id;
                 return (
-                  <Fragment key={u.id}>
-                    <tr className={styles.staffRow}>
+                  // The timeline is rendered below the grid rather than as a row
+                  // inside it: the table scrolls sideways, and a row within it
+                  // would slide off with the columns.
+                  <tr key={u.id} className={styles.staffRow}>
                       <td className={styles.staffCell} onClick={() => setExpandedUser(x => x === u.id ? null : u.id)} style={{ cursor: 'pointer' }}>
                         <span className={styles.expandChevron}>{expanded ? '▾' : '▸'}</span>
                         <div className={styles.avatar} style={{ background: avatarColour(u.id) }}>
                           {initials(u.name)}
                         </div>
                         <span className={styles.staffName}>{u.name}</span>
+                        {weekDates.some(d => hasOverlap(entries.filter(e => e.user_id === u.id && e.date?.slice(0, 10) === d))) && (
+                          <span className={styles.staffClashFlag} title="Overlapping entries this week — open the row to see them">⚠</span>
+                        )}
                       </td>
                       {weekDates.map(d => {
                         const hrs = hoursForUserDay(u.id, d);
                         const dayEntries = entries.filter(e => e.user_id === u.id && e.date?.slice(0,10) === d);
+                        // Flagged in the collapsed grid too, so a double-booked
+                        // day can be spotted without opening every row.
+                        const clash = hasOverlap(dayEntries);
                         return (
-                          <td key={d} className={`${styles.dayCell} ${hrs > 0 ? styles.dayCellFilled : ''}`}
-                            onClick={() => hrs > 0 && setModal({ entry: dayEntries[0] })}
-                            title={dayEntries.map(e => `${parseFloat(e.hours).toFixed(2)}h${e.job_number ? ` ${formatJobNumber(e)}` : ''}${e.description ? ` — ${e.description}` : ''}`).join('\n')}>
+                          <td key={d} className={[
+                            styles.dayCell,
+                            hrs > 0 ? styles.dayCellFilled : '',
+                            clash ? styles.dayCellClash : '',
+                          ].filter(Boolean).join(' ')}
+                            onClick={() => hrs > 0 && setExpandedUser(x => x === u.id ? null : u.id)}
+                            title={[
+                              ...dayEntries.map(e => `${fmtHours(e.hours)}${e.job_id ? ` ${formatJobNumber(e)}` : ''}${e.description ? ` — ${e.description}` : ''}`),
+                              clash ? '⚠ Overlapping entries — open the row to see them' : '',
+                            ].filter(Boolean).join('\n')}>
                             {hrs > 0 ? fmtHours(hrs) : ''}
+                            {clash && <span className={styles.dayCellClashMark}>⚠</span>}
                           </td>
                         );
                       })}
@@ -426,35 +540,7 @@ export default function TimesheetsPage() {
                           onClick={() => setModal({ prefillUser: u.id, prefillDate: weekFrom })}
                           title={`Log time for ${u.name}`}>+</button>
                       </td>
-                    </tr>
-                    {expanded && (
-                      <tr className={styles.detailRow}>
-                        <td colSpan={weekDates.length + 4} className={styles.detailCell}>
-                          <div className={styles.detailDays}>
-                            {weekDates.map((d, i) => {
-                              const dayEntries = entries.filter(e => e.user_id === u.id && e.date?.slice(0, 10) === d);
-                              return (
-                                <div key={d} className={styles.detailDay}>
-                                  <div className={styles.detailDayHeader}>{DAYS[i]} {new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}</div>
-                                  {dayEntries.length === 0
-                                    ? <div className={styles.detailEmpty}>—</div>
-                                    : dayEntries.map(e => (
-                                      <div key={e.id}
-                                        className={`${styles.entryPill} ${isBillable(e, billingRates) ? styles.entryPillBillable : styles.entryPillNonBillable}`}
-                                        onClick={() => setModal({ entry: e })}
-                                        title={e.description || ''}>
-                                        <span className={styles.entryPillJob}>{e.job_id ? formatJobNumber(e) : 'General'}</span>
-                                        <span className={styles.entryPillHours}>{fmtHours(e.hours)}</span>
-                                      </div>
-                                    ))}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
+                  </tr>
                 );
               })}
               {staffList.length === 0 && (
@@ -464,6 +550,37 @@ export default function TimesheetsPage() {
           </table>
         </div>
       )}
+
+      {/* The expanded person's week, full page width and free of the grid's
+          sideways scroll. Only one person opens at a time, so it reads as the
+          detail for the row above it. */}
+      {!listView && !loading && expandedUser && (() => {
+        const u = staffList.find(s => s.id === expandedUser);
+        if (!u) return null;
+        const mine = entries.filter(e => e.user_id === u.id);
+        return (
+          <div className={styles.timelinePanel}>
+            <div className={styles.timelinePanelHead}>
+              <div className={styles.avatar} style={{ background: avatarColour(u.id) }}>{initials(u.name)}</div>
+              <span className={styles.timelinePanelName}>{u.name}</span>
+              <span className={styles.timelinePanelWeek}>{weekLabel(weekFrom)}</span>
+              <button className={styles.timelinePanelClose} onClick={() => setExpandedUser(null)} title="Close">✕</button>
+            </div>
+            {mine.length === 0 ? (
+              <div className={styles.empty}>No time logged this week.</div>
+            ) : (
+              <WeekTimeline
+                dates={weekDates}
+                dayLabels={DAYS}
+                entries={mine}
+                billingRates={billingRates}
+                onEntryClick={e => setModal({ entry: e })}
+                formatJob={e => (e.job_id ? formatJobNumber(e) : 'General')}
+              />
+            )}
+          </div>
+        );
+      })()}
 
       {modal && (
         <EntryModal
