@@ -130,6 +130,13 @@ router.get('/:id/time-summary', require('../controllers/timesheetController').jo
 // Line items
 router.put('/:id/line-items', requireRole('admin', 'office'), c.updateLineItems);
 
+// Turning costs and hours into things you can charge for, and those into an
+// invoice. Same permissions as editing the line items they end up in.
+const billing = require('../controllers/jobBillingController');
+router.get('/:id/billable', requireRole('admin', 'office'), billing.listBillable);
+router.post('/:id/line-items/from-costs-and-time', requireRole('admin', 'office'), billing.addToLineItems);
+router.post('/:id/invoice', requireRole('admin', 'office'), billing.createInvoiceFromLineItems);
+
 // Notes
 router.get('/:id/notes', c.listNotes);
 router.post('/:id/notes', c.createNote);

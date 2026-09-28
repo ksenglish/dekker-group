@@ -5,7 +5,7 @@ import styles from './Jobs.module.css';
 
 const GST_RATE = 0.15;
 
-export default function JobCosts({ jobId, readonly }) {
+export default function JobCosts({ jobId, readonly, onBillCosts }) {
   const [costs, setCosts] = useState([]);
   const [scans, setScans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -198,6 +198,17 @@ export default function JobCosts({ jobId, readonly }) {
             <span className={styles.costsTotalIncGst}>${totalIncGst.toFixed(2)} inc-GST</span>
             {!readonly && <span />}
           </div>
+        </div>
+      )}
+
+      {/* These are what the job COST. Charging them on is a separate decision,
+          made in the picker where a markup or a sell price gets set. */}
+      {costs.length > 0 && onBillCosts && (
+        <div className={styles.costsBillRow}>
+          <button className={styles.btnPrimary} onClick={onBillCosts}>→ Add to Line Items</button>
+          <span className={styles.scanHintText}>
+            Pick which costs to charge on, and at what markup or sell price.
+          </span>
         </div>
       )}
 

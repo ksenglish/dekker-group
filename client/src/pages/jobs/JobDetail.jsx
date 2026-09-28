@@ -14,6 +14,7 @@ import { axisWindow, hourMarks, packLanes, pctFor, fmtHourMark, fmtTimeAmPm } fr
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
+import AddBillablesModal from './AddBillablesModal';
 import AssignModal from '../schedule/AssignModal';
 import JobFormsTab from './JobFormsTab';
 import styles from './Jobs.module.css';
@@ -1119,19 +1120,49 @@ function JobQuotesTab({ job, user }) {
 const INVOICE_STATUS_COLOURS = { draft: '#6b7280', sent: '#0891b2', paid: '#16a34a', overdue: '#dc2626', cancelled: '#6b7280' };
 function fmtInvNum(inv) { return inv.invoice_number ? `INV-${String(inv.invoice_number).padStart(4, '0')}` : `INV-${inv.id.slice(0, 6).toUpperCase()}`; }
 
-function JobInvoicesTab({ jobId }) {
+function JobInvoicesTab({ jobId, lineItemCount, canInvoice }) {
+  const navigate = useNavigate();
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [err, setErr] = useState('');
 
   useEffect(() => {
     api.get('/invoices', { params: { job: jobId } }).then(r => setInvoices(r.data)).finally(() => setLoading(false));
   }, [jobId]);
 
+  // Work that was never quoted — a callout, a repair, time and materials —
+  // still has to be billable. Converting an accepted quote is unchanged.
+  async function createFromLineItems() {
+    setCreating(true); setErr('');
+    try {
+      const { data } = await api.post(`/jobs/${jobId}/invoice`);
+      navigate(`/invoices/${data.id}`);
+    } catch (e) {
+      setErr(e.response?.data?.error || 'Could not create the invoice');
+      setCreating(false);
+    }
+  }
+
   return (
     <div className={styles.card}>
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', fontSize: 12, color: 'var(--color-text-muted)' }}>
-        Invoices are created by converting an accepted quote on the Quotes tab.
+      <div className={styles.invoiceToolbar}>
+        <div>
+          <div className={styles.invoiceToolbarTitle}>Invoice this job</div>
+          <div className={styles.invoiceToolbarHint}>
+            {lineItemCount > 0
+              ? `Raises a draft invoice from the ${lineItemCount} line item${lineItemCount === 1 ? '' : 's'} on this job. No quote needed — accepting a quote still creates one the same way it always has.`
+              : 'Add some line items first, or convert an accepted quote from the Quotes tab.'}
+          </div>
+        </div>
+        {canInvoice && (
+          <button className={styles.btnPrimary} onClick={createFromLineItems}
+            disabled={creating || lineItemCount === 0}>
+            {creating ? 'Creating…' : '+ Invoice from Line Items'}
+          </button>
+        )}
       </div>
+      {err && <div className={styles.errorBanner} style={{ margin: '0 16px 12px' }}>{err}</div>}
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        invoices.length === 0 ? <div className={styles.emptySmall}>No invoices for this job yet.</div> : (
         invoices.map(inv => {
@@ -1180,6 +1211,9 @@ export default function JobDetail() {
   const [editNoteText, setEditNoteText] = useState('');
   const [editNoteError, setEditNoteError] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+  // null when closed, else which tab of the picker to open on ('costs' | 'time')
+  const [addBillables, setAddBillables] = useState(null);
+  const [billFlash, setBillFlash] = useState('');
   // Supports deep-linking to a tab, e.g. /jobs/:id?tab=line_items from the "Edit" button on a quote
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'details');
   const [emailFlash, setEmailFlash] = useState('');
@@ -1345,6 +1379,18 @@ export default function JobDetail() {
   async function handleSaveLineItems(items) {
     const { data } = await api.put(`/jobs/${id}/line-items`, { items });
     setJob(j => ({ ...j, line_items: data }));
+  }
+
+  // The picker appends server-side and hands back the whole list, so the
+  // editor is re-seeded rather than merged — no chance of the two disagreeing.
+  function handleBillablesAdded(res) {
+    setJob(j => ({ ...j, line_items: res.line_items }));
+    setAddBillables(null);
+    const bits = [];
+    if (res.added_costs) bits.push(`${res.added_costs} cost${res.added_costs === 1 ? '' : 's'}`);
+    if (res.added_time) bits.push(`${res.added_time} time entr${res.added_time === 1 ? 'y' : 'ies'}`);
+    setBillFlash(`Added ${bits.join(' and ')} to the line items.`);
+    setTimeout(() => setBillFlash(''), 5000);
   }
 
   async function handleDelete() {
@@ -1617,6 +1663,20 @@ export default function JobDetail() {
 
           {activeTab === 'line_items' && (
             <div className={styles.card}>
+              {canAct(user?.role) && (
+                <div className={styles.lineItemsToolbar}>
+                  <button className={styles.btnSecondary} onClick={() => setAddBillables('costs')}>
+                    + Add from Costs
+                  </button>
+                  <button className={styles.btnSecondary} onClick={() => setAddBillables('time')}>
+                    + Add from Time
+                  </button>
+                  <span className={styles.autosaveHint}>
+                    Bring costs across at a markup or a set sell price, and logged hours at their billing rate.
+                  </span>
+                </div>
+              )}
+              {billFlash && <div className={styles.notifyFlash}>{billFlash}</div>}
               <LineItemsEditor
                 items={job.line_items || []}
                 onSave={handleSaveLineItems}
@@ -1634,7 +1694,8 @@ export default function JobDetail() {
 
           {activeTab === 'costs' && (
             <div className={styles.card}>
-              <JobCosts jobId={id} readonly={!canAct(user?.role)} />
+              <JobCosts jobId={id} readonly={!canAct(user?.role)}
+                onBillCosts={canAct(user?.role) ? () => setAddBillables('costs') : null} />
             </div>
           )}
 
@@ -1657,7 +1718,10 @@ export default function JobDetail() {
           )}
           {activeTab === 'schedule' && <JobScheduleTab jobId={id} job={job} user={user} />}
           {activeTab === 'quotes' && <JobQuotesTab job={job} user={user} />}
-          {activeTab === 'invoices' && <JobInvoicesTab jobId={id} />}
+          {activeTab === 'invoices' && (
+            <JobInvoicesTab jobId={id} lineItemCount={job.line_items?.length || 0}
+              canInvoice={canAct(user?.role)} />
+          )}
 
           {activeTab === 'notes' && (
             <div className={styles.card}>
@@ -1855,6 +1919,15 @@ export default function JobDetail() {
             const { data: updated } = await api.get(`/jobs/${id}`);
             setJob(updated);
           }}
+        />
+      )}
+
+      {addBillables && (
+        <AddBillablesModal
+          jobId={id}
+          tab={addBillables}
+          onAdded={handleBillablesAdded}
+          onClose={() => setAddBillables(null)}
         />
       )}
 

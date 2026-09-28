@@ -30,6 +30,13 @@ export default defineConfig({
         // Cache the app shell forever (versioned filenames change on deploy)
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
 
+        // The app bundle has grown past Workbox's 2 MiB default, which fails
+        // the build outright rather than just skipping the file — and a skipped
+        // app shell is an app that no longer works offline. Raised to 4 MiB so
+        // there is room to grow, but the real fix is code-splitting: the whole
+        // app is still one chunk, and every deploy re-downloads all of it.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+
         // The default SPA navigation fallback (serves cached index.html for any
         // unmatched navigation, so client-side routing survives a refresh) runs
         // before runtimeCaching rules below and only checks request.mode, not
