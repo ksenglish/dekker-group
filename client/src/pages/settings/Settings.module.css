@@ -177,3 +177,91 @@
   .jobTypeDefaults { grid-template-columns: 1fr; }
   .formGrid { grid-template-columns: 1fr; }
 }
+
+/* ── Proposal templates ──────────────────────────────────────────────────
+   The standing sets of lines a new proposal starts from. */
+
+.btnDanger {
+  padding: 8px 16px; font-size: 13px; background: white; color: #b91c1c;
+  border: 1px solid #fecaca; border-radius: var(--radius); cursor: pointer; font-family: inherit;
+}
+.btnDanger:hover { background: #fef2f2; }
+
+.tplCard {
+  border: 1px solid var(--color-border); border-radius: 8px;
+  margin-bottom: 10px; background: white; overflow: hidden;
+}
+.tplHead { display: flex; align-items: center; gap: 10px; padding: 10px 12px; flex-wrap: wrap; }
+.tplToggle {
+  background: none; border: none; cursor: pointer; font-size: 12px;
+  color: var(--color-text-muted); padding: 2px 4px; font-family: inherit;
+}
+.tplName {
+  flex: 1; min-width: 160px; padding: 6px 8px; font-size: 13.5px; font-weight: 600;
+  border: 1px solid transparent; border-radius: 6px; font-family: inherit; background: none;
+}
+.tplName:hover, .tplName:focus { border-color: var(--color-border); background: white; outline: none; }
+.tplBadge {
+  font-size: 10px; font-weight: 700; color: white; background: #16a34a;
+  padding: 2px 8px; border-radius: 99px;
+}
+.tplBadgeMuted {
+  font-size: 10px; font-weight: 700; color: var(--color-text-muted); background: #e2e8f0;
+  padding: 2px 8px; border-radius: 99px;
+}
+.tplCount { font-size: 11.5px; color: var(--color-text-muted); }
+
+.tplBody { padding: 4px 14px 16px; border-top: 1px solid var(--color-border); }
+.tplError {
+  background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
+  padding: 8px 12px; border-radius: 6px; font-size: 12.5px; margin: 10px 0;
+}
+.tplMeta { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; padding: 12px 0; }
+.tplField { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--color-text-muted); }
+.tplField input {
+  padding: 6px 9px; border: 1px solid var(--color-border); border-radius: 6px;
+  font-size: 13px; font-family: inherit;
+}
+.tplPctWrap { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--color-text); }
+.tplPctWrap input { width: 70px; text-align: right; }
+.tplCheck { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+
+.tplSectionTitle {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--color-text-muted); margin: 16px 0 6px;
+}
+.tplLabHead, .tplLabRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 100px 100px 82px 26px;
+  gap: 8px; align-items: center; padding: 5px 0;
+}
+.tplProdHead, .tplProdRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 82px 100px 100px 26px;
+  gap: 8px; align-items: center; padding: 5px 0;
+}
+.tplLabHead, .tplProdHead {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--color-text-muted); border-bottom: 1px solid var(--color-border);
+}
+.tplLabHead span:nth-child(n+2), .tplProdHead span:nth-child(n+2) { text-align: right; }
+.tplLabRow, .tplProdRow { border-bottom: 1px solid var(--color-border); }
+/* Only the number columns are right-aligned — the first column is a name, and
+   ProductSearch renders its own input into it. */
+.tplLabRow > input, .tplProdRow > input {
+  padding: 5px 7px; border: 1px solid var(--color-border); border-radius: 6px;
+  font-size: 12.5px; font-family: inherit; min-width: 0; text-align: right;
+}
+.tplLabRow > input:first-of-type { text-align: left; }
+.tplDel {
+  background: none; border: none; color: var(--color-text-muted);
+  cursor: pointer; font-size: 13px; padding: 2px; font-family: inherit;
+}
+.tplDel:hover { color: #b91c1c; }
+.tplActions {
+  display: flex; justify-content: space-between; gap: 10px;
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 760px) {
+  .tplLabHead, .tplProdHead { display: none; }
+  .tplLabRow, .tplProdRow { grid-template-columns: minmax(0, 1fr) 82px 26px; row-gap: 4px; padding: 8px 0; }
+}

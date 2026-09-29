@@ -5,14 +5,19 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { isAdmin } from '../../lib/permissions';
 import { compressImage } from '../../lib/image';
 import FormsTab from './FormsTab';
+import ProposalTemplatesTab from './ProposalTemplatesTab';
 import styles from './Settings.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 import RichTextEditor from '../../components/RichTextEditor';
 import { isHtml } from '../../lib/richText';
 
 const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templates', 'Billing Rates', 'Job Types & Templates', 'Forms', 'Website Pricing', 'Integrations'];
+// Proposal templates carry cost rates, so the tab is only offered to admins —
+// the routes behind it are admin-only too.
+const ADMIN_TABS = ['Proposals'];
 
 // ── Sortable job status row (drag to reorder) ─────────────────────────────────
 function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
@@ -39,6 +44,8 @@ function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
 }
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+  const tabs = isAdmin(user?.role) ? [...TABS, ...ADMIN_TABS] : TABS;
   const [searchParams] = useSearchParams();
   // Supports deep-linking to a tab, e.g. /settings?tab=Integrations from the Xero OAuth callback
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'My Account');
@@ -85,7 +92,7 @@ export default function SettingsPage() {
       <div className={styles.layout}>
         {/* Tab sidebar */}
         <div className={styles.tabList}>
-          {TABS.map(t => (
+          {tabs.map(t => (
             <button key={t} onClick={() => setActiveTab(t)}
               className={`${styles.tabBtn} ${activeTab === t ? styles.tabBtnActive : ''}`}>
               {t}
@@ -170,6 +177,8 @@ export default function SettingsPage() {
           {activeTab === 'Email Templates' && <EmailTemplatesTab />}
 
           {activeTab === 'Billing Rates' && <BillingRatesTab />}
+
+          {activeTab === 'Proposals' && isAdmin(user?.role) && <ProposalTemplatesTab />}
 
           {activeTab === 'Website Pricing' && <WebsitePricingTab />}
 

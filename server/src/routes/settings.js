@@ -411,6 +411,15 @@ router.put('/billing-rates', authenticate, requireRole('admin', 'office'), async
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// ── Proposal templates ───────────────────────────────────────────────────
+// The standing set of labour lines (and products) a new proposal starts from.
+// Admin only, matching the proposal editor itself — these carry cost rates.
+const proposalCtl = require('../controllers/proposalController');
+router.get('/proposal-templates', authenticate, requireRole('admin'), proposalCtl.listTemplates);
+router.post('/proposal-templates', authenticate, requireRole('admin'), proposalCtl.createTemplate);
+router.put('/proposal-templates/:templateId', authenticate, requireRole('admin'), proposalCtl.updateTemplate);
+router.delete('/proposal-templates/:templateId', authenticate, requireRole('admin'), proposalCtl.removeTemplate);
+
 // Integrations (reserved for future API keys)
 router.get('/integrations', authenticate, requireRole('admin'), async (req, res) => {
   try {

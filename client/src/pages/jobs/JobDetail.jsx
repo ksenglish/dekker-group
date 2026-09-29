@@ -1018,7 +1018,7 @@ function JobScheduleTab({ jobId, job, user }) {
 const QUOTE_STATUS_COLOURS = { draft: '#6b7280', approved: '#7c3aed', sent: '#0891b2', accepted: '#16a34a', declined: '#dc2626', cancelled: '#6b7280' };
 function fmtQuoteNum(q) { return q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : `Q-${q.id.slice(0, 6).toUpperCase()}`; }
 
-function JobQuotesTab({ job, user, onLineItemsChanged }) {
+function JobQuotesTab({ job, user }) {
   const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -1114,12 +1114,9 @@ function JobQuotesTab({ job, user, onLineItemsChanged }) {
         ))
       )}
 
-      {/* Working out what to quote, before there is a quote to raise. Costs and
-          margin live in here, so it's kept off field techs like the rest of the
-          job's money. */}
-      {canAct(user?.role) && user?.role !== 'field_tech' && (
-        <JobProposals jobId={job.id} onLineItemsChanged={onLineItemsChanged} />
-      )}
+      {/* Working out what to quote, before there is a quote to raise. Cost
+          prices, markup and margin are all in here, so admin only for now. */}
+      {isAdmin(user?.role) && <JobProposals jobId={job.id} />}
     </div>
   );
 }
@@ -1725,10 +1722,7 @@ export default function JobDetail() {
             </>
           )}
           {activeTab === 'schedule' && <JobScheduleTab jobId={id} job={job} user={user} />}
-          {activeTab === 'quotes' && (
-            <JobQuotesTab job={job} user={user}
-              onLineItemsChanged={items => setJob(j => ({ ...j, line_items: items }))} />
-          )}
+          {activeTab === 'quotes' && <JobQuotesTab job={job} user={user} />}
           {activeTab === 'invoices' && (
             <JobInvoicesTab jobId={id} lineItemCount={job.line_items?.length || 0}
               canInvoice={canAct(user?.role)} />

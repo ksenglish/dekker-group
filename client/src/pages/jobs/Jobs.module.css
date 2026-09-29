@@ -1470,25 +1470,27 @@
 
 /* Markup: the percentage, then the two bases side by side as the sheet shows
    them. The chosen one is what feeds the quote. */
-.propMarkup { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; }
-.propBasisPct {
-  width: 58px; padding: 2px 5px; border: 1px solid var(--color-border); border-radius: 5px;
-  font-size: 11px; font-family: inherit; text-align: right; font-weight: 700;
+.propMarkup { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.propCardDirty { border-color: #f59e0b; box-shadow: 0 0 0 1px #fde68a; }
+.propUnsaved { font-size: 12px; font-weight: 600; color: #b45309; align-self: center; }
+.propQuoted {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 99px;
 }
-.propBasis {
-  display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
-  padding: 8px 14px; border: 1px solid var(--color-border); border-radius: 8px;
-  background: white; cursor: pointer; font-family: inherit; text-align: left;
+.propTopActions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.propTopActions select {
+  padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--radius);
+  font-size: 13px; font-family: inherit;
 }
-.propBasis:hover { border-color: var(--color-primary); }
-.propBasisOn { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); background: #eff6ff; }
-.propBasisLabel {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 700; color: var(--color-text-muted);
-  text-transform: uppercase; letter-spacing: 0.03em;
+.propBodyActions {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--color-border);
 }
-.propBasis strong { font-size: 15px; font-variant-numeric: tabular-nums; }
-.propBasis em { font-size: 11px; font-style: normal; color: var(--color-text-muted); }
+.propMarkupPct { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.propMarkupPct input {
+  width: 72px; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 6px;
+  font-size: 13px; font-family: inherit; text-align: right;
+}
 
 .propQuote { max-width: 460px; }
 .propQuoteRow {

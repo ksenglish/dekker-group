@@ -137,14 +137,15 @@ router.get('/:id/billable', requireRole('admin', 'office'), billing.listBillable
 router.post('/:id/line-items/from-costs-and-time', requireRole('admin', 'office'), billing.addToLineItems);
 router.post('/:id/invoice', requireRole('admin', 'office'), billing.createInvoiceFromLineItems);
 
-// Priced proposals — one per scope of work on the job. Cost prices and margin
-// are in here, so the same admin/office gate as the rest of the job's money.
+// Priced proposals — one per scope of work on the job. Cost prices, markup and
+// margin are all in here, so admin only for now.
 const proposals = require('../controllers/proposalController');
-router.get('/:id/proposals', requireRole('admin', 'office'), proposals.list);
-router.post('/:id/proposals', requireRole('admin', 'office'), proposals.create);
-router.put('/:id/proposals/:proposalId', requireRole('admin', 'office'), proposals.update);
-router.delete('/:id/proposals/:proposalId', requireRole('admin', 'office'), proposals.remove);
-router.post('/:id/proposals/to-line-items', requireRole('admin', 'office'), proposals.addToLineItems);
+router.get('/:id/proposals', requireRole('admin'), proposals.list);
+router.post('/:id/proposals', requireRole('admin'), proposals.create);
+router.put('/:id/proposals/:proposalId', requireRole('admin'), proposals.update);
+router.delete('/:id/proposals/:proposalId', requireRole('admin'), proposals.remove);
+// Proposals are how a price is worked out; a quote is what the customer gets.
+router.post('/:id/proposals/to-quote', requireRole('admin'), proposals.createQuote);
 
 // Notes
 router.get('/:id/notes', c.listNotes);
