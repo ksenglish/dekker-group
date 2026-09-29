@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import ProductSearch from '../../components/products/ProductSearch';
+import NewProductModal from '../../components/products/NewProductModal';
 import styles from './Jobs.module.css';
 
 // Priced proposals on a job — the Job Sheet spreadsheet, in the app.
@@ -84,6 +85,8 @@ function ProposalCard({ jobId, proposal, onSaved, onDeleted, onToggleSelect, sel
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [err, setErr] = useState('');
+  // Which product row is having a price-list entry created for it, if any.
+  const [newProductFor, setNewProductFor] = useState(null);
   const fRef = useRef(f);
   const dirtyRef = useRef(false);
   useEffect(() => { fRef.current = f; }, [f]);
@@ -204,6 +207,14 @@ function ProposalCard({ jobId, proposal, onSaved, onDeleted, onToggleSelect, sel
               <span className={styles.propNum}>{money((parseFloat(p.quantity) || 0) * d2c(p.cost_price))}</span>
               <span className={styles.propNum}>{money((parseFloat(p.quantity) || 0) * d2c(p.charge_price))}</span>
               <button className={styles.deleteBtn} style={{ position: 'static' }} onClick={() => removeRow('products', i)}>✕</button>
+              {/* Typed by hand and matching nothing on the price list. Offer to
+                  put it there — most of these are things we buy again. */}
+              {!p.product_id && String(p.description || '').trim() && (
+                <button className={styles.propAddToList} onClick={() => setNewProductFor(i)}
+                  title="This isn't on the price list — add it, and fill this row in from it">
+                  + Add “{String(p.description).trim().slice(0, 40)}{String(p.description).trim().length > 40 ? '…' : ''}” to the Price List
+                </button>
+              )}
             </div>
           ))}
           <div className={styles.propProdTotals}>
@@ -303,6 +314,29 @@ function ProposalCard({ jobId, proposal, onSaved, onDeleted, onToggleSelect, sel
             {dirty && <span className={styles.propUnsaved}>● Unsaved changes</span>}
           </div>
         </div>
+      )}
+
+      {newProductFor !== null && (
+        <NewProductModal
+          initialDescription={f.products[newProductFor]?.description || ''}
+          initialCostDollars={f.products[newProductFor]?.cost_price || ''}
+          initialChargeDollars={f.products[newProductFor]?.charge_price || ''}
+          markupPct={parseFloat(f.markup) || 0}
+          onClose={() => setNewProductFor(null)}
+          onCreated={product => {
+            // The row is filled in from what was just saved, so the proposal and
+            // the price list agree from the outset. The proposal itself still
+            // needs saving — the button is right there and now says so.
+            setRow('products', newProductFor, {
+              product_id: product.id,
+              product_name: product.name,
+              description: (product.description || '').trim() || product.name,
+              cost_price: c2d(product.cost_price),
+              charge_price: c2d(product.unit_price),
+            });
+            setNewProductFor(null);
+          }}
+        />
       )}
     </div>
   );
