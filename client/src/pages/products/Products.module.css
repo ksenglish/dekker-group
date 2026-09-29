@@ -229,3 +229,39 @@
   .rowActions { grid-column: 3; grid-row: 1 / 3; }
   .formGrid { grid-template-columns: 1fr; }
 }
+
+/* ── Quick add from a proposal ────────────────────────────────────────────
+   Cost entered excluding or including GST. The price list stores excluding,
+   so the toggle only says what the number in the box means. */
+.gstToggle { display: flex; align-items: stretch; gap: 0; }
+.gstBtn {
+  padding: 8px 11px; font-size: 12px; font-weight: 600; font-family: inherit;
+  background: white; color: var(--color-text-muted);
+  border: 1px solid var(--color-border); cursor: pointer; white-space: nowrap;
+}
+.gstBtn:first-of-type { border-radius: var(--radius) 0 0 var(--radius); }
+.gstBtn:last-of-type { border-left: none; }
+.gstBtnOn { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+.gstToggle input {
+  flex: 1; min-width: 0; margin-left: 8px;
+  padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--radius);
+  font-size: 14px; font-family: inherit; text-align: right;
+}
+
+/* Supplier picked from the ones already in use, with a way in for a new one */
+/* The picker and its escape hatch share one grid cell, so they wrap onto a
+   second line rather than the button being clipped when the column is narrow. */
+.supplierRow { display: flex; gap: 6px; align-items: stretch; flex-wrap: wrap; }
+.supplierRow select, .supplierRow input { flex: 1 1 140px; min-width: 0; }
+.supplierBtn {
+  flex: 0 0 auto; padding: 8px 10px; font-size: 12px; font-weight: 600; font-family: inherit;
+  background: white; color: var(--color-primary);
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  cursor: pointer; white-space: nowrap;
+}
+.supplierBtn:hover { background: #f1f5f9; }
+
+.linkBtn {
+  background: none; border: none; padding: 0; font-family: inherit; font-size: inherit;
+  color: var(--color-primary); text-decoration: underline; cursor: pointer;
+}
