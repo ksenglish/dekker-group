@@ -489,8 +489,26 @@ async function categories(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+// Every supplier already on the price list, so adding a product can pick one
+// rather than retype it — "Ideal Electrical" and "Ideal electrical" become two
+// suppliers otherwise, and nothing ever tells you.
+//
+// Archived products are included: a supplier you have stopped buying a
+// particular item from is still a supplier, and leaving them out would invite
+// typing the name in fresh.
+async function suppliers(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT supplier FROM products
+        WHERE supplier IS NOT NULL AND TRIM(supplier) <> ''
+        ORDER BY supplier`
+    );
+    res.json(rows.map(r => r.supplier));
+  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+}
+
 module.exports = {
-  list, get, create, update, remove, importCsv, importZip, categories,
+  list, get, create, update, remove, importCsv, importZip, categories, suppliers,
   serveMediaImage: serveMedia('media'),
   serveMediaBrochure: serveMedia('brochure'),
   serveThumb,

@@ -1469,6 +1469,27 @@
 }
 .propAddToList:hover { background: #dbeafe; border-style: solid; }
 
+/* Cost entered excluding or including GST — the price list stores excluding,
+   so the toggle only says what the number in the box means. */
+.gstToggle { display: flex; align-items: stretch; gap: 0; }
+.gstBtn {
+  padding: 8px 12px; font-size: 12px; font-weight: 600; font-family: inherit;
+  background: white; color: var(--color-text-muted);
+  border: 1px solid var(--color-border); cursor: pointer; white-space: nowrap;
+}
+.gstBtn:first-of-type { border-radius: var(--radius) 0 0 var(--radius); }
+.gstBtn:last-of-type { border-left: none; }
+.gstBtnOn { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+.gstToggle input {
+  flex: 1; min-width: 0; margin-left: 8px;
+  padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--radius);
+  font-size: 14px; font-family: inherit; text-align: right;
+}
+.linkBtn {
+  background: none; border: none; padding: 0; font-family: inherit; font-size: inherit;
+  color: var(--color-primary); text-decoration: underline; cursor: pointer;
+}
+
 .propProdTotals {
   display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px 26px; gap: 8px;
   padding: 7px 0; font-size: 13px; font-weight: 700; border-bottom: 2px solid var(--color-border);
