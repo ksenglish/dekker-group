@@ -15,6 +15,7 @@ import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
 import AddBillablesModal from './AddBillablesModal';
+import JobProposals from './JobProposals';
 import AssignModal from '../schedule/AssignModal';
 import JobFormsTab from './JobFormsTab';
 import styles from './Jobs.module.css';
@@ -1017,7 +1018,7 @@ function JobScheduleTab({ jobId, job, user }) {
 const QUOTE_STATUS_COLOURS = { draft: '#6b7280', approved: '#7c3aed', sent: '#0891b2', accepted: '#16a34a', declined: '#dc2626', cancelled: '#6b7280' };
 function fmtQuoteNum(q) { return q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : `Q-${q.id.slice(0, 6).toUpperCase()}`; }
 
-function JobQuotesTab({ job, user }) {
+function JobQuotesTab({ job, user, onLineItemsChanged }) {
   const [quotes, setQuotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -1111,6 +1112,13 @@ function JobQuotesTab({ job, user }) {
             </div>
           </Link>
         ))
+      )}
+
+      {/* Working out what to quote, before there is a quote to raise. Costs and
+          margin live in here, so it's kept off field techs like the rest of the
+          job's money. */}
+      {canAct(user?.role) && user?.role !== 'field_tech' && (
+        <JobProposals jobId={job.id} onLineItemsChanged={onLineItemsChanged} />
       )}
     </div>
   );
@@ -1717,7 +1725,10 @@ export default function JobDetail() {
             </>
           )}
           {activeTab === 'schedule' && <JobScheduleTab jobId={id} job={job} user={user} />}
-          {activeTab === 'quotes' && <JobQuotesTab job={job} user={user} />}
+          {activeTab === 'quotes' && (
+            <JobQuotesTab job={job} user={user}
+              onLineItemsChanged={items => setJob(j => ({ ...j, line_items: items }))} />
+          )}
           {activeTab === 'invoices' && (
             <JobInvoicesTab jobId={id} lineItemCount={job.line_items?.length || 0}
               canInvoice={canAct(user?.role)} />

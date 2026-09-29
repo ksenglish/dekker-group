@@ -1393,6 +1393,142 @@
 }
 .billActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
+/* ── Priced proposals (the Job Sheet spreadsheet, in the app) ───────────── */
+
+.propWrap { border-top: 2px solid var(--color-border); padding: 16px; background: #fafafa; }
+.propTop {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  flex-wrap: wrap; margin-bottom: 14px;
+}
+.propTopTitle { font-size: 14px; font-weight: 700; }
+.propTopHint { font-size: 12px; color: var(--color-text-muted); max-width: 620px; margin-top: 2px; }
+
+.propCard {
+  background: white; border: 1px solid var(--color-border); border-radius: 8px;
+  margin-bottom: 10px; overflow: hidden;
+}
+.propHead { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.propToggle {
+  background: none; border: none; cursor: pointer; font-size: 12px;
+  color: var(--color-text-muted); padding: 2px 4px; font-family: inherit;
+}
+.propName {
+  flex: 1; min-width: 0; padding: 6px 8px; font-size: 13.5px; font-weight: 600;
+  border: 1px solid transparent; border-radius: 6px; font-family: inherit; background: none;
+}
+.propName:hover, .propName:focus { border-color: var(--color-border); background: white; outline: none; }
+.propHeadTotals { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0; }
+.propHeadQuote { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.propMarginOk { font-size: 11.5px; color: #15803d; font-variant-numeric: tabular-nums; font-style: normal; }
+.propMarginBad { font-size: 11.5px; color: #b91c1c; font-variant-numeric: tabular-nums; font-style: normal; }
+.propSaveState { font-size: 11px; color: var(--color-text-muted); min-width: 56px; text-align: right; }
+
+.propBody { padding: 4px 12px 16px; border-top: 1px solid var(--color-border); }
+.propSectionTitle {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--color-text-muted); margin: 14px 0 6px;
+}
+
+/* Products: description, units, cost, rrp, total cost, total rrp, delete */
+.propProdHead, .propProdRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 76px 92px 92px 96px 96px 26px;
+  gap: 8px; align-items: center; padding: 5px 0;
+}
+.propLabHead, .propLabRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 92px 92px 76px 96px 96px 26px;
+  gap: 8px; align-items: center; padding: 5px 0;
+}
+.propProdHead, .propLabHead {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--color-text-muted); border-bottom: 1px solid var(--color-border);
+}
+.propProdHead span:nth-child(n+2), .propLabHead span:nth-child(n+2) { text-align: right; }
+.propProdRow, .propLabRow { border-bottom: 1px solid var(--color-border); font-size: 13px; }
+/* A line with no units costs nothing and charges nothing — dimmed so the ones
+   actually in the quote stand out from the standing list. */
+.propLabRowIdle { opacity: 0.5; }
+/* Only the number columns are right-aligned. ProductSearch renders its own
+   input into the first column, and a right-aligned description reads as if it
+   belongs to the column beside it. */
+.propProdRow > input, .propLabRow > input {
+  padding: 5px 7px; border: 1px solid var(--color-border); border-radius: 6px;
+  font-size: 12.5px; font-family: inherit; min-width: 0; text-align: right;
+}
+.propLabRow > input:first-of-type { text-align: left; }
+.propNum { text-align: right; font-variant-numeric: tabular-nums; }
+
+.propProdTotals {
+  display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px 26px; gap: 8px;
+  padding: 7px 0; font-size: 13px; font-weight: 700; border-bottom: 2px solid var(--color-border);
+}
+.propProdTotals span:first-child { text-align: right; }
+.propLabTotals {
+  display: grid; grid-template-columns: minmax(0, 1fr) 96px 96px 26px; gap: 8px;
+  padding: 7px 0; font-size: 13px; font-weight: 700; border-bottom: 2px solid var(--color-border);
+}
+.propLabTotals span:first-child { text-align: right; }
+
+/* Markup: the percentage, then the two bases side by side as the sheet shows
+   them. The chosen one is what feeds the quote. */
+.propMarkup { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; }
+.propBasisPct {
+  width: 58px; padding: 2px 5px; border: 1px solid var(--color-border); border-radius: 5px;
+  font-size: 11px; font-family: inherit; text-align: right; font-weight: 700;
+}
+.propBasis {
+  display: flex; flex-direction: column; gap: 1px; align-items: flex-start;
+  padding: 8px 14px; border: 1px solid var(--color-border); border-radius: 8px;
+  background: white; cursor: pointer; font-family: inherit; text-align: left;
+}
+.propBasis:hover { border-color: var(--color-primary); }
+.propBasisOn { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); background: #eff6ff; }
+.propBasisLabel {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 700; color: var(--color-text-muted);
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.propBasis strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.propBasis em { font-size: 11px; font-style: normal; color: var(--color-text-muted); }
+
+.propQuote { max-width: 460px; }
+.propQuoteRow {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 5px 0; font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.propQuoteSub { border-top: 1px solid var(--color-border); font-weight: 600; }
+.propQuoteTotal { border-top: 2px solid var(--color-border); font-weight: 700; font-size: 14.5px; padding-top: 8px; }
+.propQuoteMargin { border-top: 1px solid var(--color-border); margin-top: 6px; font-weight: 700; color: #15803d; }
+.propQuoteOverride {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 0; margin: 4px 0; border-top: 1px solid var(--color-border);
+}
+.propQuoteOverride label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.propQuoteOverride input {
+  width: 118px; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 6px;
+  font-size: 13px; font-family: inherit; text-align: right;
+}
+.propHint { font-size: 11.5px; color: var(--color-text-muted); line-height: 1.5; margin-top: 6px; }
+
+.propFooter {
+  background: white; border: 1px solid var(--color-border); border-radius: 8px; padding: 12px 14px;
+}
+.propFooterTotals { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.propFooterTotals strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.propFooterActions {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px;
+}
+.propItemise { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--color-text-muted); margin-right: auto; }
+
+@media (max-width: 900px) {
+  .propProdHead, .propLabHead { display: none; }
+  .propProdRow, .propLabRow {
+    grid-template-columns: minmax(0, 1fr) 72px 26px;
+    row-gap: 4px; padding: 8px 0;
+  }
+  .propProdRow > span, .propLabRow > span { grid-column: 2 / 3; }
+  .propItemise { margin-right: 0; width: 100%; }
+}
+
 .invoiceToolbar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
   padding: 14px 16px; border-bottom: 1px solid var(--color-border);
