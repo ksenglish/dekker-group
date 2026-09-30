@@ -3,6 +3,7 @@ import api from '../../lib/api';
 import { ImageUpload, BrochureUpload, PRODUCT_UNITS } from './MediaUpload';
 import PickOrAdd from './PickOrAdd';
 import CategoryFields from './CategoryFields';
+import useTaxonomy from './useTaxonomy';
 import styles from '../../pages/products/Products.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
@@ -51,13 +52,12 @@ export default function NewProductModal({
     !!(initialChargeDollars && parseFloat(initialChargeDollars) > 0)
   );
   // Every value already in use in each field, so nothing gets retyped.
-  const [picks, setPicks] = useState({});
+  const { picks, paths, error: picksError } = useTaxonomy();
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const nameRef = useRef();
 
   useEffect(() => {
-    api.get('/products/taxonomy').then(r => setPicks(r.data || {})).catch(() => {});
     nameRef.current?.focus();
   }, []);
 
@@ -143,7 +143,12 @@ export default function NewProductModal({
                 Description goes on the line item; this goes in the description box above the lines.
               </span>
             </div>
-            <CategoryFields values={form} paths={picks.paths} onChange={patch => setForm(f => ({ ...f, ...patch }))} />
+            {picksError && (
+              <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
+                <div className={styles.formError}>{picksError}</div>
+              </div>
+            )}
+            <CategoryFields values={form} paths={paths} onChange={patch => setForm(f => ({ ...f, ...patch }))} />
 
             <div className={styles.formGroup}>
               <label>Supplier</label>

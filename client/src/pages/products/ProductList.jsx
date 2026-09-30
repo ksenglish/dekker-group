@@ -7,6 +7,7 @@ import PriceListBrowser from '../../components/products/PriceListBrowser';
 import { ImageUpload, BrochureUpload, PRODUCT_UNITS } from '../../components/products/MediaUpload';
 import PickOrAdd from '../../components/products/PickOrAdd';
 import CategoryFields from '../../components/products/CategoryFields';
+import useTaxonomy from '../../components/products/useTaxonomy';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const GST_RATE = 0.15;
@@ -36,8 +37,7 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   // Every category path and supplier already in use, so nothing gets retyped.
-  const [picks, setPicks] = useState({});
-  useEffect(() => { api.get('/products/taxonomy').then(r => setPicks(r.data || {})).catch(() => {}); }, []);
+  const { picks, paths, error: picksError } = useTaxonomy();
   // Whether the cost being typed includes GST. What is stored is always
   // exclusive; this only says what the number in the box means.
   const [costInclGst, setCostInclGst] = useState(false);
@@ -111,7 +111,12 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
                 Description goes on the line item; this goes in the description box above the lines.
               </span>
             </div>
-            <CategoryFields values={form} paths={picks.paths} onChange={patch => setForm(f => ({ ...f, ...patch }))} />
+            {picksError && (
+              <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
+                <div className={styles.formError}>{picksError}</div>
+              </div>
+            )}
+            <CategoryFields values={form} paths={paths} onChange={patch => setForm(f => ({ ...f, ...patch }))} />
             <div className={styles.formGroup}>
               <label>Supplier</label>
               <PickOrAdd value={form.supplier} options={picks.supplier || []}

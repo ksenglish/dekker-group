@@ -538,12 +538,19 @@ async function taxonomy(req, res) {
           ORDER BY supplier`
       ),
     ]);
-    res.json({
-      // Blank levels come back as null rather than '' so the client has one
-      // thing to test for.
-      paths: paths.map(r => CATEGORY_LEVELS.map(c => (r[c] && String(r[c]).trim()) || null)),
-      supplier: sup.map(r => r.supplier),
-    });
+    // Blank levels come back as null rather than '' so the client has one
+    // thing to test for.
+    const tree = paths.map(r => CATEGORY_LEVELS.map(c => (r[c] && String(r[c]).trim()) || null));
+
+    // The flat per-level lists go out alongside the tree. A browser running a
+    // cached copy of the app from before the tree existed reads these, and gets
+    // working dropdowns instead of empty ones until its bundle catches up —
+    // which is exactly what went wrong the first time this shipped.
+    const flat = Object.fromEntries(CATEGORY_LEVELS.map((c, i) => [
+      c, [...new Set(tree.map(p => p[i]).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    ]));
+
+    res.json({ ...flat, paths: tree, supplier: sup.map(r => r.supplier) });
   } catch (err) {
     console.error('[products] taxonomy failed:', err.message);
     res.status(500).json({ error: 'Server error' });
