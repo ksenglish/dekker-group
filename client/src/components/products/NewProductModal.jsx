@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import { ImageUpload, BrochureUpload, PRODUCT_UNITS } from './MediaUpload';
 import PickOrAdd from './PickOrAdd';
+import CategoryFields from './CategoryFields';
 import styles from '../../pages/products/Products.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
@@ -142,31 +143,7 @@ export default function NewProductModal({
                 Description goes on the line item; this goes in the description box above the lines.
               </span>
             </div>
-            <div className={styles.formGroup}>
-              <label>Category</label>
-              <PickOrAdd value={form.category} options={picks.category || []}
-                onChange={v => set('category', v)} addLabel="+ Add Category" placeholder="e.g. Dekker Air" />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Sub Category 1</label>
-              <PickOrAdd value={form.subcategory_1} options={picks.subcategory_1 || []}
-                onChange={v => set('subcategory_1', v)} addLabel="+ Add" placeholder="e.g. Ventilation" />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Sub Category 2</label>
-              <PickOrAdd value={form.subcategory_2} options={picks.subcategory_2 || []}
-                onChange={v => set('subcategory_2', v)} addLabel="+ Add" placeholder="e.g. Extraction" />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Sub Category 3</label>
-              <PickOrAdd value={form.subcategory_3} options={picks.subcategory_3 || []}
-                onChange={v => set('subcategory_3', v)} addLabel="+ Add" placeholder="e.g. Inline Fans" />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Sub Category 4</label>
-              <PickOrAdd value={form.subcategory_4} options={picks.subcategory_4 || []}
-                onChange={v => set('subcategory_4', v)} addLabel="+ Add" placeholder="e.g. 150mm" />
-            </div>
+            <CategoryFields values={form} paths={picks.paths} onChange={patch => setForm(f => ({ ...f, ...patch }))} />
 
             <div className={styles.formGroup}>
               <label>Supplier</label>

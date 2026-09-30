@@ -5,6 +5,8 @@ import styles from './Products.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 import PriceListBrowser from '../../components/products/PriceListBrowser';
 import { ImageUpload, BrochureUpload, PRODUCT_UNITS } from '../../components/products/MediaUpload';
+import PickOrAdd from '../../components/products/PickOrAdd';
+import CategoryFields from '../../components/products/CategoryFields';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const GST_RATE = 0.15;
@@ -33,6 +35,12 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  // Every category path and supplier already in use, so nothing gets retyped.
+  const [picks, setPicks] = useState({});
+  useEffect(() => { api.get('/products/taxonomy').then(r => setPicks(r.data || {})).catch(() => {}); }, []);
+  // Whether the cost being typed includes GST. What is stored is always
+  // exclusive; this only says what the number in the box means.
+  const [costInclGst, setCostInclGst] = useState(false);
   // What the media fields looked like when the form opened, so save can tell
   // "untouched" from "cleared on purpose".
   const initialMedia = useRef(product?.media_url || product?.media_base64 || '');
@@ -40,11 +48,16 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const costExGst = (() => {
+    const n = parseFloat(form.cost_price);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return costInclGst ? n / (1 + GST_RATE) : n;
+  })();
+
   const margin = (() => {
     const sell = parseFloat(form.unit_price) || 0;
-    const cost = parseFloat(form.cost_price) || 0;
-    if (!sell || !cost) return null;
-    return (((sell - cost) / sell) * 100).toFixed(1);
+    if (!sell || !costExGst) return null;
+    return (((sell - costExGst) / sell) * 100).toFixed(1);
   })();
 
   async function save(e) {
@@ -57,7 +70,7 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
       // field the form never knew the value of would delete the file — which
       // is exactly what editing a product from the list used to do, since the
       // list carries no image data to populate the form with.
-      const payload = { ...form };
+      const payload = { ...form, cost_price: Math.round(costExGst * 100) / 100 };
       if (form.media_base64 === initialMedia.current) delete payload.media_base64;
       if (form.brochure_base64 === initialBrochure.current) delete payload.brochure_base64;
       if (product) {
@@ -98,29 +111,12 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
                 Description goes on the line item; this goes in the description box above the lines.
               </span>
             </div>
-            <div className={styles.formGroup}>
-              <label>Category</label>
-              <input value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. Dekker Air" />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Sub Category 1</label>
-              <input value={form.subcategory_1} onChange={e => set('subcategory_1', e.target.value)} placeholder="e.g. Ventilation" />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Sub Category 2</label>
-              <input value={form.subcategory_2} onChange={e => set('subcategory_2', e.target.value)} placeholder="e.g. Extraction" />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Sub Category 3</label>
-              <input value={form.subcategory_3} onChange={e => set('subcategory_3', e.target.value)} placeholder="e.g. Inline Fans" />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Sub Category 4</label>
-              <input value={form.subcategory_4} onChange={e => set('subcategory_4', e.target.value)} placeholder="e.g. 150mm" />
-            </div>
+            <CategoryFields values={form} paths={picks.paths} onChange={patch => setForm(f => ({ ...f, ...patch }))} />
             <div className={styles.formGroup}>
               <label>Supplier</label>
-              <input value={form.supplier} onChange={e => set('supplier', e.target.value)} placeholder="e.g. Daikin NZ, Mitsubishi Electric" />
+              <PickOrAdd value={form.supplier} options={picks.supplier || []}
+                onChange={v => set('supplier', v)} addLabel="+ Add Supplier"
+                placeholder="e.g. Daikin NZ, Mitsubishi Electric" />
             </div>
             <div className={styles.formGroup}>
               <label>Unit</label>
@@ -135,9 +131,21 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
             </div>
             {isAdmin && (
               <div className={styles.formGroup}>
-                <label>Cost Price excl. GST</label>
-                <input type="number" min="0" step="0.01" value={form.cost_price}
-                  onChange={e => set('cost_price', e.target.value)} placeholder="0.00" />
+                <label>Cost Price</label>
+                <div className={styles.gstToggle}>
+                  {[[false, 'Excl. GST'], [true, 'Incl. GST']].map(([incl, label]) => (
+                    <button key={label} type="button"
+                      className={`${styles.gstBtn} ${costInclGst === incl ? styles.gstBtnOn : ''}`}
+                      onClick={() => setCostInclGst(incl)}>{label}</button>
+                  ))}
+                  <input type="number" min="0" step="0.01" value={form.cost_price}
+                    onChange={e => set('cost_price', e.target.value)} placeholder="0.00" />
+                </div>
+                <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                  {costInclGst
+                    ? <>Stored as <strong>${costExGst.toFixed(2)}</strong> excl. GST.</>
+                    : <>Switch to Incl. GST to type the figure straight off a supplier invoice.</>}
+                </span>
               </div>
             )}
             {isAdmin && (

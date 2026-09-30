@@ -514,17 +514,36 @@ async function suppliers(req, res) {
 // Archived products are included: a category you have stopped stocking is
 // still a category, and leaving it out invites typing the name in fresh —
 // which is the whole thing this is meant to prevent.
-const PICKABLE = ['category', 'subcategory_1', 'subcategory_2', 'subcategory_3', 'subcategory_4', 'supplier'];
+const CATEGORY_LEVELS = ['category', 'subcategory_1', 'subcategory_2', 'subcategory_3', 'subcategory_4'];
 
+// `paths` is the distinct combinations rather than five flat lists, so the form
+// can offer only the sub-categories that actually sit under whatever has been
+// chosen above — "Ventilation" belongs to Dekker Air and has no business
+// appearing once Dekker Landscaping is picked.
+//
+// One row per combination in use, so at most one per product and in practice
+// far fewer. Suppliers are independent of the tree and come back flat.
 async function taxonomy(req, res) {
   try {
-    // One pass over the table rather than six. Column names come from the
-    // fixed list above, never from the request.
-    const { rows } = await pool.query(
-      `SELECT ${PICKABLE.map(c => `ARRAY(SELECT DISTINCT ${c} FROM products
-          WHERE ${c} IS NOT NULL AND TRIM(${c}) <> '' ORDER BY ${c}) AS ${c}`).join(', ')}`
-    );
-    res.json(Object.fromEntries(PICKABLE.map(c => [c, rows[0]?.[c] || []])));
+    const [{ rows: paths }, { rows: sup }] = await Promise.all([
+      pool.query(
+        `SELECT DISTINCT ${CATEGORY_LEVELS.join(', ')}
+           FROM products
+          WHERE category IS NOT NULL AND TRIM(category) <> ''
+          ORDER BY ${CATEGORY_LEVELS.join(', ')}`
+      ),
+      pool.query(
+        `SELECT DISTINCT supplier FROM products
+          WHERE supplier IS NOT NULL AND TRIM(supplier) <> ''
+          ORDER BY supplier`
+      ),
+    ]);
+    res.json({
+      // Blank levels come back as null rather than '' so the client has one
+      // thing to test for.
+      paths: paths.map(r => CATEGORY_LEVELS.map(c => (r[c] && String(r[c]).trim()) || null)),
+      supplier: sup.map(r => r.supplier),
+    });
   } catch (err) {
     console.error('[products] taxonomy failed:', err.message);
     res.status(500).json({ error: 'Server error' });

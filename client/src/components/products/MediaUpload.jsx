@@ -78,4 +78,4 @@ export function BrochureUpload({ value, onChange }) {
   );
 }
 
-export const PRODUCT_UNITS = ['each', 'hr', 'm', 'm²', 'kg', 'L', 'day', 'kit', 'set'];
+export const PRODUCT_UNITS = ['each', 'hr', 'm', 'm²', 'm³', 'kg', 'L', 'day', 'kit', 'set'];
