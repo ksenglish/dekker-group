@@ -134,7 +134,7 @@
 }
 .modal {
   background: var(--color-surface); border-radius: var(--radius);
-  box-shadow: var(--shadow-lg); width: 100%; max-width: 560px; max-height: 90vh;
+  box-shadow: var(--shadow-lg); width: 100%; max-width: 720px; max-height: 90vh;
   display: flex; flex-direction: column; overflow: hidden;
 }
 .modalHeader {
@@ -143,15 +143,28 @@
 }
 .modalHeader h2 { font-size: 16px; font-weight: 600; }
 .modalClose { background: none; border: none; cursor: pointer; font-size: 18px; color: var(--color-text-muted); padding: 2px 6px; }
-.modalBody { padding: 20px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.modalBody {
+  padding: 20px 24px; overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 16px; min-width: 0;
+}
 .modalFooter { display: flex; gap: 8px; justify-content: flex-end; padding-top: 8px; }
 
-.formGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.formGroup { display: flex; flex-direction: column; gap: 6px; }
+/* auto-fit rather than a fixed 1fr 1fr: a grid column is at least as wide as
+   its content, and an <input> has an intrinsic width of about twenty
+   characters — so two fixed columns refused to shrink and the form scrolled
+   sideways instead of wrapping. This drops to one column when there is no
+   room for two. */
+.formGrid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+}
+.formGroup { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .formGroup label { font-size: 13px; font-weight: 500; color: var(--color-text-muted); margin-bottom: 0; }
 .formGroup input, .formGroup select, .formGroup textarea {
   padding: 9px 12px; border: 1px solid var(--color-border);
   border-radius: var(--radius); font-size: 14px; outline: none; font-family: inherit;
+  /* Without these the intrinsic width of the control sets the column width. */
+  width: 100%; min-width: 0; box-sizing: border-box; max-width: 100%;
 }
 .formGroup input:focus, .formGroup select:focus, .formGroup textarea:focus {
   border-color: var(--color-primary); box-shadow: 0 0 0 3px var(--color-primary-light);

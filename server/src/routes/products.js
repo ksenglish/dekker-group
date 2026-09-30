@@ -10,6 +10,7 @@ router.use(authenticate);
 router.get('/', c.list);
 router.get('/categories', c.categories);
 router.get('/suppliers', c.suppliers);
+router.get('/taxonomy', c.taxonomy);
 router.get('/:id', c.get);
 // Declared after /:id but they cannot collide — the extra segment makes them
 // distinct routes.

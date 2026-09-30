@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import { ImageUpload, BrochureUpload, PRODUCT_UNITS } from './MediaUpload';
+import PickOrAdd from './PickOrAdd';
 import styles from '../../pages/products/Products.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
@@ -48,18 +49,16 @@ export default function NewProductModal({
   const [sellTouched, setSellTouched] = useState(
     !!(initialChargeDollars && parseFloat(initialChargeDollars) > 0)
   );
-  const [suppliers, setSuppliers] = useState([]);
-  const [addingSupplier, setAddingSupplier] = useState(false);
+  // Every value already in use in each field, so nothing gets retyped.
+  const [picks, setPicks] = useState({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const nameRef = useRef();
-  const newSupplierRef = useRef();
 
   useEffect(() => {
-    api.get('/products/suppliers').then(r => setSuppliers(r.data || [])).catch(() => {});
+    api.get('/products/taxonomy').then(r => setPicks(r.data || {})).catch(() => {});
     nameRef.current?.focus();
   }, []);
-  useEffect(() => { if (addingSupplier) newSupplierRef.current?.focus(); }, [addingSupplier]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -145,47 +144,35 @@ export default function NewProductModal({
             </div>
             <div className={styles.formGroup}>
               <label>Category</label>
-              <input value={form.category} onChange={e => set('category', e.target.value)} placeholder="e.g. Dekker Air" />
+              <PickOrAdd value={form.category} options={picks.category || []}
+                onChange={v => set('category', v)} addLabel="+ Add Category" placeholder="e.g. Dekker Air" />
             </div>
             <div className={styles.formGroup}>
               <label>Sub Category 1</label>
-              <input value={form.subcategory_1} onChange={e => set('subcategory_1', e.target.value)} placeholder="e.g. Ventilation" />
+              <PickOrAdd value={form.subcategory_1} options={picks.subcategory_1 || []}
+                onChange={v => set('subcategory_1', v)} addLabel="+ Add" placeholder="e.g. Ventilation" />
             </div>
             <div className={styles.formGroup}>
               <label>Sub Category 2</label>
-              <input value={form.subcategory_2} onChange={e => set('subcategory_2', e.target.value)} placeholder="e.g. Extraction" />
+              <PickOrAdd value={form.subcategory_2} options={picks.subcategory_2 || []}
+                onChange={v => set('subcategory_2', v)} addLabel="+ Add" placeholder="e.g. Extraction" />
             </div>
             <div className={styles.formGroup}>
               <label>Sub Category 3</label>
-              <input value={form.subcategory_3} onChange={e => set('subcategory_3', e.target.value)} placeholder="e.g. Inline Fans" />
+              <PickOrAdd value={form.subcategory_3} options={picks.subcategory_3 || []}
+                onChange={v => set('subcategory_3', v)} addLabel="+ Add" placeholder="e.g. Inline Fans" />
             </div>
             <div className={styles.formGroup}>
               <label>Sub Category 4</label>
-              <input value={form.subcategory_4} onChange={e => set('subcategory_4', e.target.value)} placeholder="e.g. 150mm" />
+              <PickOrAdd value={form.subcategory_4} options={picks.subcategory_4 || []}
+                onChange={v => set('subcategory_4', v)} addLabel="+ Add" placeholder="e.g. 150mm" />
             </div>
 
-            {/* Picked from what is already in use, so the same supplier doesn't
-                end up spelled two ways. A new one is typed deliberately. */}
             <div className={styles.formGroup}>
               <label>Supplier</label>
-              {addingSupplier ? (
-                <div className={styles.supplierRow}>
-                  <input ref={newSupplierRef} value={form.supplier}
-                    onChange={e => set('supplier', e.target.value)}
-                    placeholder="e.g. Daikin NZ, Mitsubishi Electric" />
-                  <button type="button" className={styles.supplierBtn}
-                    onClick={() => { setAddingSupplier(false); set('supplier', ''); }}>Cancel</button>
-                </div>
-              ) : (
-                <div className={styles.supplierRow}>
-                  <select value={form.supplier} onChange={e => set('supplier', e.target.value)}>
-                    <option value="">— None —</option>
-                    {suppliers.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <button type="button" className={styles.supplierBtn}
-                    onClick={() => { setAddingSupplier(true); set('supplier', ''); }}>+ Add Supplier</button>
-                </div>
-              )}
+              <PickOrAdd value={form.supplier} options={picks.supplier || []}
+                onChange={v => set('supplier', v)} addLabel="+ Add Supplier"
+                placeholder="e.g. Daikin NZ, Mitsubishi Electric" />
             </div>
 
             <div className={styles.formGroup}>

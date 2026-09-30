@@ -507,8 +507,32 @@ async function suppliers(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+// Every value already in use in each of the free-text fields, so a form can
+// offer them rather than have them retyped. One call rather than six, since
+// the only caller wants the lot.
+//
+// Archived products are included: a category you have stopped stocking is
+// still a category, and leaving it out invites typing the name in fresh —
+// which is the whole thing this is meant to prevent.
+const PICKABLE = ['category', 'subcategory_1', 'subcategory_2', 'subcategory_3', 'subcategory_4', 'supplier'];
+
+async function taxonomy(req, res) {
+  try {
+    // One pass over the table rather than six. Column names come from the
+    // fixed list above, never from the request.
+    const { rows } = await pool.query(
+      `SELECT ${PICKABLE.map(c => `ARRAY(SELECT DISTINCT ${c} FROM products
+          WHERE ${c} IS NOT NULL AND TRIM(${c}) <> '' ORDER BY ${c}) AS ${c}`).join(', ')}`
+    );
+    res.json(Object.fromEntries(PICKABLE.map(c => [c, rows[0]?.[c] || []])));
+  } catch (err) {
+    console.error('[products] taxonomy failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 module.exports = {
-  list, get, create, update, remove, importCsv, importZip, categories, suppliers,
+  list, get, create, update, remove, importCsv, importZip, categories, suppliers, taxonomy,
   serveMediaImage: serveMedia('media'),
   serveMediaBrochure: serveMedia('brochure'),
   serveThumb,
