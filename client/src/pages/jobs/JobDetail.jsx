@@ -1699,7 +1699,7 @@ export default function JobDetail() {
 
           {activeTab === 'costs' && (
             <div className={styles.card}>
-              <JobCosts jobId={id} readonly={!canAct(user?.role)}
+              <JobCosts jobId={id} user={user} readonly={!canAct(user?.role)}
                 onBillCosts={canAct(user?.role) ? () => setAddBillables('costs') : null} />
             </div>
           )}

@@ -19,10 +19,23 @@ router.post('/invoice', async (req, res) => {
   if (!data_base64 || !mime_type) return res.status(400).json({ error: 'file data required' });
 
   try {
-    const { items, gst_treatment, raw_count } = await extractLineItems({
-      base64: data_base64, mimeType: mime_type,
+    const scan = await extractLineItems({ base64: data_base64, mimeType: mime_type });
+    // The supplier, the date and whether this is a credit note all go back to
+    // the screen: they are stored against the document so the Costs tab can
+    // group by invoice, and the credit flag is what tells someone the lines
+    // were deliberately turned negative.
+    res.json({
+      items: scan.items,
+      gst_treatment: scan.gst_treatment,
+      raw_count: scan.raw_count,
+      supplier: scan.supplier,
+      invoice_number: scan.invoice_number,
+      invoice_date: scan.invoice_date,
+      document_type: scan.document_type,
+      document_total: scan.document_total,
+      is_credit_note: scan.is_credit_note,
+      sign_corrected: scan.sign_corrected,
     });
-    res.json({ items, gst_treatment, raw_count });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('Invoice scan error:', err);

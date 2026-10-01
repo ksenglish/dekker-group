@@ -34,7 +34,8 @@ router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
 // Must be declared before router.use(authenticate) so the global middleware
 // doesn't block API-key requests before authenticateAutomation can check them.
 router.post('/:id/costs', authenticateAutomation, async (req, res) => {
-  const { items, document_base64, mime_type, gst_treatment } = req.body;
+  const { items, document_base64, mime_type, gst_treatment,
+          supplier, invoice_number, invoice_date, document_type } = req.body;
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
   try {
     let scanId = null;
@@ -43,10 +44,16 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
         prefix: `cost-scans/${req.params.id}`, filename: 'invoice', dataUrl: document_base64,
       });
       const { rows: [scan] } = await pool.query(
-        `INSERT INTO job_cost_scans (job_id, document_base64, mime_type, gst_treatment, status, storage_key, size_bytes)
-         VALUES ($1,$2,$3,$4,'matched',$5,$6) RETURNING id`,
+        `INSERT INTO job_cost_scans (job_id, document_base64, mime_type, gst_treatment, status,
+                                     storage_key, size_bytes, supplier, invoice_number, invoice_date, document_type)
+         VALUES ($1,$2,$3,$4,'matched',$5,$6,$7,$8,$9,$10) RETURNING id`,
         [req.params.id, stored ? null : document_base64, mime_type || 'image/jpeg',
-         gst_treatment || 'exclusive', stored?.key || null, stored?.size || null]
+         gst_treatment || 'exclusive', stored?.key || null, stored?.size || null,
+         supplier?.trim() || null, invoice_number?.trim() || null,
+         // A date the scanner couldn't read is left null rather than guessed —
+         // the upload date is already recorded separately.
+         /^\d{4}-\d{2}-\d{2}$/.test(String(invoice_date || '')) ? invoice_date : null,
+         document_type === 'credit_note' ? 'credit_note' : 'invoice']
       );
       scanId = scan.id;
     }
@@ -504,10 +511,129 @@ router.delete('/:id/costs/:costId', async (req, res) => {
 router.get('/:id/cost-scans', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, job_id, mime_type, gst_treatment, created_at FROM job_cost_scans WHERE job_id=$1 ORDER BY created_at DESC`,
+      `SELECT s.id, s.job_id, s.mime_type, s.gst_treatment, s.created_at,
+              s.supplier, s.invoice_number, s.invoice_date, s.document_type,
+              (s.document_base64 IS NOT NULL OR s.storage_key IS NOT NULL) AS has_document,
+              COALESCE((SELECT SUM(ROUND(c.quantity * c.unit_price))
+                          FROM job_costs c WHERE c.scan_id = s.id), 0)::int AS total_cents,
+              (SELECT COUNT(*)::int FROM job_costs c WHERE c.scan_id = s.id) AS item_count
+         FROM job_cost_scans s
+        WHERE s.job_id = $1
+        ORDER BY COALESCE(s.invoice_date, s.created_at::date) DESC, s.created_at DESC`,
       [req.params.id]
     );
     res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Correcting a line the scanner read wrong — a mistyped description, a quantity
+// off by one, or a credit that came through positive. Admin only: these are the
+// numbers the job's margin is worked out from.
+router.put('/:id/costs/:costId', requireRole('admin'), async (req, res) => {
+  const { description, quantity, unit_price } = req.body || {};
+  if (description !== undefined && !String(description).trim()) {
+    return res.status(400).json({ error: 'Give the line a description' });
+  }
+  const qty = quantity === undefined ? null : Number(quantity);
+  if (qty !== null && (!Number.isFinite(qty) || qty <= 0)) {
+    return res.status(400).json({ error: 'Quantity must be more than zero' });
+  }
+  // unit_price is deliberately allowed to be negative — that is what a credit
+  // is, and being able to put one right is half the point of this endpoint.
+  const price = unit_price === undefined ? null : Number(unit_price);
+  if (price !== null && !Number.isFinite(price)) {
+    return res.status(400).json({ error: 'Unit price must be a number' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `UPDATE job_costs
+          SET description = COALESCE($1, description),
+              quantity    = COALESCE($2, quantity),
+              unit_price  = COALESCE($3, unit_price)
+        WHERE id = $4 AND job_id = $5
+        RETURNING *`,
+      [description === undefined ? null : String(description).trim(),
+       qty, price === null ? null : Math.round(price * 100),
+       req.params.costId, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Cost line not found on this job' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// A line the scanner missed altogether. Added against the document it belongs
+// to, so it reads as part of that invoice rather than as a stray cost.
+router.post('/:id/cost-scans/:scanId/costs', requireRole('admin'), async (req, res) => {
+  const { description, quantity, unit_price } = req.body || {};
+  if (!String(description || '').trim()) return res.status(400).json({ error: 'Give the line a description' });
+  const qty = Number(quantity === undefined ? 1 : quantity);
+  if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: 'Quantity must be more than zero' });
+  const price = Number(unit_price === undefined ? 0 : unit_price);
+  if (!Number.isFinite(price)) return res.status(400).json({ error: 'Unit price must be a number' });
+  try {
+    const { rows: [scan] } = await pool.query(
+      'SELECT id FROM job_cost_scans WHERE id=$1 AND job_id=$2', [req.params.scanId, req.params.id]
+    );
+    if (!scan) return res.status(404).json({ error: 'Document not found on this job' });
+    const { rows: [next] } = await pool.query(
+      'SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM job_costs WHERE scan_id=$1', [req.params.scanId]
+    );
+    const { rows: [row] } = await pool.query(
+      `INSERT INTO job_costs (job_id, scan_id, description, quantity, unit_price, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.params.id, req.params.scanId, String(description).trim(), qty, Math.round(price * 100), next.n]
+    );
+    res.status(201).json(row);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// The supplier name and date are what the costs are grouped and sorted by, so a
+// misread one has to be correctable too — otherwise a whole invoice sits under
+// "Supplier not read" with no way out.
+router.patch('/:id/cost-scans/:scanId', requireRole('admin'), async (req, res) => {
+  const { supplier, invoice_number, invoice_date, document_type } = req.body || {};
+  if (invoice_date !== undefined && invoice_date !== null && invoice_date !== ''
+      && !/^\d{4}-\d{2}-\d{2}$/.test(String(invoice_date))) {
+    return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
+  }
+  if (document_type !== undefined && !['invoice', 'credit_note'].includes(document_type)) {
+    return res.status(400).json({ error: 'Document type must be invoice or credit_note' });
+  }
+  try {
+    const { rows } = await pool.query(
+      `UPDATE job_cost_scans
+          SET supplier       = COALESCE($1, supplier),
+              invoice_number = COALESCE($2, invoice_number),
+              invoice_date   = COALESCE($3, invoice_date),
+              document_type  = COALESCE($4, document_type)
+        WHERE id = $5 AND job_id = $6
+        RETURNING id, supplier, invoice_number, invoice_date, document_type`,
+      [supplier === undefined ? null : String(supplier).trim().slice(0, 255) || null,
+       invoice_number === undefined ? null : String(invoice_number).trim().slice(0, 100) || null,
+       invoice_date === undefined || invoice_date === '' ? null : invoice_date,
+       document_type === undefined ? null : document_type,
+       req.params.scanId, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Document not found on this job' });
+    res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Removing a whole scanned document and everything it brought in with it.
+router.delete('/:id/cost-scans/:scanId', requireRole('admin'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT storage_key FROM job_cost_scans WHERE id=$1 AND job_id=$2',
+      [req.params.scanId, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    // The cost lines go first — job_costs.scan_id is ON DELETE SET NULL, so
+    // deleting the scan alone would leave them behind with nothing to group
+    // them under.
+    await pool.query('DELETE FROM job_costs WHERE scan_id=$1 AND job_id=$2', [req.params.scanId, req.params.id]);
+    await pool.query('DELETE FROM job_cost_scans WHERE id=$1 AND job_id=$2', [req.params.scanId, req.params.id]);
+    if (rows[0].storage_key) await fileStore.deleteObject(rows[0].storage_key).catch(() => {});
+    res.json({ message: 'Deleted' });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

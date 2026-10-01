@@ -165,8 +165,8 @@ router.post('/documents', requireRole('admin', 'office'), async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO job_cost_scans
          (folder_id, status, document_base64, mime_type, supplier, invoice_number,
-          gst_treatment, parsed_items, storage_key, size_bytes)
-       VALUES ($1, 'filed', $2, $3, $4, $5, $6, $7, $8, $9)
+          gst_treatment, parsed_items, storage_key, size_bytes, invoice_date, document_type)
+       VALUES ($1, 'filed', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id, supplier, invoice_number, mime_type, created_at, folder_id, parsed_items`,
       [
         folder_id, stored ? null : data_base64, mime_type,
@@ -174,6 +174,8 @@ router.post('/documents', requireRole('admin', 'office'), async (req, res) => {
         req.body.invoice_number?.trim() || scan.invoice_number,
         scan.gst_treatment, JSON.stringify(scan.items),
         stored?.key || null, stored?.size || null,
+        scan.invoice_date || null,
+        scan.document_type === 'credit_note' ? 'credit_note' : 'invoice',
       ]
     );
     res.status(201).json({ ...rows[0], scan_error });

@@ -1194,33 +1194,149 @@
 }
 .scanPreviewTotalAmount { font-size: 18px; color: #15803d; font-weight: 700; }
 
-/* Documents section */
-.costsDocSection {
-  margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--color-border);
+/* ── Costs grouped by supplier document ──────────────────────────────────────
+   One card per invoice or credit note: who it was from, when, what it came to,
+   the PDF a click away, and its lines underneath. Same shape as the Invoice
+   Inbox cards so the two screens read the same way. */
+.costDocs { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
+
+.costDoc {
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  overflow: hidden; background: var(--color-surface);
 }
-.costsDocTitle {
-  font-size: 13px; font-weight: 700; color: var(--color-text-muted);
-  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 14px;
+/* A credit note is money coming back off the job, so it is marked as such
+   rather than left to be spotted by its minus signs. */
+.costDocCredit { border-color: #fca5a5; }
+.costDocCredit .costDocHead { background: #fef2f2; }
+
+.costDocHead {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 14px; background: #f8fafc;
+  border-bottom: 1px solid var(--color-border);
 }
-.costsDocGrid {
-  display: flex; gap: 12px; flex-wrap: wrap;
+.costDocWho { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.costDocSupplier {
+  font-size: 14px; font-weight: 600; color: var(--color-text);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
-.costsDocCard {
-  width: 120px; cursor: pointer; border-radius: var(--radius);
-  border: 1px solid var(--color-border); overflow: hidden;
-  transition: box-shadow 0.15s, transform 0.15s;
+.costDocTag {
+  font-style: normal; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: #b91c1c; background: #fee2e2;
+  border-radius: 999px; padding: 2px 8px;
 }
-.costsDocCard:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); transform: translateY(-2px); }
-.costsDocThumb { width: 100%; height: 90px; object-fit: cover; display: block; background: #f1f5f9; }
-.costsDocPdfThumb {
-  width: 100%; height: 90px; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; background: #fef2f2; gap: 4px;
+.costDocMeta { font-size: 12px; color: var(--color-text-muted); }
+.costDocTotal { font-size: 14px; font-weight: 700; color: var(--color-text); white-space: nowrap; }
+.costDocTotal em { font-style: normal; font-size: 11px; font-weight: 500; color: var(--color-text-muted); }
+.costNegative { color: #b91c1c; }
+.costDocActions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.btnSmallPrimary {
+  padding: 5px 10px; background: var(--color-primary); color: white;
+  border: 1px solid var(--color-primary); border-radius: var(--radius);
+  font-size: 13px; font-weight: 500;
 }
-.costsDocPdfIcon { font-size: 28px; }
-.costsDocPdfLabel { font-size: 11px; font-weight: 700; color: #dc2626; letter-spacing: 0.05em; }
-.costsDocMeta {
-  padding: 5px 7px; font-size: 10px; color: var(--color-text-muted);
-  background: white; text-align: center;
+.btnSmallPrimary:disabled { opacity: 0.6; }
+.btnSmallDanger {
+  padding: 5px 10px; background: var(--color-surface); color: #b91c1c;
+  border: 1px solid #fca5a5; border-radius: var(--radius); font-size: 13px;
+}
+.btnSmallDanger:hover { background: #fef2f2; }
+
+/* Editing the document's own details — supplier, number, date, type */
+.costDocHeadEdit { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
+.costDocHeadEdit input, .costDocHeadEdit select {
+  padding: 5px 8px; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 13px; min-width: 0; max-width: 100%;
+}
+.costDocHeadEdit input:first-child { flex: 1; min-width: 140px; }
+
+/* A line read wrong, or one missed altogether */
+.costEditTable { font-size: 13px; }
+.costEditHeader, .costEditRow {
+  display: grid; grid-template-columns: minmax(0, 1fr) 80px 110px 100px 28px;
+  gap: 8px; align-items: center; padding: 8px 14px;
+}
+.costEditHeader {
+  background: #f8fafc; border-bottom: 1px solid var(--color-border);
+  font-weight: 600; font-size: 12px; color: var(--color-text-muted);
+}
+.costEditRow { border-bottom: 1px solid var(--color-border); }
+.costEditRow input {
+  padding: 5px 8px; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 13px;
+  width: 100%; min-width: 0; box-sizing: border-box;
+}
+.costRowRemove {
+  background: none; border: none; color: var(--color-text-muted);
+  font-size: 14px; cursor: pointer; padding: 2px;
+}
+.costRowRemove:hover { color: #b91c1c; }
+.costEditActions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px; background: #f8fafc; border-top: 1px solid var(--color-border);
+}
+.costEditActions .scanHintText { flex: 1; }
+
+/* The lines table already has its own frame for standalone use; inside a
+   document card the card provides it. */
+.costDoc .costsTable { border: none; border-radius: 0; margin-bottom: 0; }
+
+/* A credit line stands out in the read-only table too */
+.costsRowCredit span { color: #b91c1c; }
+
+.costDocFrame { border-top: 1px solid var(--color-border); background: #f1f5f9; padding: 10px; }
+.costDocIframe { width: 100%; height: 520px; border: none; background: white; }
+.costDocImg { width: 100%; max-height: 520px; object-fit: contain; display: block; }
+
+.costsGrandTotal {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; background: #f0fdf4; border: 1px solid #86efac;
+  border-radius: var(--radius); font-size: 13px; font-weight: 600;
+  margin-bottom: 16px;
+}
+.costsGrandTotal > span:first-child { flex: 1; }
+
+/* The scan review step: what was read off the document before it is saved */
+.scanCreditBanner {
+  margin: 10px 0; padding: 10px 12px; background: #fef2f2;
+  border: 1px solid #fca5a5; border-radius: var(--radius);
+  font-size: 13px; color: #991b1b;
+}
+.scanMetaRow {
+  display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 14px;
+}
+.scanMetaRow label {
+  display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 130px;
+  font-size: 11px; font-weight: 600; color: var(--color-text-muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.scanMetaRow input, .scanMetaRow select {
+  padding: 6px 8px; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 13px; font-weight: 400;
+  text-transform: none; letter-spacing: normal; color: var(--color-text);
+  width: 100%; min-width: 0; box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  /* Six money columns don't fit a phone, and the card clips what spills, so
+     the two working columns (the GST on a unit, and the unit inc-GST) drop
+     out. What's left is what someone checks against the invoice: the line,
+     how many, the unit price and what it came to. */
+  .costDoc .costsHeader, .costDoc .costsRow {
+    grid-template-columns: minmax(0, 1fr) 36px 72px 82px;
+  }
+  .costDoc .costsHeader > span:nth-child(4), .costDoc .costsRow > span:nth-child(4),
+  .costDoc .costsHeader > span:nth-child(5), .costDoc .costsRow > span:nth-child(5) { display: none; }
+
+  /* On a phone the edit grid has no room for five columns, so each line
+     becomes a stack with the totals and the remove button on one row. */
+  .costEditHeader { display: none; }
+  .costEditRow { grid-template-columns: minmax(0, 1fr) 80px; }
+  .costEditRow > input:first-child { grid-column: 1 / -1; }
+  /* The hint reads as a sentence across the card, not as a third column
+     squeezed between the buttons. */
+  .costEditActions .scanHintText { flex: 1 1 100%; order: -1; }
+  .costDocIframe { height: 360px; }
 }
 
 /* Supplier ordering code on a line item — internal only, never on the

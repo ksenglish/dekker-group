@@ -1,57 +1,50 @@
 import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import ScanFlow from '../stock/ScanFlow';
+import CostDocuments from './CostDocuments';
+import { isAdmin } from '../../lib/permissions';
 import styles from './Jobs.module.css';
 
 const GST_RATE = 0.15;
 
-export default function JobCosts({ jobId, readonly, onBillCosts }) {
+export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
   const [costs, setCosts] = useState([]);
   const [scans, setScans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [scanResults, setScanResults] = useState(null);
+  const [scanMeta, setScanMeta] = useState(null);   // supplier/date/type read off the document
   const [scanImageUrl, setScanImageUrl] = useState(null);
   const [gstTreatment, setGstTreatment] = useState('exclusive');
   const [scanError, setScanError] = useState('');
   const [adding, setAdding] = useState(false);
-  const [deleting, setDeleting] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [scanningStock, setScanningStock] = useState(false);
   const [stockLocations, setStockLocations] = useState([]);
-  const [docUrls, setDocUrls] = useState({});   // scan id -> blob URL (image thumbnails)
-  const [viewer, setViewer] = useState(null);   // { url, isPdf, loading }
   const fileRef = useRef();
   // Blob URLs have to be revoked by hand or they leak for the life of the tab
-  const blobUrls = useRef([]);
+  const docUrls = useRef({});
+
+  // Correcting a cost line changes what the job's margin is worked out from, so
+  // it stays with admin — the same rule the server enforces.
+  const canEdit = !readonly && isAdmin(user?.role);
 
   useEffect(() => { load(); }, [jobId]);
 
   useEffect(() => () => {
-    blobUrls.current.forEach(URL.revokeObjectURL);
-    blobUrls.current = [];
+    Object.values(docUrls.current).forEach(URL.revokeObjectURL);
+    docUrls.current = {};
   }, []);
 
   // The document endpoint needs the auth header, so it can't be used as a plain
   // <img>/<iframe> src — fetch through the API client and hand over a blob URL.
-  async function fetchDocUrl(scanId) {
+  // Fetched once per document and kept, so hiding and showing it again is free.
+  async function fetchDoc(scanId) {
+    if (docUrls.current[scanId]) return docUrls.current[scanId];
     const res = await api.get(`/jobs/${jobId}/cost-scans/${scanId}/document`, { responseType: 'blob' });
     const url = URL.createObjectURL(res.data);
-    blobUrls.current.push(url);
+    docUrls.current[scanId] = url;
     return url;
-  }
-
-  async function openDoc(scan) {
-    const isPdf = (scan.mime_type || '').includes('pdf');
-    if (docUrls[scan.id]) { setViewer({ url: docUrls[scan.id], isPdf, loading: false }); return; }
-    setViewer({ url: null, isPdf, loading: true });
-    try {
-      const url = await fetchDocUrl(scan.id);
-      setDocUrls(prev => ({ ...prev, [scan.id]: url }));
-      setViewer({ url, isPdf, loading: false });
-    } catch {
-      setViewer(null);
-    }
   }
 
   async function load() {
@@ -63,14 +56,14 @@ export default function JobCosts({ jobId, readonly, onBillCosts }) {
       ]);
       setCosts(costsRes.data);
       setScans(scansRes.data);
-
-      // Preload image thumbnails only — PDFs get an icon, so there's nothing to show
-      const images = scansRes.data.filter(s => !(s.mime_type || '').includes('pdf'));
-      const entries = await Promise.all(images.map(async s => {
-        try { return [s.id, await fetchDocUrl(s.id)]; } catch { return null; }
-      }));
-      setDocUrls(prev => ({ ...prev, ...Object.fromEntries(entries.filter(Boolean)) }));
     } finally { setLoading(false); }
+  }
+
+  function onScanDeleted(scanId) {
+    const url = docUrls.current[scanId];
+    if (url) { URL.revokeObjectURL(url); delete docUrls.current[scanId]; }
+    setScans(s => s.filter(x => x.id !== scanId));
+    setCosts(c => c.filter(x => x.scan_id !== scanId));
   }
 
   // Locations are only needed once someone actually scans, so they're fetched
@@ -94,7 +87,7 @@ export default function JobCosts({ jobId, readonly, onBillCosts }) {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) { setScanError('File must be under 10MB'); return; }
-    setScanning(true); setScanError(''); setScanResults(null); setScanImageUrl(null);
+    setScanning(true); setScanError(''); setScanResults(null); setScanMeta(null); setScanImageUrl(null);
     const reader = new FileReader();
     reader.onload = async (ev) => {
       const dataUrl = ev.target.result;
@@ -108,6 +101,14 @@ export default function JobCosts({ jobId, readonly, onBillCosts }) {
         } else {
           setScanResults(data.items.map(i => ({ ...i, selected: true })));
           setGstTreatment(data.gst_treatment || 'exclusive');
+          setScanMeta({
+            supplier: data.supplier || '',
+            invoice_number: data.invoice_number || '',
+            invoice_date: data.invoice_date || '',
+            document_type: data.document_type === 'credit_note' ? 'credit_note' : 'invoice',
+            is_credit_note: !!data.is_credit_note,
+            sign_corrected: !!data.sign_corrected,
+          });
         }
       } catch (err) {
         setScanError(err.response?.data?.error || 'Scan failed');
@@ -115,6 +116,10 @@ export default function JobCosts({ jobId, readonly, onBillCosts }) {
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+  }
+
+  function discardScan() {
+    setScanResults(null); setScanMeta(null); setScanImageUrl(null);
   }
 
   async function handleAddToJob() {
@@ -131,19 +136,16 @@ export default function JobCosts({ jobId, readonly, onBillCosts }) {
         document_base64: scanImageUrl,
         mime_type: scanImageUrl?.match(/^data:([^;]+)/)?.[1] || 'image/jpeg',
         gst_treatment: gstTreatment,
+        // Stored against the document so the Costs tab can group by invoice and
+        // say which supplier and which date each cost came from.
+        supplier: scanMeta?.supplier || null,
+        invoice_number: scanMeta?.invoice_number || null,
+        invoice_date: scanMeta?.invoice_date || null,
+        document_type: scanMeta?.document_type || 'invoice',
       });
       await load();
-      setScanResults(null);
-      setScanImageUrl(null);
+      discardScan();
     } finally { setAdding(false); }
-  }
-
-  async function handleDelete(id) {
-    setDeleting(id);
-    try {
-      await api.delete(`/jobs/${jobId}/costs/${id}`);
-      setCosts(c => c.filter(x => x.id !== id));
-    } finally { setDeleting(null); }
   }
 
   const totalExGst = costs.reduce((s, i) => s + (i.unit_price / 100) * i.quantity, 0);
@@ -158,47 +160,24 @@ export default function JobCosts({ jobId, readonly, onBillCosts }) {
 
   return (
     <div>
-      {/* Existing costs table */}
+      {/* Costs grouped under the supplier document each line came off */}
       {costs.length > 0 && (
-        <div className={styles.costsTable}>
-          <div className={styles.costsHeader}>
-            <span>Description</span>
-            <span>Qty</span>
-            <span>Ex-GST</span>
-            <span>GST (15%)</span>
-            <span>Inc-GST</span>
-            <span>Total Inc-GST</span>
-            {!readonly && <span />}
-          </div>
-          {costs.map((item) => {
-            const ex = item.unit_price / 100;
-            const gst = ex * GST_RATE;
-            const inc = ex * (1 + GST_RATE);
-            const lineTotal = inc * item.quantity;
-            return (
-              <div key={item.id} className={styles.costsRow}>
-                <span>{item.description}</span>
-                <span>{item.quantity}</span>
-                <span>${ex.toFixed(2)}</span>
-                <span className={styles.gstCell}>${gst.toFixed(2)}</span>
-                <span>${inc.toFixed(2)}</span>
-                <span className={styles.costsTotalCell}>${lineTotal.toFixed(2)}</span>
-                {!readonly && (
-                  <button className={styles.deleteBtn} style={{ position: 'static' }}
-                    disabled={deleting === item.id} onClick={() => handleDelete(item.id)}>
-                    {deleting === item.id ? '…' : '✕'}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-          <div className={styles.costsTotalsRow}>
-            <span style={{ gridColumn: `1 / ${readonly ? 5 : 6}`, textAlign: 'right', fontWeight: 600 }}>Total</span>
+        <>
+          <CostDocuments
+            jobId={jobId}
+            costs={costs}
+            scans={scans}
+            canEdit={canEdit}
+            onChanged={load}
+            onScanDeleted={onScanDeleted}
+            fetchDoc={fetchDoc}
+          />
+          <div className={styles.costsGrandTotal}>
+            <span>Total costs on this job</span>
             <span className={styles.costsTotalExGst}>${totalExGst.toFixed(2)} ex-GST</span>
             <span className={styles.costsTotalIncGst}>${totalIncGst.toFixed(2)} inc-GST</span>
-            {!readonly && <span />}
           </div>
-        </div>
+        </>
       )}
 
       {/* These are what the job COST. Charging them on is a separate decision,
@@ -225,7 +204,7 @@ export default function JobCosts({ jobId, readonly, onBillCosts }) {
             <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf" style={{ display: 'none' }}
               onChange={handleScanFile} disabled={scanning} />
           </label>
-          <span className={styles.scanHintText}>Photo or PDF · max 10MB</span>
+          <span className={styles.scanHintText}>Photo or PDF · max 10MB · invoice or credit note</span>
         </div>
       )}
 
@@ -262,8 +241,47 @@ export default function JobCosts({ jobId, readonly, onBillCosts }) {
                   Prices detected as <strong>{gstTreatment === 'inclusive' ? 'GST-inclusive' : 'GST-exclusive'}</strong> — stored as ex-GST
                 </span>
               </div>
-              <button className={styles.scanDiscard} onClick={() => { setScanResults(null); setScanImageUrl(null); }}>Discard</button>
+              <button className={styles.scanDiscard} onClick={discardScan}>Discard</button>
             </div>
+
+            {/* A credit note has to announce itself. Every line coming through
+                negative is correct but looks like a mistake unless it's said. */}
+            {scanMeta?.is_credit_note && (
+              <div className={styles.scanCreditBanner}>
+                Read as a <strong>credit note</strong> — every line comes off this job&apos;s costs.
+                {scanMeta.sign_corrected && ' The amounts have been made negative to match.'}
+              </div>
+            )}
+
+            {/* The supplier and date are editable here because they are what the
+                Costs tab groups and sorts by once this is saved. */}
+            {scanMeta && (
+              <div className={styles.scanMetaRow}>
+                <label>
+                  Supplier
+                  <input value={scanMeta.supplier} placeholder="Not read"
+                    onChange={e => setScanMeta(m => ({ ...m, supplier: e.target.value }))} />
+                </label>
+                <label>
+                  Invoice no.
+                  <input value={scanMeta.invoice_number} placeholder="Not read"
+                    onChange={e => setScanMeta(m => ({ ...m, invoice_number: e.target.value }))} />
+                </label>
+                <label>
+                  Date
+                  <input type="date" value={scanMeta.invoice_date}
+                    onChange={e => setScanMeta(m => ({ ...m, invoice_date: e.target.value }))} />
+                </label>
+                <label>
+                  Type
+                  <select value={scanMeta.document_type}
+                    onChange={e => setScanMeta(m => ({ ...m, document_type: e.target.value }))}>
+                    <option value="invoice">Invoice</option>
+                    <option value="credit_note">Credit note</option>
+                  </select>
+                </label>
+              </div>
+            )}
 
             <div className={styles.scanResultsHeader}>
               <span />
@@ -335,53 +353,6 @@ export default function JobCosts({ jobId, readonly, onBillCosts }) {
               )}
             </div>
           )}
-        </div>
-      )}
-
-      {/* Documents section */}
-      {scans.length > 0 && (
-        <div className={styles.costsDocSection}>
-          <div className={styles.costsDocTitle}>Documents</div>
-          <div className={styles.costsDocGrid}>
-            {scans.map(scan => {
-              const isPdf = (scan.mime_type || '').includes('pdf');
-              return (
-                <div key={scan.id} className={styles.costsDocCard} onClick={() => openDoc(scan)}>
-                  {isPdf ? (
-                    <div className={styles.costsDocPdfThumb}>
-                      <span className={styles.costsDocPdfIcon}>📄</span>
-                      <span className={styles.costsDocPdfLabel}>PDF</span>
-                    </div>
-                  ) : (
-                    <img src={docUrls[scan.id]} alt="Cost document" className={styles.costsDocThumb} />
-                  )}
-                  <div className={styles.costsDocMeta}>
-                    {new Date(scan.created_at).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Document viewer — PDFs render inline in an iframe, images in an img */}
-      {viewer && (
-        <div className={styles.lightboxOverlay} onClick={() => setViewer(null)}>
-          <button className={styles.lightboxClose} onClick={() => setViewer(null)}>✕</button>
-          {viewer.loading ? (
-            <div className={styles.lightboxHint}>Loading document…</div>
-          ) : viewer.isPdf ? (
-            <iframe
-              src={viewer.url}
-              title="Cost document"
-              className={styles.lightboxPdf}
-              onClick={e => e.stopPropagation()}
-            />
-          ) : (
-            <img src={viewer.url} alt="Document" className={styles.lightboxImg} onClick={e => e.stopPropagation()} />
-          )}
-          <div className={styles.lightboxHint}>Click outside to close</div>
         </div>
       )}
 
