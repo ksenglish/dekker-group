@@ -138,6 +138,15 @@ function DocumentCard({ jobId, scan, items, canEdit, onChanged, onScanDeleted, f
               {savingHead ? 'Saving…' : 'Save'}
             </button>
             <button className={styles.btnSmall} onClick={() => setEditHead(null)}>Cancel</button>
+            {/* Saying what the change does before it is made: switching the
+                type re-signs every line on this document. */}
+            {editHead.document_type !== (scan.document_type || 'invoice') && (
+              <span className={styles.costEditHint}>
+                {editHead.document_type === 'credit_note'
+                  ? `Saving makes all ${items.length} line${items.length === 1 ? '' : 's'} negative, so this comes off the job's costs.`
+                  : `Saving makes all ${items.length} line${items.length === 1 ? '' : 's'} positive again.`}
+              </span>
+            )}
           </div>
         ) : (
           <>

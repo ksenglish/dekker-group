@@ -1249,6 +1249,7 @@
   border-radius: var(--radius); font-size: 13px; min-width: 0; max-width: 100%;
 }
 .costDocHeadEdit input:first-child { flex: 1; min-width: 140px; }
+.costEditHint { flex: 1 1 100%; font-size: 12px; color: #b45309; }
 
 /* A line read wrong, or one missed altogether */
 .costEditTable { font-size: 13px; }

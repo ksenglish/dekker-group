@@ -19,6 +19,10 @@ STEP 2 — Extract each line item with these fields:
 - "description": string (item name/description)
 - "quantity": number (default 1 if not specified)
 - "unit_price": number — always the GST-EXCLUSIVE (ex-GST) price after applying Step 1
+- "line_total": number — the amount printed at the END of that line (its TOTAL
+  or AMOUNT column), EXACTLY as shown including any minus sign or brackets, or
+  null if the line shows no total. Do not work it out yourself and do not tidy
+  the sign: a line reading "-1  42.05  -48.36" has a line_total of -48.36.
 
 STEP 3 — Also read off the supplier name, the invoice or receipt number, and
 the date printed on the document as "invoice_date" in YYYY-MM-DD form. Use null
@@ -45,7 +49,7 @@ Ignore totals, subtotals, GST lines, freight/delivery charges, and payment terms
 If you cannot find any line items, return an empty "items" array.
 
 Return ONLY a JSON object, no markdown fences, no explanation:
-{"supplier":"Bunnings","invoice_number":"INV-1234","gst_treatment":"exclusive","invoice_date":"2026-09-29","document_type":"invoice","document_total":37.00,"items":[{"description":"Filter replacement","quantity":2,"unit_price":18.50}]}`;
+{"supplier":"Bunnings","invoice_number":"INV-1234","gst_treatment":"exclusive","invoice_date":"2026-09-29","document_type":"invoice","document_total":37.00,"items":[{"description":"Filter replacement","quantity":2,"unit_price":18.50,"line_total":37.00}]}`;
 
 // A PDF goes in a document block and an image in an image block. Anything we
 // don't recognise is treated as a JPEG, which is what the old scan route did.
@@ -88,7 +92,11 @@ async function extractLineItems({ base64, mimeType }) {
       const priceRaw = parseFloat(i.unit_price);
       const qty = Number.isFinite(qtyRaw) && qtyRaw !== 0 ? qtyRaw : 1;
       const price = Number.isFinite(priceRaw) ? priceRaw : 0;
-      const isCredit = qty * price < 0;
+      // The minus can sit anywhere on the line: on the quantity, on the price,
+      // or — as on a Bunnings credit note — only on the amount printed at the
+      // end of the row. Any one of them is enough to make the line a credit.
+      const totalRaw = parseFloat(i.line_total);
+      const isCredit = qty * price < 0 || (Number.isFinite(totalRaw) && totalRaw < 0);
       return {
         description: String(i.description).slice(0, 255),
         quantity: Math.max(0.01, Math.abs(qty)),

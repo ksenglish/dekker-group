@@ -615,7 +615,24 @@ router.patch('/:id/cost-scans/:scanId', requireRole('admin'), async (req, res) =
        req.params.scanId, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Document not found on this job' });
-    res.json(rows[0]);
+
+    // Marking a document a credit note makes its lines come OFF the job, and
+    // marking one back an invoice puts them back on. Without this the card
+    // would read CREDIT NOTE over a column of positive costs — and every
+    // document scanned before the credit-note fix needs exactly this one
+    // click to be put right.
+    let resigned = 0;
+    if (document_type) {
+      const { rowCount } = await pool.query(
+        `UPDATE job_costs
+            SET unit_price = $1 * ABS(unit_price)
+          WHERE scan_id = $2 AND job_id = $3
+            AND unit_price <> $1 * ABS(unit_price)`,
+        [document_type === 'credit_note' ? -1 : 1, req.params.scanId, req.params.id]
+      );
+      resigned = rowCount;
+    }
+    res.json({ ...rows[0], resigned_lines: resigned });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
