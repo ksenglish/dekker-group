@@ -7,6 +7,7 @@ const arcsite = require('../utils/arcsite');
 const { normaliseImageDataUrl, normaliseFilename } = require('../utils/normaliseUpload');
 const { htmlToText } = require('../utils/sanitizeHtml');
 const fileStore = require('../services/fileStore');
+const supplierMemory = require('../services/supplierMemory');
 
 // Automation endpoint — accepts X-API-Key or user JWT
 router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
@@ -35,7 +36,8 @@ router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
 // doesn't block API-key requests before authenticateAutomation can check them.
 router.post('/:id/costs', authenticateAutomation, async (req, res) => {
   const { items, document_base64, mime_type, gst_treatment,
-          supplier, invoice_number, invoice_date, document_type } = req.body;
+          supplier, invoice_number, invoice_date, document_type,
+          supplier_gst_number, supplier_read_as } = req.body;
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
   try {
     let scanId = null;
@@ -45,17 +47,25 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
       });
       const { rows: [scan] } = await pool.query(
         `INSERT INTO job_cost_scans (job_id, document_base64, mime_type, gst_treatment, status,
-                                     storage_key, size_bytes, supplier, invoice_number, invoice_date, document_type)
-         VALUES ($1,$2,$3,$4,'matched',$5,$6,$7,$8,$9,$10) RETURNING id`,
+                                     storage_key, size_bytes, supplier, invoice_number, invoice_date,
+                                     document_type, supplier_gst_number)
+         VALUES ($1,$2,$3,$4,'matched',$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
         [req.params.id, stored ? null : document_base64, mime_type || 'image/jpeg',
          gst_treatment || 'exclusive', stored?.key || null, stored?.size || null,
          supplier?.trim() || null, invoice_number?.trim() || null,
          // A date the scanner couldn't read is left null rather than guessed —
          // the upload date is already recorded separately.
          /^\d{4}-\d{2}-\d{2}$/.test(String(invoice_date || '')) ? invoice_date : null,
-         document_type === 'credit_note' ? 'credit_note' : 'invoice']
+         document_type === 'credit_note' ? 'credit_note' : 'invoice',
+         supplier_gst_number?.trim() || null]
       );
       scanId = scan.id;
+      // Whatever name was confirmed on the review screen is the right one for
+      // this document, so it is remembered against the GST number printed on
+      // it — and against what the scan read, where that was something else.
+      // The next document from this supplier then comes in named, even when
+      // the name only ever appears as a logo.
+      await supplierMemory.learn({ supplier, gstNumber: supplier_gst_number, readAs: supplier_read_as });
     }
     const inserted = [];
     for (let i = 0; i < items.length; i++) {
@@ -512,7 +522,7 @@ router.get('/:id/cost-scans', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT s.id, s.job_id, s.mime_type, s.gst_treatment, s.created_at,
-              s.supplier, s.invoice_number, s.invoice_date, s.document_type,
+              s.supplier, s.invoice_number, s.invoice_date, s.document_type, s.supplier_gst_number,
               (s.document_base64 IS NOT NULL OR s.storage_key IS NOT NULL) AS has_document,
               COALESCE((SELECT SUM(ROUND(c.quantity * c.unit_price))
                           FROM job_costs c WHERE c.scan_id = s.id), 0)::int AS total_cents,
@@ -600,6 +610,12 @@ router.patch('/:id/cost-scans/:scanId', requireRole('admin'), async (req, res) =
     return res.status(400).json({ error: 'Document type must be invoice or credit_note' });
   }
   try {
+    // Read before writing, so the name the scan originally produced can be
+    // remembered as another way of spelling the one being typed now.
+    const { rows: [before] } = await pool.query(
+      'SELECT supplier, supplier_gst_number FROM job_cost_scans WHERE id=$1 AND job_id=$2',
+      [req.params.scanId, req.params.id]
+    );
     const { rows } = await pool.query(
       `UPDATE job_cost_scans
           SET supplier       = COALESCE($1, supplier),
@@ -607,7 +623,7 @@ router.patch('/:id/cost-scans/:scanId', requireRole('admin'), async (req, res) =
               invoice_date   = COALESCE($3, invoice_date),
               document_type  = COALESCE($4, document_type)
         WHERE id = $5 AND job_id = $6
-        RETURNING id, supplier, invoice_number, invoice_date, document_type`,
+        RETURNING id, supplier, invoice_number, invoice_date, document_type, supplier_gst_number`,
       [supplier === undefined ? null : String(supplier).trim().slice(0, 255) || null,
        invoice_number === undefined ? null : String(invoice_number).trim().slice(0, 100) || null,
        invoice_date === undefined || invoice_date === '' ? null : invoice_date,
@@ -615,6 +631,17 @@ router.patch('/:id/cost-scans/:scanId', requireRole('admin'), async (req, res) =
        req.params.scanId, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Document not found on this job' });
+
+    // A name typed in by hand is the one moment we know we are right about who
+    // sent a document, so it is kept — against the GST number printed on it,
+    // and against whatever the scan had read.
+    if (supplier) {
+      await supplierMemory.learn({
+        supplier: rows[0].supplier,
+        gstNumber: rows[0].supplier_gst_number,
+        readAs: before?.supplier,
+      });
+    }
 
     // Marking a document a credit note makes its lines come OFF the job, and
     // marking one back an invoice puts them back on. Without this the card

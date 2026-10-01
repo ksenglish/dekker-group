@@ -21,6 +21,7 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
   const [lightbox, setLightbox] = useState(null);
   const [scanningStock, setScanningStock] = useState(false);
   const [stockLocations, setStockLocations] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const fileRef = useRef();
   // Blob URLs have to be revoked by hand or they leak for the life of the tab
   const docUrls = useRef({});
@@ -30,6 +31,12 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
   const canEdit = !readonly && isAdmin(user?.role);
 
   useEffect(() => { load(); }, [jobId]);
+
+  // The names already in use, so a supplier gets picked rather than typed a
+  // third way. A failure here just means no suggestions.
+  useEffect(() => {
+    api.get('/costs/suppliers').then(r => setSuppliers(r.data || [])).catch(() => {});
+  }, []);
 
   useEffect(() => () => {
     Object.values(docUrls.current).forEach(URL.revokeObjectURL);
@@ -103,6 +110,12 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
           setGstTreatment(data.gst_treatment || 'exclusive');
           setScanMeta({
             supplier: data.supplier || '',
+            // What the scan itself produced, kept so a correction can be
+            // remembered against it, and the GST number that identifies the
+            // supplier on every document they ever send.
+            read_as: data.supplier || '',
+            supplier_gst_number: data.supplier_gst_number || '',
+            supplier_recognised: !!data.supplier_recognised,
             invoice_number: data.invoice_number || '',
             invoice_date: data.invoice_date || '',
             document_type: data.document_type === 'credit_note' ? 'credit_note' : 'invoice',
@@ -142,6 +155,8 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
         invoice_number: scanMeta?.invoice_number || null,
         invoice_date: scanMeta?.invoice_date || null,
         document_type: scanMeta?.document_type || 'invoice',
+        supplier_gst_number: scanMeta?.supplier_gst_number || null,
+        supplier_read_as: scanMeta?.read_as || null,
       });
       await load();
       discardScan();
@@ -255,11 +270,20 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
 
             {/* The supplier and date are editable here because they are what the
                 Costs tab groups and sorts by once this is saved. */}
+            {/* Worth saying where the name came from: it was not on the page,
+                it came from the last time someone typed it. */}
+            {scanMeta?.supplier_recognised && (
+              <div className={styles.scanRecognised}>
+                Recognised <strong>{scanMeta.supplier}</strong> from an earlier invoice.
+              </div>
+            )}
+
             {scanMeta && (
               <div className={styles.scanMetaRow}>
                 <label>
                   Supplier
-                  <input value={scanMeta.supplier} placeholder="Not read"
+                  <input value={scanMeta.supplier} placeholder="Not read — type it once and it is remembered"
+                    list="cost-suppliers"
                     onChange={e => setScanMeta(m => ({ ...m, supplier: e.target.value }))} />
                 </label>
                 <label>
@@ -355,6 +379,12 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
           )}
         </div>
       )}
+
+      {/* The supplier names already in use. A datalist rather than a select:
+          a new supplier still has to be typeable. */}
+      <datalist id="cost-suppliers">
+        {suppliers.map(s => <option key={s} value={s} />)}
+      </datalist>
 
       {/* Lightbox for the freshly-scanned (not yet saved) document */}
       {lightbox && (

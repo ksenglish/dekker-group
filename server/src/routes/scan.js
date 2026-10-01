@@ -3,6 +3,7 @@ const router = express.Router();
 const Anthropic = require('@anthropic-ai/sdk');
 const { authenticate } = require('../middleware/auth');
 const { extractLineItems } = require('../services/invoiceExtract');
+const supplierMemory = require('../services/supplierMemory');
 
 router.use(authenticate);
 
@@ -19,7 +20,17 @@ router.post('/invoice', async (req, res) => {
   if (!data_base64 || !mime_type) return res.status(400).json({ error: 'file data required' });
 
   try {
-    const scan = await extractLineItems({ base64: data_base64, mimeType: mime_type });
+    // The names already on file go in with the document, so the scan matches a
+    // logo against one it knows instead of inventing a spelling.
+    const scan = await extractLineItems({
+      base64: data_base64, mimeType: mime_type,
+      knownSuppliers: await supplierMemory.knownSuppliers(),
+    });
+    // And if it still came back with nothing, or with a name nobody uses, the
+    // GST number printed on the document says who sent it.
+    const known = await supplierMemory.resolve({
+      supplier: scan.supplier, gstNumber: scan.supplier_gst_number,
+    });
     // The supplier, the date and whether this is a credit note all go back to
     // the screen: they are stored against the document so the Costs tab can
     // group by invoice, and the credit flag is what tells someone the lines
@@ -28,7 +39,10 @@ router.post('/invoice', async (req, res) => {
       items: scan.items,
       gst_treatment: scan.gst_treatment,
       raw_count: scan.raw_count,
-      supplier: scan.supplier,
+      supplier: known || scan.supplier,
+      supplier_gst_number: scan.supplier_gst_number,
+      // So the screen can say the name came from what was taught, not off the page.
+      supplier_recognised: !!known && known !== scan.supplier,
       invoice_number: scan.invoice_number,
       invoice_date: scan.invoice_date,
       document_type: scan.document_type,

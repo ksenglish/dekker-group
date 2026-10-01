@@ -1303,6 +1303,11 @@
   border: 1px solid #fca5a5; border-radius: var(--radius);
   font-size: 13px; color: #991b1b;
 }
+.scanRecognised {
+  margin: 10px 0; padding: 8px 12px; background: #f0fdf4;
+  border: 1px solid #86efac; border-radius: var(--radius);
+  font-size: 13px; color: #15803d;
+}
 .scanMetaRow {
   display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 14px;
 }

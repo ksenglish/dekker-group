@@ -123,7 +123,7 @@ function DocumentCard({ jobId, scan, items, canEdit, onChanged, onScanDeleted, f
       <div className={styles.costDocHead}>
         {editHead ? (
           <div className={styles.costDocHeadEdit}>
-            <input value={editHead.supplier} placeholder="Supplier"
+            <input value={editHead.supplier} placeholder="Supplier" list="cost-suppliers"
               onChange={e => setEditHead(h => ({ ...h, supplier: e.target.value }))} />
             <input value={editHead.invoice_number} placeholder="Invoice number"
               onChange={e => setEditHead(h => ({ ...h, invoice_number: e.target.value }))} />

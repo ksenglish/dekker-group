@@ -28,6 +28,13 @@ STEP 3 — Also read off the supplier name, the invoice or receipt number, and
 the date printed on the document as "invoice_date" in YYYY-MM-DD form. Use null
 for any you cannot find.
 
+The supplier is who SENT this document, not who it was sent to. Their name is
+often only in the logo at the top rather than written out, so read the logo. If
+the logo is the only place it appears, use it. Also return their GST number as
+"supplier_gst_number" exactly as printed (e.g. "24-882-403"), or null — it is
+usually near the top or in the footer, and it is how this supplier is
+recognised next time.
+
 STEP 4 — Decide what kind of document this is and set "document_type":
 - "credit_note" if the document calls itself a CREDIT NOTE, CREDIT, REFUND,
   RETURN or ADJUSTMENT NOTE anywhere — most often as a heading at the top —
@@ -49,7 +56,19 @@ Ignore totals, subtotals, GST lines, freight/delivery charges, and payment terms
 If you cannot find any line items, return an empty "items" array.
 
 Return ONLY a JSON object, no markdown fences, no explanation:
-{"supplier":"Bunnings","invoice_number":"INV-1234","gst_treatment":"exclusive","invoice_date":"2026-09-29","document_type":"invoice","document_total":37.00,"items":[{"description":"Filter replacement","quantity":2,"unit_price":18.50,"line_total":37.00}]}`;
+{"supplier":"Bunnings","supplier_gst_number":"24-882-403","invoice_number":"INV-1234","gst_treatment":"exclusive","invoice_date":"2026-09-29","document_type":"invoice","document_total":37.00,"items":[{"description":"Filter replacement","quantity":2,"unit_price":18.50,"line_total":37.00}]}`;
+
+// The suppliers already on file. Giving them to the scan stops one business
+// arriving under four spellings, and gives it something to match a logo
+// against. Left out entirely when there are none, rather than sending an
+// empty list for the model to puzzle over.
+function knownSupplierNote(names) {
+  if (!Array.isArray(names) || !names.length) return '';
+  return `\n\nThese suppliers are already on file:\n${names.map(n => `- ${n}`).join('\n')}\n`
+    + 'If this document is from one of them, return that name EXACTLY as written '
+    + 'above, whatever spelling or branch name the document itself uses. If it is '
+    + 'from someone else, return the name as printed.';
+}
 
 // A PDF goes in a document block and an image in an image block. Anything we
 // don't recognise is treated as a JPEG, which is what the old scan route did.
@@ -61,7 +80,7 @@ function sourceBlock(mimeType, data) {
   return { type: 'image', source: { type: 'base64', media_type, data } };
 }
 
-async function extractLineItems({ base64, mimeType }) {
+async function extractLineItems({ base64, mimeType, knownSuppliers = [] }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw Object.assign(new Error('ANTHROPIC_API_KEY is not configured on this server'), { status: 503 });
 
@@ -71,7 +90,10 @@ async function extractLineItems({ base64, mimeType }) {
   const message = await client.messages.create({
     model: MODEL,
     max_tokens: 2048,
-    messages: [{ role: 'user', content: [sourceBlock(mimeType, data), { type: 'text', text: PROMPT }] }],
+    messages: [{
+      role: 'user',
+      content: [sourceBlock(mimeType, data), { type: 'text', text: PROMPT + knownSupplierNote(knownSuppliers) }],
+    }],
   });
 
   const raw = (message.content.find(b => b.type === 'text')?.text || '').trim();
@@ -138,6 +160,7 @@ async function extractLineItems({ base64, mimeType }) {
     items,
     gst_treatment: parsed.gst_treatment === 'inclusive' ? 'inclusive' : 'exclusive',
     supplier: parsed.supplier ? String(parsed.supplier).slice(0, 255) : null,
+    supplier_gst_number: parsed.supplier_gst_number ? String(parsed.supplier_gst_number).slice(0, 50) : null,
     invoice_number: parsed.invoice_number ? String(parsed.invoice_number).slice(0, 100) : null,
     // Only a real date gets through — anything else would be stored as null by
     // Postgres anyway, and a half-parsed date is worse than none.

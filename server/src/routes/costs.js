@@ -4,8 +4,17 @@ const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { extractLineItems } = require('../services/invoiceExtract');
 const fileStore = require('../services/fileStore');
+const supplierMemory = require('../services/supplierMemory');
 
 router.use(authenticate);
+
+// The supplier names already in use, for a form to offer rather than have one
+// retyped a third way. Shared by the Costs tab and the Invoice Inbox.
+router.get('/suppliers', async (req, res) => {
+  try {
+    res.json(await supplierMemory.knownSuppliers(200));
+  } catch { res.json([]); }
+});
 
 // Line items are stored two different ways depending on how the scan arrived:
 // a job-linked scan has real job_costs rows, an unlinked one only has whatever
@@ -152,9 +161,23 @@ router.post('/documents', requireRole('admin', 'office'), async (req, res) => {
     let scan = { items: [], gst_treatment: 'exclusive', supplier: null, invoice_number: null };
     let scan_error = null;
     try {
-      scan = await extractLineItems({ base64: data_base64, mimeType: mime_type });
+      scan = await extractLineItems({
+        base64: data_base64, mimeType: mime_type,
+        knownSuppliers: await supplierMemory.knownSuppliers(),
+      });
+      // A supplier whose name is only in their logo is recognised by the GST
+      // number instead, from what earlier documents taught us.
+      scan.supplier = (await supplierMemory.resolve({
+        supplier: scan.supplier, gstNumber: scan.supplier_gst_number,
+      })) || scan.supplier;
     } catch (err) {
       scan_error = err.message || 'Could not read the line items off this document';
+    }
+    // Typed in by hand beats anything read off the page, and is worth keeping.
+    if (req.body.supplier?.trim()) {
+      await supplierMemory.learn({
+        supplier: req.body.supplier, gstNumber: scan.supplier_gst_number, readAs: scan.supplier,
+      });
     }
 
     // Bytes to the bucket where there is one; the column stays the fallback.
@@ -165,8 +188,9 @@ router.post('/documents', requireRole('admin', 'office'), async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO job_cost_scans
          (folder_id, status, document_base64, mime_type, supplier, invoice_number,
-          gst_treatment, parsed_items, storage_key, size_bytes, invoice_date, document_type)
-       VALUES ($1, 'filed', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          gst_treatment, parsed_items, storage_key, size_bytes, invoice_date, document_type,
+          supplier_gst_number)
+       VALUES ($1, 'filed', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id, supplier, invoice_number, mime_type, created_at, folder_id, parsed_items`,
       [
         folder_id, stored ? null : data_base64, mime_type,
@@ -176,6 +200,7 @@ router.post('/documents', requireRole('admin', 'office'), async (req, res) => {
         stored?.key || null, stored?.size || null,
         scan.invoice_date || null,
         scan.document_type === 'credit_note' ? 'credit_note' : 'invoice',
+        scan.supplier_gst_number || null,
       ]
     );
     res.status(201).json({ ...rows[0], scan_error });
