@@ -12,6 +12,104 @@ router.use(authenticate);
 // subcontractors that same "my own stuff" view instead of a 403.
 router.use(requireRole('admin', 'office', 'subcontractor'));
 
+// ── Job photos: what the crews photographed, by job type ─────────────────────
+//
+// Every photo here was taken on site and uploaded against a form, so it is a
+// picture of real finished work — which is what marketing needs, and what
+// nobody can find when it is buried three tabs deep on one job at a time.
+//
+// Only completed jobs appear: a job still in progress is a half-built fence.
+//
+// Photos live inside a submission's answers keyed by field id, and which fields
+// are photo fields is recorded in the snapshot taken when the form was filled
+// in. So the two are walked together — every photo field in the snapshot,
+// every photo in that field's answer.
+const PHOTO_SOURCE = `
+  FROM job_form_submissions s
+  JOIN form_templates t ON t.id = s.template_id
+  JOIN jobs j ON j.id = s.job_id
+  LEFT JOIN customers c ON c.id = j.customer_id
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(s.fields_snapshot) = 'array' THEN s.fields_snapshot ELSE '[]'::jsonb END
+  ) AS f
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(s.answers -> (f->>'id')) = 'array'
+         THEN s.answers -> (f->>'id') ELSE '[]'::jsonb END
+  ) AS p
+  WHERE f->>'type' = 'photo'
+    AND j.status = 'complete'
+    AND (p ? 'key' OR p ? 'inline')
+`;
+
+// The tree, with counts but no photo keys — the folders load in one query
+// however many thousand photos sit underneath them.
+router.get('/job-photos', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(NULLIF(TRIM(j.type), ''), 'Not set') AS job_type,
+              j.id AS job_id, j.job_number, j.external_ref, j.description,
+              COALESCE(j.complete_notified_at, j.updated_at) AS completed_at,
+              c.name AS customer_name,
+              t.stage,
+              COUNT(*)::int AS photo_count
+       ${PHOTO_SOURCE}
+       GROUP BY job_type, j.id, j.job_number, j.external_ref, j.description,
+                completed_at, c.name, t.stage`
+    );
+
+    // Rolled up here rather than in three more CTEs: the shape wanted is a
+    // tree, and this is one row per job per stage, not one per photo.
+    const types = new Map();
+    for (const r of rows) {
+      if (!types.has(r.job_type)) types.set(r.job_type, new Map());
+      const jobs = types.get(r.job_type);
+      if (!jobs.has(r.job_id)) {
+        jobs.set(r.job_id, {
+          id: r.job_id, job_number: r.job_number, external_ref: r.external_ref,
+          description: r.description, customer_name: r.customer_name,
+          completed_at: r.completed_at,
+          pre_install: 0, post_install: 0, photo_count: 0,
+        });
+      }
+      const job = jobs.get(r.job_id);
+      job[r.stage === 'pre_install' ? 'pre_install' : 'post_install'] += r.photo_count;
+      job.photo_count += r.photo_count;
+    }
+
+    res.json([...types.entries()]
+      .map(([job_type, jobs]) => {
+        const list = [...jobs.values()].sort((a, b) => (b.job_number || 0) - (a.job_number || 0));
+        return {
+          job_type,
+          job_count: list.length,
+          photo_count: list.reduce((s, j) => s + j.photo_count, 0),
+          jobs: list,
+        };
+      })
+      .sort((a, b) => b.photo_count - a.photo_count || a.job_type.localeCompare(b.job_type)));
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
+// One job's photos, split pre- and post-install. Fetched when a job is opened,
+// which is what keeps the tree above cheap.
+router.get('/job-photos/:jobId', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.stage, t.name AS form_name, f->>'label' AS field_label,
+              p->>'key' AS photo_key, p->>'inline' AS inline, p->>'filename' AS filename,
+              s.completed_at
+       ${PHOTO_SOURCE}
+         AND j.id = $1
+       ORDER BY t.stage, t.name, s.completed_at NULLS LAST`,
+      [req.params.jobId]
+    );
+    res.json({
+      pre_install: rows.filter(r => r.stage === 'pre_install'),
+      post_install: rows.filter(r => r.stage !== 'pre_install'),
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+});
+
 // Monthly revenue (last 12 months) — filtered to user's jobs for non-admin
 // ── Marketing: what each lead source produced against what it cost ──────────
 //

@@ -189,3 +189,106 @@
   .salesHeader { display: none; }
   .salesRow { grid-template-columns: 1fr 1fr; row-gap: 4px; }
 }
+
+/* ── Marketing tabs ──────────────────────────────────────────────────────── */
+.tabRow {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px;
+  border-bottom: 1px solid var(--color-border); padding-bottom: 10px;
+}
+.tab, .tabOn {
+  padding: 7px 16px; border-radius: var(--radius); font-size: 14px;
+  font-weight: 500; border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text);
+}
+.tab:hover { background: #f1f5f9; }
+.tabOn {
+  background: var(--color-text); color: white; border-color: var(--color-text);
+}
+
+/* ── Job photos ──────────────────────────────────────────────────────────────
+   A tree: job type, then job, then pre- or post-install. Each level is a
+   button rather than a row of links, because opening a branch is the only
+   thing you do to it. */
+.photoSearch {
+  padding: 7px 12px; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 13px; min-width: 240px; max-width: 100%;
+}
+.photoCount {
+  padding: 10px 16px; font-size: 12px; color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+}
+.treeArrow { display: inline-block; width: 14px; color: var(--color-text-muted); }
+
+.photoType { border-bottom: 1px solid var(--color-border); }
+.photoType:last-of-type { border-bottom: none; }
+.photoTypeHead, .photoJobHead, .photoStageHead {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer; color: var(--color-text);
+}
+.photoTypeHead {
+  padding: 14px 16px; font-size: 15px; font-weight: 700;
+}
+.photoTypeHead:hover, .photoJobHead:hover, .photoStageHead:hover { background: #f8fafc; }
+.photoTypeHead em, .photoJobHead em, .photoStageHead em {
+  font-style: normal; font-size: 12px; font-weight: 500;
+  color: var(--color-text-muted); margin-left: auto; text-align: right;
+}
+
+.photoJobs { padding-left: 16px; }
+.photoJob { border-top: 1px solid var(--color-border); }
+.photoJobHead { padding: 11px 16px; font-size: 14px; }
+.photoJobWho {
+  font-size: 12px; color: var(--color-text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+
+.photoStages { padding: 0 0 12px 20px; }
+.photoStage { border-top: 1px solid var(--color-border); }
+.photoStageHead { padding: 9px 16px; font-size: 13px; font-weight: 600; }
+.photoJobLink {
+  display: inline-block; margin: 10px 0 0 16px;
+  font-size: 12px; color: var(--color-primary); text-decoration: none;
+}
+.photoJobLink:hover { text-decoration: underline; }
+
+.photoGrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px; padding: 10px 16px 14px;
+}
+.photoTile { margin: 0; }
+.photoTile img {
+  width: 100%; height: 130px; object-fit: cover; display: block; cursor: zoom-in;
+  border-radius: var(--radius); background: #f1f5f9;
+  border: 1px solid var(--color-border);
+}
+.photoTile figcaption {
+  font-size: 11px; color: var(--color-text-muted); margin-top: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.photoTileLoading {
+  height: 130px; border-radius: var(--radius); background: #f1f5f9;
+  border: 1px solid var(--color-border);
+}
+
+.photoLightbox {
+  position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.85);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 24px;
+}
+.photoLightbox img {
+  max-width: 94vw; max-height: 82vh; object-fit: contain;
+  border-radius: var(--radius); cursor: default;
+}
+.photoLightboxClose {
+  position: absolute; top: 16px; right: 20px; background: none; border: none;
+  color: white; font-size: 26px; cursor: pointer; line-height: 1;
+}
+.photoLightboxHint { color: #e2e8f0; font-size: 13px; text-align: center; }
+
+@media (max-width: 640px) {
+  .photoJobs { padding-left: 6px; }
+  .photoStages { padding-left: 8px; }
+  .photoJobWho { display: none; }
+  .photoGrid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+  .photoTile img, .photoTileLoading { height: 100px; }
+}

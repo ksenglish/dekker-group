@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { toLocalDateStr } from '../../lib/date';
+import JobPhotos from './JobPhotos';
 import styles from './Reports.module.css';
 
 const money = cents => (Number(cents || 0) / 100).toLocaleString('en-NZ', {
@@ -22,6 +23,7 @@ export default function MarketingPage() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showSpend, setShowSpend] = useState(false);
+  const [tab, setTab] = useState('sources');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -45,11 +47,26 @@ export default function MarketingPage() {
         <div>
           <Link to="/reports" className={styles.backLink}>← Reports</Link>
           <h1 className={styles.pageTitle}>Marketing</h1>
-          <p className={styles.pageSubtitle}>What each lead source brought in, against what it cost</p>
+          <p className={styles.pageSubtitle}>
+            {tab === 'photos'
+              ? 'Photos from completed jobs, by job type'
+              : 'What each lead source brought in, against what it cost'}
+          </p>
         </div>
-        <button className={styles.btnSmall} onClick={() => setShowSpend(true)}>Record spend</button>
+        {tab === 'sources' && (
+          <button className={styles.btnSmall} onClick={() => setShowSpend(true)}>Record spend</button>
+        )}
       </div>
 
+
+      <div className={styles.tabRow}>
+        <button className={tab === 'sources' ? styles.tabOn : styles.tab}
+          onClick={() => setTab('sources')}>Lead Sources</button>
+        <button className={tab === 'photos' ? styles.tabOn : styles.tab}
+          onClick={() => setTab('photos')}>Job Photos</button>
+      </div>
+
+      {tab === 'photos' ? <JobPhotos /> : (<>
       <div className={styles.dateRange}>
         <label>Period:</label>
         <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={styles.dateInput} />
@@ -138,6 +155,8 @@ export default function MarketingPage() {
           above, since it is usually recorded monthly while the work lands later.
         </div>
       </div>
+
+      </>)}
 
       {showSpend && (
         <SpendManager
