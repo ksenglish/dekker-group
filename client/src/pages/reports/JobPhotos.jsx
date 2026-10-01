@@ -17,32 +17,40 @@ const fmtDate = d => (d
 
 const jobLabel = j => j.external_ref || (j.job_number ? `JB${String(j.job_number).padStart(5, '0')}` : 'Job');
 
-// The photo endpoint needs the auth header, so an <img src> pointed straight at
-// it gets a 401 — each one is fetched as a blob instead. Loaded only when its
-// branch is opened, which is the point of the tree.
-function Photo({ photo, onOpen }) {
+// Both photo routes need the auth header, so an <img src> pointed straight at
+// either gets a 401 — each one is fetched as a blob instead. Loaded only when
+// its branch is opened, which is the point of the tree.
+function Photo({ photo, jobId, onOpen }) {
   const [url, setUrl] = useState(photo.inline || null);
 
   useEffect(() => {
-    if (photo.inline || !photo.photo_key) return;
+    if (photo.inline) return;
+    // A photo answered into a form is served by key; one dropped straight onto
+    // the tab is an attachment on the job and served by its own id.
+    const req = photo.attachment_id
+      ? api.get(`/jobs/${jobId}/attachments/${photo.attachment_id}/data`, { responseType: 'blob' })
+      : photo.photo_key
+        ? api.get('/forms/photos', { params: { key: photo.photo_key }, responseType: 'blob' })
+        : null;
+    if (!req) return;
     let objectUrl;
-    api.get('/forms/photos', { params: { key: photo.photo_key }, responseType: 'blob' })
-      .then(r => { objectUrl = URL.createObjectURL(r.data); setUrl(objectUrl); })
-      .catch(() => {});
+    req.then(r => { objectUrl = URL.createObjectURL(r.data); setUrl(objectUrl); }).catch(() => {});
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [photo.photo_key, photo.inline]);
+  }, [photo.photo_key, photo.attachment_id, photo.inline, jobId]);
 
   if (!url) return <div className={styles.photoTileLoading} />;
   return (
     <figure className={styles.photoTile}>
       <img src={url} alt={photo.filename || photo.field_label || 'Job photo'}
         onClick={() => onOpen({ ...photo, url })} />
-      <figcaption>{photo.field_label || photo.form_name}</figcaption>
+      {/* A photo on a form is best named by what it was a photo of; one
+          dropped on the tab has only its filename to go on. */}
+      <figcaption>{photo.form_name ? (photo.field_label || photo.form_name) : photo.filename}</figcaption>
     </figure>
   );
 }
 
-function StageBranch({ label, photos, openStage, setOpenStage, stageKey, onOpen }) {
+function StageBranch({ label, photos, openStage, setOpenStage, stageKey, jobId, onOpen }) {
   const open = openStage === stageKey;
   if (!photos.length) return null;
   return (
@@ -54,7 +62,9 @@ function StageBranch({ label, photos, openStage, setOpenStage, stageKey, onOpen 
       </button>
       {open && (
         <div className={styles.photoGrid}>
-          {photos.map((p, i) => <Photo key={p.photo_key || `i${i}`} photo={p} onOpen={onOpen} />)}
+          {photos.map((p, i) => (
+            <Photo key={p.photo_key || p.attachment_id || `i${i}`} photo={p} jobId={jobId} onOpen={onOpen} />
+          ))}
         </div>
       )}
     </div>
@@ -103,9 +113,9 @@ function JobBranch({ job, onOpenPhoto }) {
           ) : (
             <>
               <StageBranch label="Pre-Install Forms" stageKey="pre" photos={photos.pre_install}
-                openStage={openStage} setOpenStage={setOpenStage} onOpen={onOpenPhoto} />
+                openStage={openStage} setOpenStage={setOpenStage} jobId={job.id} onOpen={onOpenPhoto} />
               <StageBranch label="Post-Install Forms" stageKey="post" photos={photos.post_install}
-                openStage={openStage} setOpenStage={setOpenStage} onOpen={onOpenPhoto} />
+                openStage={openStage} setOpenStage={setOpenStage} jobId={job.id} onOpen={onOpenPhoto} />
             </>
           )}
           <Link to={`/jobs/${job.id}`} className={styles.photoJobLink}>Open this job →</Link>
@@ -192,7 +202,8 @@ export default function JobPhotos() {
           <button className={styles.photoLightboxClose} onClick={() => setLightbox(null)}>✕</button>
           <img src={lightbox.url} alt={lightbox.filename || 'Job photo'} onClick={e => e.stopPropagation()} />
           <div className={styles.photoLightboxHint}>
-            {[lightbox.form_name, lightbox.field_label].filter(Boolean).join(' · ')}
+            {[lightbox.form_name || lightbox.filename, lightbox.form_name && lightbox.field_label]
+              .filter(Boolean).join(' · ')}
             {/* Right-click → Save image. A download button would need the blob
                 fetched a second time for no gain. */}
             <span> — click outside to close</span>

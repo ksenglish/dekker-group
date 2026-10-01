@@ -14,47 +14,78 @@ router.use(requireRole('admin', 'office', 'subcontractor'));
 
 // ── Job photos: what the crews photographed, by job type ─────────────────────
 //
-// Every photo here was taken on site and uploaded against a form, so it is a
-// picture of real finished work — which is what marketing needs, and what
-// nobody can find when it is buried three tabs deep on one job at a time.
+// Everything uploaded under a job's Pre-Install Forms or Post-Install Forms
+// tab: photos dropped straight onto the tab, and photos answered into a form's
+// photo field. Both are pictures of real work on a real job, and which of the
+// two routes a photo took in is of no interest to anyone looking for it.
 //
-// Only completed jobs appear: a job still in progress is a half-built fence.
+// Only completed jobs appear. A job still in progress is a half-built fence.
 //
-// Photos live inside a submission's answers keyed by field id, and which fields
-// are photo fields is recorded in the snapshot taken when the form was filled
-// in. So the two are walked together — every photo field in the snapshot,
-// every photo in that field's answer.
+// Images only — a PDF plan or spec sheet uploaded alongside them is a document,
+// not a photo, and belongs on the job rather than in a marketing shelf.
 const PHOTO_SOURCE = `
-  FROM job_form_submissions s
-  JOIN form_templates t ON t.id = s.template_id
-  JOIN jobs j ON j.id = s.job_id
-  LEFT JOIN customers c ON c.id = j.customer_id
-  CROSS JOIN LATERAL jsonb_array_elements(
-    CASE WHEN jsonb_typeof(s.fields_snapshot) = 'array' THEN s.fields_snapshot ELSE '[]'::jsonb END
-  ) AS f
-  CROSS JOIN LATERAL jsonb_array_elements(
-    CASE WHEN jsonb_typeof(s.answers -> (f->>'id')) = 'array'
-         THEN s.answers -> (f->>'id') ELSE '[]'::jsonb END
-  ) AS p
-  WHERE f->>'type' = 'photo'
-    AND j.status = 'complete'
-    AND (p ? 'key' OR p ? 'inline')
+  WITH photos AS (
+    -- Dropped onto the tab itself. The category column IS the pre/post split.
+    SELECT a.job_id,
+           a.category                AS stage,
+           'attachment'::text        AS source,
+           a.id::text                AS ref,
+           NULL::text                AS inline,
+           a.filename,
+           NULL::text                AS form_name,
+           'Uploaded to the tab'::text AS field_label,
+           a.created_at              AS taken_at
+      FROM job_attachments a
+     WHERE a.mime_type ILIKE 'image/%'
+
+    UNION ALL
+
+    -- Answered into a photo field on a form. Photos live inside a submission's
+    -- answers keyed by field id, and which fields are photo fields is recorded
+    -- in the snapshot taken when the form was filled in — so the two are walked
+    -- together, and a template edited since cannot hide yesterday's photos.
+    SELECT s.job_id,
+           t.stage,
+           'form'::text,
+           p->>'key',
+           p->>'inline',
+           p->>'filename',
+           t.name,
+           f->>'label',
+           s.completed_at
+      FROM job_form_submissions s
+      JOIN form_templates t ON t.id = s.template_id
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(s.fields_snapshot) = 'array' THEN s.fields_snapshot ELSE '[]'::jsonb END
+      ) AS f
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(s.answers -> (f->>'id')) = 'array'
+             THEN s.answers -> (f->>'id') ELSE '[]'::jsonb END
+      ) AS p
+     WHERE f->>'type' = 'photo'
+       AND (p ? 'key' OR p ? 'inline')
+  )
+  SELECT %COLUMNS%
+    FROM photos ph
+    JOIN jobs j ON j.id = ph.job_id
+    LEFT JOIN customers c ON c.id = j.customer_id
+   WHERE j.status = 'complete'
 `;
 
-// The tree, with counts but no photo keys — the folders load in one query
-// however many thousand photos sit underneath them.
+// The tree, with counts but no photo references — the folders open in one
+// query however many thousand photos sit underneath them.
 router.get('/job-photos', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT COALESCE(NULLIF(TRIM(j.type), ''), 'Not set') AS job_type,
-              j.id AS job_id, j.job_number, j.external_ref, j.description,
-              COALESCE(j.complete_notified_at, j.updated_at) AS completed_at,
-              c.name AS customer_name,
-              t.stage,
-              COUNT(*)::int AS photo_count
-       ${PHOTO_SOURCE}
-       GROUP BY job_type, j.id, j.job_number, j.external_ref, j.description,
-                completed_at, c.name, t.stage`
+      PHOTO_SOURCE.replace('%COLUMNS%', `
+        COALESCE(NULLIF(TRIM(j.type), ''), 'Not set') AS job_type,
+        j.id AS job_id, j.job_number, j.external_ref, j.description,
+        COALESCE(j.complete_notified_at, j.updated_at) AS completed_at,
+        c.name AS customer_name,
+        ph.stage,
+        COUNT(*)::int AS photo_count`) +
+      ` GROUP BY job_type, j.id, j.job_number, j.external_ref, j.description,
+                 completed_at, c.name, ph.stage`
     );
 
     // Rolled up here rather than in three more CTEs: the shape wanted is a
@@ -91,21 +122,35 @@ router.get('/job-photos', async (req, res) => {
 });
 
 // One job's photos, split pre- and post-install. Fetched when a job is opened,
-// which is what keeps the tree above cheap.
+// which is what keeps the tree above cheap. Each one says how to fetch the
+// image itself: a photo on a form comes from /forms/photos, one dropped on the
+// tab from the job's own attachment route.
 router.get('/job-photos/:jobId', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT t.stage, t.name AS form_name, f->>'label' AS field_label,
-              p->>'key' AS photo_key, p->>'inline' AS inline, p->>'filename' AS filename,
-              s.completed_at
-       ${PHOTO_SOURCE}
-         AND j.id = $1
-       ORDER BY t.stage, t.name, s.completed_at NULLS LAST`,
+      PHOTO_SOURCE.replace('%COLUMNS%', `
+        ph.stage, ph.source, ph.ref, ph.inline, ph.filename,
+        ph.form_name, ph.field_label, ph.taken_at`) +
+      ` AND j.id = $1
+        ORDER BY ph.stage, ph.taken_at NULLS LAST, ph.filename`,
       [req.params.jobId]
     );
+    const shape = r => ({
+      source: r.source,
+      // Which identifier matters depends on where the photo came from, so both
+      // are named for what they are rather than sharing one vague "id".
+      photo_key: r.source === 'form' ? r.ref : null,
+      attachment_id: r.source === 'attachment' ? r.ref : null,
+      inline: r.inline,
+      filename: r.filename,
+      form_name: r.form_name,
+      field_label: r.field_label,
+      taken_at: r.taken_at,
+    });
     res.json({
-      pre_install: rows.filter(r => r.stage === 'pre_install'),
-      post_install: rows.filter(r => r.stage !== 'pre_install'),
+      job_id: req.params.jobId,
+      pre_install: rows.filter(r => r.stage === 'pre_install').map(shape),
+      post_install: rows.filter(r => r.stage !== 'pre_install').map(shape),
     });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
