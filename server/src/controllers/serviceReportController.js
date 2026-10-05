@@ -12,7 +12,8 @@
 // admin asking for it by name.
 const pool = require('../db/pool');
 const { buildPDF } = require('../utils/pdf');
-const { getTheme } = require('./settingsController');
+const { getThemeById, getDefaultTheme } = require('../utils/documentThemes');
+const { findJobType } = require('../services/jobTypes');
 
 const GST_RATE = 0.15;
 const DEFAULT_MARKUP_PCT = 30;
@@ -30,6 +31,41 @@ async function getBillingRates() {
 
 const rateOf = (entry, rates) => rates.find(r => r.id === entry.billing_rate_id) || null;
 
+// The branding a job documents itself with. A job type carries the theme its
+// quotes and invoices use, so the service report uses the same one and the
+// customer gets three documents that look like they came from one company.
+async function themeForJob(job) {
+  const type = await findJobType(job.type);
+  if (type?.theme_id) {
+    const theme = await getThemeById(type.theme_id);
+    if (theme) return theme;
+  }
+  return getDefaultTheme();
+}
+
+// The scope of works is rich text from the job description editor. The screen
+// renders it as markup; the PDF needs it flattened — but flattened with its
+// shape intact, since it is nearly always a list of what was agreed. The
+// shared htmlToText collapses everything to one line, which would run eight
+// bullet points together into a paragraph.
+function scopeToText(html) {
+  if (!html) return '';
+  if (!/<\/?[a-z][^>]*>/i.test(html)) return String(html);
+  return String(html)
+    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<li[^>]*>/gi, '\u2022 ')
+    .replace(/<\/(li|p|div|ul|ol|h[1-6])>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n{3,} */g, '\n\n')
+    .replace(/ *\n */g, '\n')
+    .trim();
+}
+
 // Money is integer cents excluding GST everywhere in this app, and stays that
 // way here — the rounding happens once, on each line, so the totals are the sum
 // of what is printed rather than a number nobody can reproduce.
@@ -41,6 +77,8 @@ async function buildReport(jobId) {
             j.site_address, j.created_at, j.service_report_token, j.service_report_markup_pct,
             c.name AS customer_name, c.company AS customer_company,
             c.email AS customer_email, c.phone AS customer_phone,
+            c.address_street, c.address_city, c.address_region,
+            c.address_postcode, c.address_country,
             s.address AS site_address_full, s.label AS site_label
        FROM jobs j
        LEFT JOIN customers c ON c.id = j.customer_id
@@ -50,7 +88,8 @@ async function buildReport(jobId) {
   );
   if (!job) return null;
 
-  const [rates, timeRes, costRes] = await Promise.all([
+  const [theme, rates, timeRes, costRes] = await Promise.all([
+    themeForJob(job),
     getBillingRates(),
     pool.query(
       `SELECT t.id, t.date, t.hours, t.start_time, t.end_time, t.billing_rate_id, t.description,
@@ -139,7 +178,24 @@ async function buildReport(jobId) {
       company: job.customer_company || '',
       email: job.customer_email || '',
       phone: job.customer_phone || '',
+      address: [job.address_street, job.address_city, job.address_region,
+                job.address_postcode, job.address_country].filter(Boolean).join(', '),
     },
+    // The same block the public quote page draws its header from, so the two
+    // documents carry one letterhead.
+    company: {
+      name: theme.companyName,
+      logo: theme.logoBase64,
+      logoSize: theme.logoSize,
+      logoPosition: theme.logoPosition,
+      contactPosition: theme.contactPosition,
+      contactDetails: theme.contactDetails,
+      gstNumber: theme.gstNumber || '',
+      brandColour: theme.brandColour,
+    },
+    // Kept out of the body the client renders: the PDF builder wants the whole
+    // theme, and the logo alone is a large string nobody on screen needs twice.
+    _theme: theme,
     labour,
     materials,
     markup_pct: markupPct,
@@ -195,8 +251,9 @@ async function get(req, res) {
     if (!report) return res.status(404).json({ error: 'Job not found' });
     const { rows: [j] } = await pool.query(
       'SELECT service_report_token FROM jobs WHERE id = $1', [req.params.id]);
+    const { _theme, ...rest } = report;
     const body = {
-      ...report,
+      ...rest,
       share_token: j.service_report_token,
       share_path: j.service_report_token ? `/sr/${j.service_report_token}` : null,
     };
@@ -258,7 +315,8 @@ async function publicGet(req, res) {
     // is nothing to be learned by guessing tokens.
     if (!j) return res.status(404).json({ error: 'This report is no longer available' });
     const report = await buildReport(j.id);
-    res.json(report);
+    const { _theme, ...rest } = report;
+    res.json(rest);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
@@ -269,7 +327,7 @@ async function publicGet(req, res) {
 // materials become one table with a heading row for each, since that is what
 // the builder draws and what an invoice looks like.
 async function renderPdf(report) {
-  const theme = await getTheme();
+  const theme = report._theme || await getDefaultTheme();
   const items = [];
 
   const fmtDate = d => (d
@@ -320,7 +378,7 @@ async function renderPdf(report) {
     subtotal: report.totals.subtotal_cents,
     gst: report.totals.gst_cents,
     total: report.totals.total_cents,
-    notes: report.job.scope ? `SCOPE OF WORKS\n${report.job.scope}` : '',
+    notes: report.job.scope ? `SCOPE OF WORKS\n${scopeToText(report.job.scope)}` : '',
     paymentTerms: theme.paymentTerms || '',
     terms: '',
     issuedAt: report.generated_at,

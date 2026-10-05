@@ -1,9 +1,14 @@
+import { safeHtml, isHtml } from '../../lib/richText';
 import styles from './ServiceReport.module.css';
 
 // The report itself, drawn the same way whether the office is looking at it on
 // the job or the customer is looking at it on a link. One component, so the two
 // cannot drift apart and a customer cannot be shown a different number from the
 // one the office is reading.
+//
+// The letterhead and the Bill To block follow the same theme the job's quotes
+// and invoices use, so a customer who has had all three has had them from one
+// company.
 //
 // Everything here is charge-out. Cost and margin are never part of this data.
 
@@ -17,31 +22,98 @@ const fmtDate = d => (d
       .toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' })
   : '');
 
+const fmtFullDate = d => (d
+  ? new Date(d).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' })
+  : '');
+
 const fmtTime = t => (t
   ? new Date(t).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' }).toLowerCase().replace(/\s/g, '')
   : null);
 
 const hours = h => `${(Math.round((h || 0) * 100) / 100).toFixed(2)} h`;
 
+const LOGO_HEIGHTS = { small: 40, medium: 58, large: 76 };
+
+// The description is rich text from the job editor on anything recent, and
+// plain text on jobs that predate it. Rendering plain text as HTML would weld
+// its lines together, so each is handled as what it is.
+function Scope({ html }) {
+  if (!html) return null;
+  if (!isHtml(html)) return <p className={styles.scope}>{html}</p>;
+  return <div className={styles.scope} dangerouslySetInnerHTML={{ __html: safeHtml(html) }} />;
+}
+
+function Letterhead({ company }) {
+  if (!company) return null;
+  const logoOnLeft = (company.logoPosition || 'left') === 'left';
+  const contactOnLeft = (company.contactPosition || 'right') === 'left';
+  const logoHeight = LOGO_HEIGHTS[company.logoSize] || LOGO_HEIGHTS.medium;
+  const lines = (company.contactDetails || '').split('\n').map(l => l.trim()).filter(Boolean);
+
+  const logoBlock = (
+    <div key="logo" className={styles.logoBlock} style={{ order: logoOnLeft ? 1 : 2 }}>
+      {company.logo
+        ? <img src={company.logo} alt={company.name || 'Logo'}
+            className={styles.logo} style={{ height: logoHeight, maxWidth: logoHeight * 2.8 }} />
+        : <div className={styles.companyName}>{company.name}</div>}
+    </div>
+  );
+  const contactBlock = (
+    <div key="contact" className={styles.contactBlock}
+      style={{ order: contactOnLeft ? 1 : 2, textAlign: contactOnLeft ? 'left' : 'right' }}>
+      {lines.map((line, i) => <div key={i}>{line}</div>)}
+    </div>
+  );
+
+  return <div className={styles.letterhead}>{[logoBlock, contactBlock]}</div>;
+}
+
 export default function ServiceReportView({ report, heading = 'Job Service Report' }) {
-  const { job, customer, labour, materials, totals } = report;
+  const { job, customer, company, labour, materials, totals } = report;
 
   return (
     <div className={styles.report}>
-      <div className={styles.head}>
+      <Letterhead company={company} />
+
+      <div className={styles.titleRow}>
+        <div className={styles.docType}>{heading}</div>
+        <div className={styles.jobNumber}>{job.number || ''}</div>
+      </div>
+
+      {/* Bill To / Job / Report, the same three columns a quote carries */}
+      <div className={styles.detailGrid}>
         <div>
-          <div className={styles.docType}>{heading}</div>
-          <h1 className={styles.jobNumber}>{job.number || 'Job'}</h1>
-          {job.address && <div className={styles.addr}>{job.address}</div>}
+          <div className={styles.custName}>{customer.company || customer.name}</div>
+          {customer.company && customer.name && <div className={styles.custLine}>{customer.name}</div>}
+          {customer.address && <div className={styles.custLine}>{customer.address}</div>}
+          {customer.email && <div className={styles.custLine}>{customer.email}</div>}
+          {customer.phone && <div className={styles.custLine}>{customer.phone}</div>}
         </div>
-        <div className={styles.headRight}>
-          {customer.company || customer.name ? (
-            <>
-              <div className={styles.forLabel}>Prepared for</div>
-              <div className={styles.forName}>{customer.company || customer.name}</div>
-              {customer.company && customer.name && <div className={styles.addr}>{customer.name}</div>}
-            </>
-          ) : null}
+        <div>
+          {job.number && (
+            <div className={styles.field}>
+              <div className={styles.fieldLabel}>Job Number</div>
+              <div className={styles.fieldValue}>{job.number}</div>
+            </div>
+          )}
+          {job.address && (
+            <div className={styles.field}>
+              <div className={styles.fieldLabel}>Job Address</div>
+              <div className={styles.fieldValue}>{job.address}</div>
+            </div>
+          )}
+        </div>
+        <div>
+          <div className={styles.field}>
+            <div className={styles.fieldLabel}>Recorded To</div>
+            <div className={styles.fieldValue}>{fmtFullDate(report.generated_at)}</div>
+          </div>
+          {company?.gstNumber && (
+            <div className={styles.field}>
+              <div className={styles.fieldLabel}>GST Number</div>
+              <div className={styles.fieldValue}>{company.gstNumber}</div>
+            </div>
+          )}
           <div className={styles.liveTag}>Live · updates as work is recorded</div>
         </div>
       </div>
@@ -49,7 +121,7 @@ export default function ServiceReportView({ report, heading = 'Job Service Repor
       {job.scope && (
         <section className={styles.section}>
           <h2>Scope of works</h2>
-          <p className={styles.scope}>{job.scope}</p>
+          <Scope html={job.scope} />
         </section>
       )}
 
