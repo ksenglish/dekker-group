@@ -81,6 +81,14 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// The customer's copy of a job's service report, opened from a link in an
+// email. Declared before the global authenticate below, the same way the public
+// quote routes are: the token IS the authentication, and it is only minted when
+// someone in the office decides to share the job.
+const publicServiceReport = require('../controllers/serviceReportController');
+router.get('/service-report/public/:token', publicServiceReport.publicGet);
+router.get('/service-report/public/:token/pdf', publicServiceReport.publicPdf);
+
 router.use(authenticate);
 
 // Geocode an address using Nominatim (OpenStreetMap) — free, no API key required
@@ -153,6 +161,18 @@ const billing = require('../controllers/jobBillingController');
 router.get('/:id/billable', requireRole('admin', 'office'), billing.listBillable);
 router.post('/:id/line-items/from-costs-and-time', requireRole('admin', 'office'), billing.addToLineItems);
 router.post('/:id/invoice', requireRole('admin', 'office'), billing.createInvoiceFromLineItems);
+
+// The live service report: scope of works, hours clocked, materials, totals.
+// Anyone who can act on the job can read it — everything on it is charge-out,
+// and the cost-and-margin block the controller adds for admin is the only part
+// that isn't. Minting and pulling the customer's link is a narrower decision.
+const serviceReport = require('../controllers/serviceReportController');
+router.get('/:id/service-report', requireRole('admin', 'office'), serviceReport.get);
+router.get('/:id/service-report/pdf', requireRole('admin', 'office'), serviceReport.downloadPdf);
+router.post('/:id/service-report/share', requireRole('admin', 'office'), serviceReport.share);
+router.delete('/:id/service-report/share', requireRole('admin', 'office'), serviceReport.unshare);
+// What the customer pays over the supplier price is a commercial decision.
+router.put('/:id/service-report/markup', requireRole('admin'), serviceReport.setMarkup);
 
 // Priced proposals — one per scope of work on the job. Cost prices, markup and
 // margin are all in here, so admin only for now.

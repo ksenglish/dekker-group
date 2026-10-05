@@ -534,6 +534,17 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       let rowY = tableY + 22;
 
       (items || []).forEach((item, i) => {
+        // A section label — "LABOUR", "MATERIALS" — rather than a priced line.
+        // The service report groups its lines this way; a quote or invoice
+        // passes none and is unaffected.
+        if (item._heading) {
+          doc.rect(50, rowY, W, ROW_H).fill('#eef2f7');
+          doc.fillColor(MID_GREY).fontSize(8).font('Helvetica-Bold')
+            .text(String(item.description || '').toUpperCase(), colDesc, rowY + 7, { width: descWidth });
+          doc.fillColor(TEXT).font('Helvetica').fontSize(9);
+          rowY += ROW_H;
+          return;
+        }
         const lineTotal = item.unit_price * item.quantity;
         if (i % 2 === 1) doc.rect(50, rowY, W, ROW_H).fill(LIGHT_GREY);
 

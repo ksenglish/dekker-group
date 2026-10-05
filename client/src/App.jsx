@@ -6,6 +6,7 @@ import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import SetPasswordPage from './pages/auth/SetPasswordPage';
 import AppShell from './components/layout/AppShell';
 import PublicQuote from './pages/quotes/PublicQuote';
+import PublicServiceReport from './pages/jobs/PublicServiceReport';
 import Dashboard from './pages/Dashboard';
 
 function PrivateRoute({ children }) {
@@ -30,6 +31,8 @@ export default function App() {
           <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
           <Route path="/set-password/:token" element={<SetPasswordPage />} />
           <Route path="/q/:token" element={<PublicQuote />} />
+          {/* The customer’s live job service report — no login, the token is the key */}
+          <Route path="/sr/:token" element={<PublicServiceReport />} />
           <Route path="/*" element={
             <PrivateRoute>
               <AppShell />
