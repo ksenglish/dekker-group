@@ -8,6 +8,12 @@
       "port": 5173
     },
     {
+      "name": "Mobile Preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--config", "client/mobile-preview/vite.config.js"],
+      "port": 5175
+    },
+    {
       "name": "Dekker Air Website",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "../dekkerair-website", "run", "dev", "--", "--port", "5174", "--strictPort"],
