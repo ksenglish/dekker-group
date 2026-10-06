@@ -72,7 +72,15 @@ async function loadProposals(jobId, proposalId) {
   if (!proposals.length) return [];
   const ids = proposals.map(p => p.id);
   const [{ rows: products }, { rows: labour }] = await Promise.all([
-    pool.query('SELECT * FROM job_proposal_products WHERE proposal_id = ANY($1::uuid[]) ORDER BY sort_order, id', [ids]),
+    // The product's quote wording is read live rather than snapshotted: prices
+    // must not move under a sent proposal, but how a post is described on a
+    // quote is wording the office is free to improve.
+    pool.query(
+      `SELECT pp.*, pr.quote_description
+         FROM job_proposal_products pp
+         LEFT JOIN products pr ON pr.id = pp.product_id
+        WHERE pp.proposal_id = ANY($1::uuid[])
+        ORDER BY pp.sort_order, pp.id`, [ids]),
     pool.query('SELECT * FROM job_proposal_labour WHERE proposal_id = ANY($1::uuid[]) ORDER BY sort_order, id', [ids]),
   ]);
   return proposals.map(p => {
@@ -114,19 +122,35 @@ async function create(req, res) {
       );
 
       if (req.body?.copy_from) {
-        // Copying an existing proposal is how a second scope usually starts —
-        // same labour lines, different materials.
+        // A copy is a copy: the materials, the hours against each labour line,
+        // the markup and the notes all come across. The second scope on a job
+        // is usually the first one with a few lines changed, and starting from
+        // an empty sheet was no better than starting a new proposal.
         const { rows: src } = await client.query(
           'SELECT * FROM job_proposals WHERE id=$1 AND job_id=$2', [req.body.copy_from, jobId]
         );
         if (src[0]) {
-          await client.query('UPDATE job_proposals SET markup_pct=$1 WHERE id=$2', [src[0].markup_pct, p.id]);
+          await client.query(
+            'UPDATE job_proposals SET markup_pct=$1, notes=$2 WHERE id=$3',
+            [src[0].markup_pct, src[0].notes, p.id]
+          );
           await client.query(
             `INSERT INTO job_proposal_labour (proposal_id, label, cost_rate, charge_rate, quantity, sort_order)
-             SELECT $1, label, cost_rate, charge_rate, 0, sort_order FROM job_proposal_labour WHERE proposal_id=$2`,
+             SELECT $1, label, cost_rate, charge_rate, quantity, sort_order
+               FROM job_proposal_labour WHERE proposal_id=$2`,
+            [p.id, src[0].id]
+          );
+          await client.query(
+            `INSERT INTO job_proposal_products (proposal_id, product_id, description, product_name,
+                                                quantity, cost_price, charge_price, sort_order)
+             SELECT $1, product_id, description, product_name, quantity, cost_price, charge_price, sort_order
+               FROM job_proposal_products WHERE proposal_id=$2`,
             [p.id, src[0].id]
           );
         }
+        // The quoted price is deliberately NOT copied. It is a rounded figure
+        // someone decided on for that scope, and carrying it over would quietly
+        // price a different scope at the old number.
       } else {
         // Else from a template — the one asked for, else the default.
         const { rows: [tpl] } = await client.query(
@@ -274,6 +298,35 @@ function proposalToLineItems(proposal, { itemise } = {}) {
 // Raises a draft quote from the chosen proposals. Proposals are how a price is
 // worked out; a quote is what the customer gets — so this is the step between
 // the two, and it writes the line items onto the QUOTE, not the job.
+// The wording a proposal contributes to the quote's description: its name as a
+// heading, then one bullet per material line.
+//
+// The bullet is the product's "Quote Description" where it has one — that field
+// exists precisely so a customer reads "100mm x 100mm H4 Treated Timber Fence
+// Post" rather than the supplier's catalogue line. Falling back to the line's
+// own description keeps a one-off, typed-in material on the list.
+//
+// Written as the same markup the description editor emits, so it can be edited
+// afterwards like anything else typed in there.
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, ch =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function scopeDescription(proposal) {
+  const bullets = [];
+  for (const line of proposal.products || []) {
+    const text = String(line.quote_description || line.description || '').trim();
+    // The same wording twice in one scope reads as a mistake on a customer's
+    // quote — two fixings lines both saying "Galvanised Fixings" is one bullet.
+    if (text && !bullets.includes(text)) bullets.push(text);
+  }
+  if (!bullets.length) return '';
+  const heading = String(proposal.name || '').trim();
+  return (heading ? `<div><span style="font-weight: bold">${escapeHtml(heading)}</span></div>` : '')
+    + `<ul>${bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`;
+}
+
 async function createQuote(req, res) {
   const jobId = req.params.id;
   const ids = Array.isArray(req.body?.proposal_ids) ? req.body.proposal_ids : [];
@@ -308,12 +361,18 @@ async function createQuote(req, res) {
       ? (() => { const d = new Date(); d.setDate(d.getDate() + expiryDays); return d.toISOString().split('T')[0]; })()
       : null;
 
+    // The theme's standing wording first, then a block per scope quoted, in
+    // the order they were chosen.
+    const scopes = chosen.map(scopeDescription).filter(Boolean);
+    const quoteDescription = [docTheme?.quoteDescription || '', ...scopes]
+      .filter(Boolean).join('<div><br></div>') || null;
+
     await client.query('BEGIN');
     const { rows: [quote] } = await client.query(
       `INSERT INTO quotes (job_id, customer_id, status, subtotal, gst, total, notes, expires_at, created_by, theme_id, quote_date)
        VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,CURRENT_DATE) RETURNING *`,
       [jobId, job.customer_id, subtotal, gst, subtotal + gst,
-       docTheme?.quoteDescription || null, expiresAt, req.user?.id || null, docTheme?.id || null]
+       quoteDescription, expiresAt, req.user?.id || null, docTheme?.id || null]
     );
 
     for (const l of lines) {
