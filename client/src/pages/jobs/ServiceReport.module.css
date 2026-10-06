@@ -147,10 +147,11 @@ p.scope { white-space: pre-wrap; }
   display: flex; align-items: center; gap: 6px;
   font-size: 12px; color: var(--color-text-muted);
 }
-.markupField input {
+.markupField input, .markupField select {
   width: 72px; padding: 5px 8px; font-size: 13px;
   border: 1px solid var(--color-border); border-radius: var(--radius);
 }
+.markupField select { width: auto; background: var(--color-surface); color: var(--color-text); }
 
 /* Cost and margin, for admin only. Deliberately styled as a separate block
    outside the report body, so it is never mistaken for part of what the

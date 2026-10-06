@@ -150,7 +150,9 @@ export default function ServiceReportView({ report, heading = 'Job Service Repor
                 </span>
                 <span className={styles.num}>{hours(l.hours)}</span>
                 <span className={styles.num}>
-                  {l.rate > 0 ? `$${l.rate.toFixed(2)}` : <em className={styles.noCharge}>no charge</em>}
+                  {l.rate <= 0 ? <em className={styles.noCharge}>no charge</em>
+                    : l.rate_basis === 'fixed' ? <>${l.rate.toFixed(2)} <em className={styles.noCharge}>fixed</em></>
+                    : `$${l.rate.toFixed(2)}`}
                 </span>
                 <span className={styles.num}>{money(l.charge_cents)}</span>
               </div>

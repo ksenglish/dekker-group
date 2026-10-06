@@ -171,8 +171,10 @@ router.get('/:id/service-report', requireRole('admin', 'office'), serviceReport.
 router.get('/:id/service-report/pdf', requireRole('admin', 'office'), serviceReport.downloadPdf);
 router.post('/:id/service-report/share', requireRole('admin', 'office'), serviceReport.share);
 router.delete('/:id/service-report/share', requireRole('admin', 'office'), serviceReport.unshare);
-// What the customer pays over the supplier price is a commercial decision.
+// What the customer pays over the supplier price is a commercial decision, and
+// so is the rate their hours and travel are charged at.
 router.put('/:id/service-report/markup', requireRole('admin'), serviceReport.setMarkup);
+router.put('/:id/service-report/rates', requireRole('admin'), serviceReport.setRates);
 
 // Priced proposals — one per scope of work on the job. Cost prices, markup and
 // margin are all in here, so admin only for now.

@@ -31,6 +31,23 @@ async function getBillingRates() {
 
 const rateOf = (entry, rates) => rates.find(r => r.id === entry.billing_rate_id) || null;
 
+// Travel is whichever billing rate is called travel. The id is what the default
+// list uses; the label catches a rate someone added by hand in settings.
+const isTravelRate = rate => !!rate && (rate.id === 'travel' || /travel/i.test(rate.label || ''));
+
+const numOrNull = v => (v == null ? null : parseFloat(v));
+
+// The rates this job is charged at, where an admin has set them on the report.
+// Null throughout means the house billing rates apply untouched.
+function jobRates(job) {
+  const travelMode = job.service_report_travel_mode || null;
+  return {
+    labour_rate: numOrNull(job.service_report_labour_rate),
+    travel_mode: travelMode,
+    travel_rate: travelMode ? numOrNull(job.service_report_travel_rate) ?? 0 : null,
+  };
+}
+
 // The branding a job documents itself with. A job type carries the theme its
 // quotes and invoices use, so the service report uses the same one and the
 // customer gets three documents that look like they came from one company.
@@ -75,6 +92,7 @@ async function buildReport(jobId) {
   const { rows: [job] } = await pool.query(
     `SELECT j.id, j.job_number, j.external_ref, j.description, j.status, j.type,
             j.site_address, j.created_at, j.service_report_token, j.service_report_markup_pct,
+            j.service_report_labour_rate, j.service_report_travel_mode, j.service_report_travel_rate,
             c.name AS customer_name, c.company AS customer_company,
             c.email AS customer_email, c.phone AS customer_phone,
             c.address_street, c.address_city, c.address_region,
@@ -114,10 +132,26 @@ async function buildReport(jobId) {
   // ── Labour ────────────────────────────────────────────────────────────────
   // One line per entry, not per person: the times clocked in and out are the
   // point, and rolling a day up would throw them away.
+  //
+  // A job's own labour rate covers every hour that is not travel, including an
+  // hour nobody rated. Its travel rate is either per hour or a fixed charge for
+  // each trip recorded — and a fixed trip still shows its hours, since how long
+  // the drive took is part of what the customer is reading.
+  const overrides = jobRates(job);
   const labour = timeRes.rows.map(e => {
     const hours = parseFloat(e.hours) || 0;
     const rate = rateOf(e, rates);
-    const hourlyRate = rate ? parseFloat(rate.rate) || 0 : 0;
+    const travel = isTravelRate(rate);
+    let hourlyRate = rate ? parseFloat(rate.rate) || 0 : 0;
+    let fixed = false;
+    if (travel && overrides.travel_mode === 'fixed') {
+      fixed = true;
+      hourlyRate = overrides.travel_rate;
+    } else if (travel && overrides.travel_mode === 'hourly') {
+      hourlyRate = overrides.travel_rate;
+    } else if (!travel && overrides.labour_rate != null) {
+      hourlyRate = overrides.labour_rate;
+    }
     return {
       id: e.id,
       user_name: e.user_name || 'Unassigned',
@@ -127,9 +161,11 @@ async function buildReport(jobId) {
       hours,
       // An entry with no rate chosen is still worked time: it shows, at nothing,
       // rather than quietly vanishing from the hours the customer is reading.
-      rate_label: rate ? rate.label : 'Not yet rated',
+      rate_label: rate ? rate.label : (overrides.labour_rate != null ? 'Labour' : 'Not yet rated'),
+      is_travel: travel,
+      rate_basis: fixed ? 'fixed' : 'hourly',
       rate: hourlyRate,
-      charge_cents: centsFromRate(hours, hourlyRate),
+      charge_cents: fixed ? Math.round(hourlyRate * 100) : centsFromRate(hours, hourlyRate),
       note: e.description || null,
     };
   });
@@ -196,6 +232,13 @@ async function buildReport(jobId) {
     // Kept out of the body the client renders: the PDF builder wants the whole
     // theme, and the logo alone is a large string nobody on screen needs twice.
     _theme: theme,
+    // The job's own rates and the house ones they replace, for the admin
+    // controls. Stripped like the theme — the customer reads the lines, not this.
+    _rates: {
+      ...overrides,
+      house_labour_rate: parseFloat(rates.find(r => !isTravelRate(r))?.rate) || 0,
+      house_travel_rate: parseFloat(rates.find(isTravelRate)?.rate) || 0,
+    },
     labour,
     materials,
     markup_pct: markupPct,
@@ -251,13 +294,16 @@ async function get(req, res) {
     if (!report) return res.status(404).json({ error: 'Job not found' });
     const { rows: [j] } = await pool.query(
       'SELECT service_report_token FROM jobs WHERE id = $1', [req.params.id]);
-    const { _theme, ...rest } = report;
+    const { _theme, _rates, ...rest } = report;
     const body = {
       ...rest,
       share_token: j.service_report_token,
       share_path: j.service_report_token ? `/sr/${j.service_report_token}` : null,
     };
-    if (req.user.role === 'admin') body.margin = await buildMargin(req.params.id, report);
+    if (req.user.role === 'admin') {
+      body.margin = await buildMargin(req.params.id, report);
+      body.rates = _rates;
+    }
     res.json(body);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
@@ -305,6 +351,48 @@ async function setMarkup(req, res) {
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
+// Each field is optional, so the screen can save one control at a time. An
+// empty labour rate or a travel mode of null puts the house rate back.
+async function setRates(req, res) {
+  const body = req.body || {};
+  const sets = [];
+  const params = [];
+  const money = (raw, what) => {
+    if (raw === null || raw === '') return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 100000) throw new Error(`${what} must be a dollar amount of 0 or more`);
+    return Math.round(n * 100) / 100;
+  };
+  try {
+    if ('labour_rate' in body) {
+      params.push(money(body.labour_rate, 'The labour rate'));
+      sets.push(`service_report_labour_rate = $${params.length}`);
+    }
+    if ('travel_mode' in body) {
+      const mode = body.travel_mode || null;
+      if (mode !== null && mode !== 'hourly' && mode !== 'fixed') throw new Error('Travel is charged hourly or fixed');
+      params.push(mode);
+      sets.push(`service_report_travel_mode = $${params.length}`);
+    }
+    if ('travel_rate' in body) {
+      params.push(money(body.travel_rate, 'The travel rate'));
+      sets.push(`service_report_travel_rate = $${params.length}`);
+    }
+  } catch (e) { return res.status(400).json({ error: e.message }); }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to change' });
+
+  try {
+    params.push(req.params.id);
+    const { rows: [job] } = await pool.query(
+      `UPDATE jobs SET ${sets.join(', ')} WHERE id = $${params.length}
+       RETURNING service_report_labour_rate, service_report_travel_mode, service_report_travel_rate`,
+      params
+    );
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    res.json(jobRates(job));
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+}
+
 // ── The customer's copy ──────────────────────────────────────────────────────
 
 async function publicGet(req, res) {
@@ -315,7 +403,7 @@ async function publicGet(req, res) {
     // is nothing to be learned by guessing tokens.
     if (!j) return res.status(404).json({ error: 'This report is no longer available' });
     const report = await buildReport(j.id);
-    const { _theme, ...rest } = report;
+    const { _theme, _rates, ...rest } = report;
     res.json(rest);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
@@ -343,11 +431,19 @@ async function renderPdf(report) {
       const span = fmtTime(l.start_time) && fmtTime(l.end_time)
         ? `${fmtTime(l.start_time)}–${fmtTime(l.end_time)}`
         : 'hours logged';
-      items.push({
-        description: `${l.user_name} · ${fmtDate(l.date)} · ${span} · ${l.rate_label}`,
-        quantity: l.hours,
-        unit_price: Math.round(l.rate * 100),
-      });
+      // A fixed travel charge is one trip at the fixed price; the hours it took
+      // go in the description so they are still on the page.
+      items.push(l.rate_basis === 'fixed'
+        ? {
+            description: `${l.user_name} · ${fmtDate(l.date)} · ${span} · ${l.rate_label} (fixed, ${l.hours} h)`,
+            quantity: 1,
+            unit_price: l.charge_cents,
+          }
+        : {
+            description: `${l.user_name} · ${fmtDate(l.date)} · ${span} · ${l.rate_label}`,
+            quantity: l.hours,
+            unit_price: Math.round(l.rate * 100),
+          });
     }
   }
 
@@ -419,6 +515,6 @@ async function publicPdf(req, res) {
 }
 
 module.exports = {
-  get, share, unshare, setMarkup, downloadPdf, publicGet, publicPdf,
+  get, share, unshare, setMarkup, setRates, downloadPdf, publicGet, publicPdf,
   buildReport, buildMargin, DEFAULT_MARKUP_PCT,
 };

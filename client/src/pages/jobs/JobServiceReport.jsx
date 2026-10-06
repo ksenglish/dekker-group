@@ -23,6 +23,9 @@ export default function JobServiceReport({ jobId, user }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [markup, setMarkup] = useState('');
+  const [labourRate, setLabourRate] = useState('');
+  const [travelMode, setTravelMode] = useState('');
+  const [travelRate, setTravelRate] = useState('');
   const admin = isAdmin(user?.role);
 
   const load = useCallback(async () => {
@@ -30,6 +33,11 @@ export default function JobServiceReport({ jobId, user }) {
       const { data } = await api.get(`/jobs/${jobId}/service-report`);
       setReport(data);
       setMarkup(String(data.markup_pct));
+      if (data.rates) {
+        setLabourRate(data.rates.labour_rate == null ? '' : String(data.rates.labour_rate));
+        setTravelMode(data.rates.travel_mode || '');
+        setTravelRate(data.rates.travel_rate == null ? '' : String(data.rates.travel_rate));
+      }
     } catch (e) {
       setError(e.response?.data?.error || 'Could not load the service report');
     } finally { setLoading(false); }
@@ -64,6 +72,27 @@ export default function JobServiceReport({ jobId, user }) {
     } catch (e) {
       setError(e.response?.data?.error || 'Could not save that markup');
     } finally { setBusy(false); }
+  }
+
+  // One field at a time, so a blur on the labour rate never touches travel.
+  async function saveRates(changes) {
+    setBusy(true);
+    setError('');
+    try {
+      await api.put(`/jobs/${jobId}/service-report/rates`, changes);
+      await load();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Could not save that rate');
+    } finally { setBusy(false); }
+  }
+
+  function changeTravelMode(mode) {
+    setTravelMode(mode);
+    // Switching to hourly or fixed starts from the house travel rate rather
+    // than an empty box, so the first save is never an accidental $0.
+    const rate = mode && travelRate === '' ? String(report.rates?.house_travel_rate ?? 0) : travelRate;
+    setTravelRate(mode ? rate : '');
+    saveRates(mode ? { travel_mode: mode, travel_rate: rate } : { travel_mode: null, travel_rate: null });
   }
 
   // The PDF route needs the auth header, so it is fetched and handed to the
@@ -102,6 +131,35 @@ export default function JobServiceReport({ jobId, user }) {
               onBlur={saveMarkup} />
             %
           </label>
+        )}
+        {admin && report.rates && (
+          <>
+            <label className={styles.markupField}>
+              Labour
+              $<input type="number" step="0.01" min="0" value={labourRate}
+                placeholder={String(report.rates.house_labour_rate)}
+                title="Charge rate per hour for this job. Leave blank for the standard billing rates."
+                onChange={e => setLabourRate(e.target.value)}
+                onBlur={() => saveRates({ labour_rate: labourRate })} />
+              /h
+            </label>
+            <label className={styles.markupField}>
+              Travel
+              <select value={travelMode} onChange={e => changeTravelMode(e.target.value)} disabled={busy}>
+                <option value="">Standard rate</option>
+                <option value="hourly">Hourly</option>
+                <option value="fixed">Fixed per trip</option>
+              </select>
+              {travelMode && (
+                <>
+                  $<input type="number" step="0.01" min="0" value={travelRate}
+                    onChange={e => setTravelRate(e.target.value)}
+                    onBlur={() => saveRates({ travel_rate: travelRate === '' ? 0 : travelRate })} />
+                  {travelMode === 'hourly' ? '/h' : '/trip'}
+                </>
+              )}
+            </label>
+          </>
         )}
         <span className={styles.toolbarSpacer} />
         {!report.share_path ? (
