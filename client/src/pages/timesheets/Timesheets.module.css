@@ -50,10 +50,22 @@
 /* Per-day breakdown, expanded under a staff row */
 .expandChevron { font-size: 10px; color: var(--color-text-muted); width: 10px; flex-shrink: 0; }
 /* The expanded person's week, below the grid rather than inside it */
-.timelinePanel {
-  margin-top: 12px; padding: 14px 16px 12px;
-  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+/* An expanded person opens directly under their own row. The cell spans the
+   whole table, so the panel inside it can be pinned to the left edge of the
+   scroll container — scroll across to Friday and their week stays where it is
+   rather than sliding away with the columns. */
+.timelineRow { background: #f8fafc; border-bottom: 1px solid var(--color-border); }
+.timelineRow > td { padding: 0; }
+.timelinePanelInline {
+  position: sticky; left: 0;
+  box-sizing: border-box; padding: 14px 16px 12px;
+  /* Width comes from the measured container. Until that first measurement
+     lands, 100% of the cell is the whole table — wide, but never wider, so it
+     cannot push the page sideways. */
+  width: 100%;
 }
+.staffRowOpen { background: #eef2f7; }
+.staffRowOpen:hover { background: #eef2f7; }
 .timelinePanelHead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .timelinePanelName { font-size: 14px; font-weight: 700; }
 .timelinePanelWeek { font-size: 12px; color: var(--color-text-muted); }

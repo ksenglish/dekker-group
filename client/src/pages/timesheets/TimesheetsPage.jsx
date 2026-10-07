@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin as isAdminRole } from '../../lib/permissions';
@@ -359,6 +359,40 @@ export default function TimesheetsPage() {
   const [listView, setListView] = useState(false);
   const [expandedUser, setExpandedUser] = useState(null);
 
+  // The grid can be wider than the screen. An expanded person's timeline is
+  // pinned to the left edge of the scroll container rather than to the table,
+  // so scrolling across to Friday does not carry their week off the screen —
+  // which needs the container's width in CSS, hence the measurement.
+  // A callback ref rather than useRef + effect: the grid is not in the tree on
+  // the first render (the page is still loading), so an effect reading a plain
+  // ref would find nothing and never run again.
+  const [gridWidth, setGridWidth] = useState(0);
+  const observerRef = useRef(null);
+  const gridElRef = useRef(null);
+  const measureGrid = useCallback(() => {
+    if (gridElRef.current) setGridWidth(gridElRef.current.clientWidth);
+  }, []);
+  const gridWrapRef = useCallback(el => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    gridElRef.current = el;
+    if (!el) return;
+    setGridWidth(el.clientWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    observerRef.current = new ResizeObserver(() => setGridWidth(el.clientWidth));
+    observerRef.current.observe(el);
+  }, []);
+  // The observer covers the container changing; the window listener covers the
+  // window itself changing, which does not always reach the observer. Between
+  // them the panel is never left at a width the screen has since outgrown.
+  useEffect(() => {
+    window.addEventListener('resize', measureGrid);
+    return () => {
+      window.removeEventListener('resize', measureGrid);
+      observerRef.current?.disconnect();
+    };
+  }, [measureGrid]);
+
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekFrom, i));
 
   useEffect(() => {
@@ -475,7 +509,7 @@ export default function TimesheetsPage() {
         </div>
       ) : (
         /* ── Weekly grid view ── */
-        <div className={styles.gridWrap}>
+        <div className={styles.gridWrap} ref={gridWrapRef}>
           <table className={styles.weekGrid}>
             <thead>
               <tr>
@@ -496,11 +530,14 @@ export default function TimesheetsPage() {
                 const weekTotal = weekTotalForUser(u.id);
                 const billable = billableTotalForUser(u.id);
                 const expanded = expandedUser === u.id;
+                const mine = expanded ? entries.filter(e => e.user_id === u.id) : [];
                 return (
-                  // The timeline is rendered below the grid rather than as a row
-                  // inside it: the table scrolls sideways, and a row within it
-                  // would slide off with the columns.
-                  <tr key={u.id} className={styles.staffRow}>
+                  // Their week opens directly under their own row, which is
+                  // where someone looks for it. The panel inside is pinned to
+                  // the scroll container, so it stays put when the grid is
+                  // scrolled sideways.
+                  <Fragment key={u.id}>
+                  <tr className={`${styles.staffRow} ${expanded ? styles.staffRowOpen : ''}`}>
                       <td className={styles.staffCell} onClick={() => setExpandedUser(x => x === u.id ? null : u.id)} style={{ cursor: 'pointer' }}>
                         <span className={styles.expandChevron}>{expanded ? '▾' : '▸'}</span>
                         <div className={styles.avatar} style={{ background: avatarColour(u.id) }}>
@@ -541,6 +578,34 @@ export default function TimesheetsPage() {
                           title={`Log time for ${u.name}`}>+</button>
                       </td>
                   </tr>
+                  {expanded && (
+                    <tr className={styles.timelineRow}>
+                      <td colSpan={11}>
+                        <div className={styles.timelinePanelInline}
+                          style={gridWidth ? { width: gridWidth } : undefined}>
+                          <div className={styles.timelinePanelHead}>
+                            <span className={styles.timelinePanelName}>{u.name}</span>
+                            <span className={styles.timelinePanelWeek}>{weekLabel(weekFrom)}</span>
+                            <button className={styles.timelinePanelClose}
+                              onClick={() => setExpandedUser(null)} title="Close">✕</button>
+                          </div>
+                          {mine.length === 0 ? (
+                            <div className={styles.empty}>No time logged this week.</div>
+                          ) : (
+                            <WeekTimeline
+                              dates={weekDates}
+                              dayLabels={DAYS}
+                              entries={mine}
+                              billingRates={billingRates}
+                              onEntryClick={e => setModal({ entry: e })}
+                              formatJob={e => (e.job_id ? formatJobNumber(e) : 'General')}
+                            />
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
               {staffList.length === 0 && (
@@ -550,37 +615,6 @@ export default function TimesheetsPage() {
           </table>
         </div>
       )}
-
-      {/* The expanded person's week, full page width and free of the grid's
-          sideways scroll. Only one person opens at a time, so it reads as the
-          detail for the row above it. */}
-      {!listView && !loading && expandedUser && (() => {
-        const u = staffList.find(s => s.id === expandedUser);
-        if (!u) return null;
-        const mine = entries.filter(e => e.user_id === u.id);
-        return (
-          <div className={styles.timelinePanel}>
-            <div className={styles.timelinePanelHead}>
-              <div className={styles.avatar} style={{ background: avatarColour(u.id) }}>{initials(u.name)}</div>
-              <span className={styles.timelinePanelName}>{u.name}</span>
-              <span className={styles.timelinePanelWeek}>{weekLabel(weekFrom)}</span>
-              <button className={styles.timelinePanelClose} onClick={() => setExpandedUser(null)} title="Close">✕</button>
-            </div>
-            {mine.length === 0 ? (
-              <div className={styles.empty}>No time logged this week.</div>
-            ) : (
-              <WeekTimeline
-                dates={weekDates}
-                dayLabels={DAYS}
-                entries={mine}
-                billingRates={billingRates}
-                onEntryClick={e => setModal({ entry: e })}
-                formatJob={e => (e.job_id ? formatJobNumber(e) : 'General')}
-              />
-            )}
-          </div>
-        );
-      })()}
 
       {modal && (
         <EntryModal
