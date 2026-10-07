@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
 import ServiceReportView from './ServiceReportView';
+import PersonRates from './PersonRates';
 import { isAdmin } from '../../lib/permissions';
 import styles from './ServiceReport.module.css';
 
@@ -176,6 +177,10 @@ export default function JobServiceReport({ jobId, user }) {
           </div>
         )}
       </div>
+
+      {admin && report.rates && (
+        <PersonRates jobId={jobId} rates={report.rates} onChanged={load} />
+      )}
 
       {error && <div className={styles.empty}>{error}</div>}
 

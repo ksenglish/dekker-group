@@ -218,3 +218,64 @@ p.scope { white-space: pre-wrap; }
   .publicPage { background: white; padding: 0; }
   .publicSheet { box-shadow: none; padding: 0; max-width: none; }
 }
+
+/* ── Rates by team member ────────────────────────────────────────────────────
+   Folded away by default: most jobs charge everyone the same, and the people
+   who don't are the exception worth opening for. */
+.personPanel {
+  margin: 0 0 18px; border: 1px solid var(--color-border);
+  border-radius: var(--radius); background: var(--color-surface);
+}
+.personToggle {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 14px; background: none; border: none; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--color-text);
+}
+.personToggle:hover { background: #f8fafc; }
+.personToggle em {
+  font-style: normal; font-weight: 500; font-size: 12px;
+  color: var(--color-text-muted); margin-left: auto;
+}
+.treeArrow { display: inline-block; width: 12px; color: var(--color-text-muted); }
+
+.personRows { border-top: 1px solid var(--color-border); }
+.personRow {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 10px 14px; border-bottom: 1px solid var(--color-border);
+}
+.personRow:last-of-type { border-bottom: none; }
+.personName {
+  display: flex; flex-direction: column; gap: 1px;
+  font-size: 13px; font-weight: 600; min-width: 150px;
+}
+.personName em {
+  font-style: normal; font-weight: 400; font-size: 11px; color: var(--color-text-muted);
+}
+.personField {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--color-text-muted);
+}
+.personField input {
+  width: 78px; padding: 5px 8px; font-size: 13px; color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.personField select {
+  padding: 5px 8px; font-size: 13px; color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.personCharge {
+  margin-left: auto; font-size: 14px; font-weight: 700;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.personErr { flex: 1 1 100%; font-size: 12px; color: #b91c1c; }
+.personHint {
+  margin: 0; padding: 10px 14px; background: #f8fafc;
+  border-top: 1px solid var(--color-border);
+  font-size: 12px; color: var(--color-text-muted); line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .personRow { gap: 8px; }
+  .personName { min-width: 100%; }
+  .personCharge { margin-left: 0; }
+}

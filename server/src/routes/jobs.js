@@ -175,6 +175,9 @@ router.delete('/:id/service-report/share', requireRole('admin', 'office'), servi
 // so is the rate their hours and travel are charged at.
 router.put('/:id/service-report/markup', requireRole('admin'), serviceReport.setMarkup);
 router.put('/:id/service-report/rates', requireRole('admin'), serviceReport.setRates);
+// And the rate for one person on this job, which overrides the job's own — the
+// installer who rode in the sparky's van and is not charged for the trip.
+router.put('/:id/service-report/rates/:userId', requireRole('admin'), serviceReport.setPersonRates);
 
 // Priced proposals — one per scope of work on the job. Cost prices, markup and
 // margin are all in here, so admin only for now.

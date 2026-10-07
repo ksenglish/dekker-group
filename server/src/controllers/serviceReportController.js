@@ -106,12 +106,12 @@ async function buildReport(jobId) {
   );
   if (!job) return null;
 
-  const [theme, rates, timeRes, costRes] = await Promise.all([
+  const [theme, rates, timeRes, costRes, personRes] = await Promise.all([
     themeForJob(job),
     getBillingRates(),
     pool.query(
       `SELECT t.id, t.date, t.hours, t.start_time, t.end_time, t.billing_rate_id, t.description,
-              u.name AS user_name
+              t.user_id, u.name AS user_name
          FROM timesheets t
          LEFT JOIN users u ON u.id = t.user_id
         WHERE t.job_id = $1
@@ -127,6 +127,7 @@ async function buildReport(jobId) {
         ORDER BY c.created_at, c.sort_order`,
       [jobId]
     ),
+    pool.query('SELECT * FROM job_service_report_rates WHERE job_id = $1', [jobId]),
   ]);
 
   // ── Labour ────────────────────────────────────────────────────────────────
@@ -138,19 +139,40 @@ async function buildReport(jobId) {
   // each trip recorded — and a fixed trip still shows its hours, since how long
   // the drive took is part of what the customer is reading.
   const overrides = jobRates(job);
+
+  // Set against a person on this job. Each field falls through on its own: a
+  // row that only names a travel mode still takes the job's labour rate.
+  const byPerson = new Map(personRes.rows.map(r => [r.user_id, {
+    labour_rate: numOrNull(r.labour_rate),
+    travel_mode: r.travel_mode || null,
+    travel_rate: numOrNull(r.travel_rate),
+  }]));
+
   const labour = timeRes.rows.map(e => {
+    const person = byPerson.get(e.user_id) || {};
+    const labourRate = person.labour_rate != null ? person.labour_rate : overrides.labour_rate;
+    const travelMode = person.travel_mode || overrides.travel_mode;
+    const travelRate = person.travel_mode
+      ? (person.travel_rate ?? 0)
+      : overrides.travel_rate;
     const hours = parseFloat(e.hours) || 0;
     const rate = rateOf(e, rates);
     const travel = isTravelRate(rate);
     let hourlyRate = rate ? parseFloat(rate.rate) || 0 : 0;
     let fixed = false;
-    if (travel && overrides.travel_mode === 'fixed') {
+    let noCharge = false;
+    if (travel && travelMode === 'none') {
+      // The passenger in the van. The hours still show — how long the drive
+      // took is part of what the customer is reading — at nothing.
+      noCharge = true;
+      hourlyRate = 0;
+    } else if (travel && travelMode === 'fixed') {
       fixed = true;
-      hourlyRate = overrides.travel_rate;
-    } else if (travel && overrides.travel_mode === 'hourly') {
-      hourlyRate = overrides.travel_rate;
-    } else if (!travel && overrides.labour_rate != null) {
-      hourlyRate = overrides.labour_rate;
+      hourlyRate = travelRate;
+    } else if (travel && travelMode === 'hourly') {
+      hourlyRate = travelRate;
+    } else if (!travel && labourRate != null) {
+      hourlyRate = labourRate;
     }
     return {
       id: e.id,
@@ -161,7 +183,9 @@ async function buildReport(jobId) {
       hours,
       // An entry with no rate chosen is still worked time: it shows, at nothing,
       // rather than quietly vanishing from the hours the customer is reading.
-      rate_label: rate ? rate.label : (overrides.labour_rate != null ? 'Labour' : 'Not yet rated'),
+      user_id: e.user_id,
+      rate_label: rate ? rate.label : (labourRate != null ? 'Labour' : 'Not yet rated'),
+      no_charge: noCharge,
       is_travel: travel,
       rate_basis: fixed ? 'fixed' : 'hourly',
       rate: hourlyRate,
@@ -238,6 +262,33 @@ async function buildReport(jobId) {
       ...overrides,
       house_labour_rate: parseFloat(rates.find(r => !isTravelRate(r))?.rate) || 0,
       house_travel_rate: parseFloat(rates.find(isTravelRate)?.rate) || 0,
+      // Everyone with time on this job, with what they are set to and what
+      // their hours actually came to — so a rate can be changed next to the
+      // number it changes.
+      people: [...timeRes.rows.reduce((m, e) => {
+        const key = e.user_id || 'unassigned';
+        if (!m.has(key)) {
+          m.set(key, {
+            user_id: e.user_id || null,
+            name: e.user_name || 'Unassigned',
+            hours: 0, travel_hours: 0, trips: 0,
+            ...{ labour_rate: null, travel_mode: null, travel_rate: null },
+            ...(byPerson.get(e.user_id) || {}),
+          });
+        }
+        const p = m.get(key);
+        const travel = isTravelRate(rateOf(e, rates));
+        const h = parseFloat(e.hours) || 0;
+        if (travel) { p.travel_hours += h; p.trips += 1; } else { p.hours += h; }
+        return m;
+      }, new Map()).values()]
+        .map(p => ({
+          ...p,
+          hours: Math.round(p.hours * 100) / 100,
+          travel_hours: Math.round(p.travel_hours * 100) / 100,
+          charge_cents: labour.filter(l => l.user_id === p.user_id).reduce((s2, l) => s2 + l.charge_cents, 0),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
     },
     labour,
     materials,
@@ -393,6 +444,63 @@ async function setRates(req, res) {
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
+// One person's rates on one job. Every field is optional and null clears it,
+// which is how someone goes back to being charged the way everyone else is.
+async function setPersonRates(req, res) {
+  const body = req.body || {};
+  const money = (raw, what) => {
+    if (raw === null || raw === '') return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0 || n > 100000) throw new Error(`${what} must be a dollar amount of 0 or more`);
+    return Math.round(n * 100) / 100;
+  };
+  let labourRate, travelMode, travelRate;
+  try {
+    labourRate = money(body.labour_rate ?? null, 'The labour rate');
+    travelMode = body.travel_mode || null;
+    if (travelMode !== null && !['hourly', 'fixed', 'none'].includes(travelMode)) {
+      throw new Error('Travel is charged hourly, per trip, or not at all');
+    }
+    travelRate = money(body.travel_rate ?? null, 'The travel rate');
+  } catch (e) { return res.status(400).json({ error: e.message }); }
+
+  try {
+    const { rows: [onJob] } = await pool.query(
+      'SELECT 1 FROM timesheets WHERE job_id = $1 AND user_id = $2 LIMIT 1',
+      [req.params.id, req.params.userId]
+    );
+    // Rates are set against the people who worked on the job, not against the
+    // staff list — a row for someone with no hours would never be read.
+    if (!onJob) return res.status(404).json({ error: 'That person has no time recorded on this job' });
+
+    // Nothing set at all is a removal, so the table does not fill up with rows
+    // that say "charge them normally".
+    if (labourRate == null && travelMode == null && travelRate == null) {
+      await pool.query('DELETE FROM job_service_report_rates WHERE job_id=$1 AND user_id=$2',
+        [req.params.id, req.params.userId]);
+      return res.json({ user_id: req.params.userId, labour_rate: null, travel_mode: null, travel_rate: null });
+    }
+
+    const { rows: [row] } = await pool.query(
+      `INSERT INTO job_service_report_rates (job_id, user_id, labour_rate, travel_mode, travel_rate)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (job_id, user_id) DO UPDATE
+          SET labour_rate = EXCLUDED.labour_rate,
+              travel_mode = EXCLUDED.travel_mode,
+              travel_rate = EXCLUDED.travel_rate,
+              updated_at = NOW()
+       RETURNING user_id, labour_rate, travel_mode, travel_rate`,
+      [req.params.id, req.params.userId, labourRate, travelMode, travelRate]
+    );
+    res.json({
+      user_id: row.user_id,
+      labour_rate: numOrNull(row.labour_rate),
+      travel_mode: row.travel_mode,
+      travel_rate: numOrNull(row.travel_rate),
+    });
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+}
+
 // ── The customer's copy ──────────────────────────────────────────────────────
 
 async function publicGet(req, res) {
@@ -515,6 +623,6 @@ async function publicPdf(req, res) {
 }
 
 module.exports = {
-  get, share, unshare, setMarkup, setRates, downloadPdf, publicGet, publicPdf,
+  get, share, unshare, setMarkup, setPersonRates, setRates, downloadPdf, publicGet, publicPdf,
   buildReport, buildMargin, DEFAULT_MARKUP_PCT,
 };
