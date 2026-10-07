@@ -69,6 +69,6 @@ async function advanceJobStatusByLabel(jobId, test) {
 }
 
 module.exports = {
-  getStatusOrder, getStatusConfig, findStatusByLabel,
+  getStatusOrder, getStatusConfig, findStatusByLabel, normaliseLabel,
   advanceJobStatus, advanceJobStatusByLabel,
 };

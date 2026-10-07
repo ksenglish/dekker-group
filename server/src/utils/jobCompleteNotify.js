@@ -2,7 +2,7 @@ const pool = require('../db/pool');
 const { sendMail } = require('./email');
 const { OFFICE_RECORDS_EMAIL } = require('./recordsEmail');
 const { resolveOfficeUsers } = require('./jobNoteNotify');
-const { getStatusConfig, findStatusByLabel } = require('./jobStatusFlow');
+const { getStatusConfig, findStatusByLabel, normaliseLabel } = require('./jobStatusFlow');
 
 const appUrl = () => (process.env.CLIENT_URL || '').replace(/\/$/, '');
 
@@ -17,41 +17,69 @@ function jobLabel(job) {
   return 'Job';
 }
 
-// 'complete' is the key the pipeline ships with, but the status list is
-// admin-configurable and a key could have been relabelled — or a differently
-// keyed status given the label "Completed". Accept either, so renaming a status
-// in Settings can't silently switch the notification off.
-async function isCompleteStatus(status) {
-  if (!status) return false;
-  if (status === 'complete') return true;
-  const match = findStatusByLabel(await getStatusConfig(), l => l === 'complete' || l === 'completed');
-  return !!match && match.key === status;
+// Which status means "the work is finished, invoice it".
+//
+// Not the 'complete' key. That key ships with the pipeline but the list is
+// admin-configurable, and here it has been relabelled "Paid" — so firing on the
+// key sent the office a job-is-ready-to-invoice email at the moment the job was
+// paid for, which is the last moment it is useful.
+//
+// The label is what the office actually reads and what they renamed, so the
+// label is what this matches: any status reading "Job Complete", "Complete",
+// "Completed", "Work Complete". The key is only a fallback, for a pipeline with
+// no such label at all.
+const readsAsComplete = l => /\bcomplete(d)?\b/.test(l);
+
+async function completeStatusKey() {
+  const config = await getStatusConfig();
+  const match = findStatusByLabel(config, readsAsComplete);
+  if (match) return match.key;
+  // No status says "complete" anywhere. Fall back to the shipped key, but only
+  // if nothing has taken that key over with a different meaning.
+  const shipped = config.find(s => s.key === 'complete');
+  return shipped && !readsAsComplete(normaliseLabel(shipped.label)) ? null : 'complete';
 }
 
-function completeEmail({ job, actorName }) {
+async function completeStatusLabel() {
+  const match = findStatusByLabel(await getStatusConfig(), readsAsComplete);
+  // With no configured list the fallback config carries the key as its label,
+  // which would put "marked complete" in lower case in front of a customer-
+  // facing mailbox. Only a label someone actually typed is used as typed.
+  if (!match || match.label === match.key) return 'Complete';
+  return match.label;
+}
+
+async function isCompleteStatus(status) {
+  if (!status) return false;
+  return status === await completeStatusKey();
+}
+
+function completeEmail({ job, actorName, statusLabel = 'Complete' }) {
   const label = jobLabel(job);
   const link = appUrl() ? `${appUrl()}/jobs/${job.id}` : null;
   const address = job.site_address_full || '';
-  const subject = `${label} complete${job.customer_name ? ` — ${job.customer_name}` : ''}`;
+  // What the office is being asked to do, not what changed — this lands in a
+  // shared mailbox where the subject is the whole of what gets read.
+  const subject = `${label} ready to invoice${job.customer_name ? ` — ${job.customer_name}` : ''}`;
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;">
-      <p style="margin:0 0 12px;"><strong>${escapeHtml(label)}</strong>${job.customer_name ? ` for <strong>${escapeHtml(job.customer_name)}</strong>` : ''} has been marked <strong>Complete</strong>${actorName ? ` by ${escapeHtml(actorName)}` : ''}.</p>
+      <p style="margin:0 0 12px;"><strong>${escapeHtml(label)}</strong>${job.customer_name ? ` for <strong>${escapeHtml(job.customer_name)}</strong>` : ''} has been marked <strong>${escapeHtml(statusLabel)}</strong>${actorName ? ` by ${escapeHtml(actorName)}` : ''}.</p>
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="font-size:14px;color:#0f172a;margin:0 0 12px;">
         ${job.customer_name ? `<tr><td style="padding:2px 12px 2px 0;color:#64748b;">Customer</td><td style="padding:2px 0;">${escapeHtml(job.customer_name)}</td></tr>` : ''}
         ${address ? `<tr><td style="padding:2px 12px 2px 0;color:#64748b;">Site</td><td style="padding:2px 0;">${escapeHtml(address)}</td></tr>` : ''}
         ${job.type ? `<tr><td style="padding:2px 12px 2px 0;color:#64748b;">Job type</td><td style="padding:2px 0;">${escapeHtml(job.type)}</td></tr>` : ''}
       </table>
-      <p style="margin:0 0 12px;color:#64748b;font-size:13px;">Ready to be invoiced and filed.</p>
+      <p style="margin:0 0 12px;color:#0f172a;font-size:14px;"><strong>Ready to invoice.</strong></p>
       ${link ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;">
         <tr><td style="background:#0f172a;border-radius:6px;">
           <a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 22px;font-size:14px;font-weight:700;color:#ffffff;text-decoration:none;">Open ${escapeHtml(label)}</a>
         </td></tr></table>` : ''}
     </div>`;
   const text = [
-    `${label}${job.customer_name ? ` for ${job.customer_name}` : ''} has been marked Complete${actorName ? ` by ${actorName}` : ''}.`,
+    `${label}${job.customer_name ? ` for ${job.customer_name}` : ''} has been marked ${statusLabel}${actorName ? ` by ${actorName}` : ''}.`,
     address ? `Site: ${address}` : '',
     job.type ? `Job type: ${job.type}` : '',
-    'Ready to be invoiced and filed.',
+    'Ready to invoice.',
     link || '',
   ].filter(Boolean).join('\n\n');
   return { subject, html, text };
@@ -98,7 +126,8 @@ async function notifyJobComplete({ jobId, actor }) {
   // Already announced — a second path reaching Complete says nothing.
   if (!job) return result;
 
-  const { subject, html, text } = completeEmail({ job, actorName: actor?.name });
+  const statusLabel = await completeStatusLabel();
+  const { subject, html, text } = completeEmail({ job, actorName: actor?.name, statusLabel });
 
   let officeUsers = [];
   try {
@@ -141,11 +170,11 @@ async function notifyJobComplete({ jobId, actor }) {
       `INSERT INTO todos (description, notes, job_id, created_by)
        VALUES ($1,$2,$3,$4) RETURNING id`,
       [
-        `${label} complete${job.customer_name ? ` — ${job.customer_name}` : ''}`,
+        `${label} ready to invoice${job.customer_name ? ` — ${job.customer_name}` : ''}`,
         [
-          `Marked Complete${actor?.name ? ` by ${actor.name}` : ''}.`,
+          `Marked ${statusLabel}${actor?.name ? ` by ${actor.name}` : ''}.`,
           job.site_address_full ? `Site: ${job.site_address_full}` : '',
-          'Ready to be invoiced and filed.',
+          'Ready to invoice.',
         ].filter(Boolean).join('\n'),
         job.id,
         // Raised by whoever completed it where that is known, so the list shows
@@ -191,4 +220,4 @@ async function onJobStatusChanged({ jobId, status, actor }) {
   return null;
 }
 
-module.exports = { notifyJobComplete, onJobStatusChanged, isCompleteStatus };
+module.exports = { notifyJobComplete, onJobStatusChanged, isCompleteStatus, completeStatusKey };
