@@ -141,6 +141,7 @@ async function start() {
       ? 'Attachments: object storage configured'
       : 'Attachments: no object storage configured, storing in the database (large files will fail)');
     require('./services/siteVisitSweep').startSiteVisitSweep();
+    require('./services/stalledJobSweep').startStalledJobSweep();
   });
 }
 
