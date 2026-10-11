@@ -342,7 +342,11 @@ async function createQuote(req, res) {
     const chosen = all.filter(p => ids.includes(p.id));
     if (!chosen.length) return res.status(404).json({ error: 'Those proposals are not on this job' });
 
-    const lines = chosen.flatMap(p => proposalToLineItems(p, { itemise }));
+    // Tagged with the proposal they came from, so an accepted quote can be
+  // exploded back into the products the price was built from — a one-line
+  // proposal is otherwise untraceable to its materials.
+  const lines = chosen.flatMap(p =>
+    proposalToLineItems(p, { itemise }).map(l => ({ ...l, proposal_id: p.id })));
     const subtotal = lines.reduce((s, l) => s + Math.round(l.quantity * l.unit_price), 0);
     const gst = Math.round(subtotal * GST_RATE);
 
@@ -377,9 +381,10 @@ async function createQuote(req, res) {
 
     for (const l of lines) {
       await client.query(
-        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [jobId, quote.id, l.description, l.quantity, l.unit_price, l.product_id || null, l.product_name || null]
+        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name, proposal_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [jobId, quote.id, l.description, l.quantity, l.unit_price,
+         l.product_id || null, l.product_name || null, l.proposal_id || null]
       );
     }
 

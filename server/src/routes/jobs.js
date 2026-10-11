@@ -162,6 +162,20 @@ router.get('/:id/billable', requireRole('admin', 'office'), billing.listBillable
 router.post('/:id/line-items/from-costs-and-time', requireRole('admin', 'office'), billing.addToLineItems);
 router.post('/:id/invoice', requireRole('admin', 'office'), billing.createInvoiceFromLineItems);
 
+// What has to be ordered for the job, and getting it ordered. Office level:
+// this is the ordering desk, not a commercial decision — no cost prices appear
+// anywhere on it.
+const jobMaterials = require('../controllers/materialsController');
+router.get('/:id/materials', requireRole('admin', 'office'), jobMaterials.list);
+router.post('/:id/materials/regenerate', requireRole('admin', 'office'), jobMaterials.regenerate);
+router.post('/:id/materials', requireRole('admin', 'office'), jobMaterials.addItem);
+router.put('/:id/materials/:materialId', requireRole('admin', 'office'), jobMaterials.updateItem);
+router.delete('/:id/materials/:materialId', requireRole('admin', 'office'), jobMaterials.removeItem);
+router.post('/:id/materials/order/preview', requireRole('admin', 'office'), jobMaterials.previewOrder);
+// Sending goes to a supplier under the company's name, so it is the one step
+// here that is narrower than reading the list.
+router.post('/:id/materials/order', requireRole('admin'), jobMaterials.createOrder);
+
 // The live service report: scope of works, hours clocked, materials, totals.
 // Anyone who can act on the job can read it — everything on it is charge-out,
 // and the cost-and-margin block the controller adds for admin is the only part

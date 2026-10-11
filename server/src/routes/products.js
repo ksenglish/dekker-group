@@ -10,6 +10,11 @@ router.use(authenticate);
 router.get('/', c.list);
 router.get('/categories', c.categories);
 router.get('/suppliers', c.suppliers);
+// Who to email an order to, and the account to quote. Kept with the products
+// because the supplier name itself lives on the product.
+const supplierContacts = require('../controllers/materialsController');
+router.get('/supplier-contacts', supplierContacts.listSuppliers);
+router.put('/supplier-contacts', requireRole('admin', 'office'), supplierContacts.saveSupplier);
 router.get('/taxonomy', c.taxonomy);
 router.get('/:id', c.get);
 // Declared after /:id but they cannot collide — the extra segment makes them
