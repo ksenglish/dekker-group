@@ -1343,6 +1343,32 @@
      squeezed between the buttons. */
   .costEditActions .scanHintText { flex: 1 1 100%; order: -1; }
   .costDocIframe { height: 360px; }
+
+  /* The freshly-scanned receipt review has the same problem as the costs
+     table above, just worse — seven fixed-width columns plus a 280px-wide
+     document preview alongside, neither of which fit a phone. The image
+     goes above the items (so the thing just photographed is the first
+     thing seen), the items stack into a two-line card each, and the
+     GST-only column drops out as it does for the saved table. */
+  .scanDocPreview { width: 100%; order: -1; }
+  .scanResultsHeader { display: none; }
+  .scanResultRow {
+    grid-template-columns: 44px 1fr 72px 28px;
+    grid-template-areas: "check desc desc del" "qty price total total";
+    row-gap: 6px;
+  }
+  .scanResultRow > input[type="checkbox"] { grid-area: check; }
+  .scanResultRow > .scanDesc { grid-area: desc; }
+  .scanResultRow > .scanQty { grid-area: qty; }
+  .scanResultRow > .scanPriceField { grid-area: price; }
+  .scanResultRow > .scanPriceField input { width: 100%; }
+  .scanResultRow > .gstCell { display: none; }
+  .scanResultRow > .scanIncGst { grid-area: total; text-align: right; }
+  .scanResultRow > .deleteBtn { grid-area: del; justify-self: end; }
+
+  /* The upload button is the entry point to this whole flow — worth a
+     proper tap target rather than the compact desktop size. */
+  .btnScan { padding: 12px 18px; font-size: 14px; }
 }
 
 /* Supplier ordering code on a line item — internal only, never on the
