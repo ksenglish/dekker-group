@@ -8,6 +8,7 @@ import { ImageUpload, BrochureUpload, PRODUCT_UNITS } from '../../components/pro
 import PickOrAdd from '../../components/products/PickOrAdd';
 import CategoryFields from '../../components/products/CategoryFields';
 import useTaxonomy from '../../components/products/useTaxonomy';
+import KitBuilder, { rollUp } from '../../components/products/KitBuilder';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const GST_RATE = 0.15;
@@ -41,6 +42,11 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
   // Whether the cost being typed includes GST. What is stored is always
   // exclusive; this only says what the number in the box means.
   const [costInclGst, setCostInclGst] = useState(false);
+  // A kit is a product made of other products. Its two prices are added up from
+  // the parts, so the price boxes go read-only while it is on — two sources for
+  // one number is how they end up disagreeing.
+  const [isKit, setIsKit] = useState((product?.component_count || 0) > 0);
+  const [kitLines, setKitLines] = useState([]);
   // What the media fields looked like when the form opened, so save can tell
   // "untouched" from "cleared on purpose".
   const initialMedia = useRef(product?.media_url || product?.media_base64 || '');
@@ -48,14 +54,18 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const kitTotals = rollUp(kitLines.map(l => ({ ...l, quantity: parseFloat(l.quantity) || 0 })));
+  const kitPriced = isKit && kitLines.length > 0;
+
   const costExGst = (() => {
+    if (kitPriced) return kitTotals.cost / 100;
     const n = parseFloat(form.cost_price);
     if (!Number.isFinite(n) || n <= 0) return 0;
     return costInclGst ? n / (1 + GST_RATE) : n;
   })();
 
   const margin = (() => {
-    const sell = parseFloat(form.unit_price) || 0;
+    const sell = kitPriced ? kitTotals.sell / 100 : parseFloat(form.unit_price) || 0;
     if (!sell || !costExGst) return null;
     return (((sell - costExGst) / sell) * 100).toFixed(1);
   })();
@@ -71,6 +81,13 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
       // is exactly what editing a product from the list used to do, since the
       // list carries no image data to populate the form with.
       const payload = { ...form, cost_price: Math.round(costExGst * 100) / 100 };
+      // Always sent once the toggle has been touched: an empty list is how a
+      // kit goes back to being an ordinary product.
+      if (isKit || (product?.component_count || 0) > 0) {
+        payload.components = isKit
+          ? kitLines.map(l => ({ component_id: l.component_id, quantity: parseFloat(l.quantity) || 0 }))
+          : [];
+      }
       if (form.media_base64 === initialMedia.current) delete payload.media_base64;
       if (form.brochure_base64 === initialBrochure.current) delete payload.brochure_base64;
       if (product) {
@@ -129,10 +146,27 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
                 {PRODUCT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
+            {isAdmin && (
+              <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
+                <label className={styles.kitToggle}>
+                  <input type="checkbox" checked={isKit} onChange={e => setIsKit(e.target.checked)} />
+                  <span>Make BOM Kit</span>
+                  <em>Build this product from others on the price list and price it from them</em>
+                </label>
+                {isKit && (
+                  <KitBuilder productId={product?.id} value={kitLines}
+                    onChange={setKitLines} isAdmin={isAdmin} />
+                )}
+              </div>
+            )}
             <div className={styles.formGroup}>
               <label>Sell Price excl. GST</label>
-              <input type="number" min="0" step="0.01" value={form.unit_price}
+              <input type="number" min="0" step="0.01"
+                value={kitPriced ? (kitTotals.sell / 100).toFixed(2) : form.unit_price}
+                readOnly={kitPriced}
+                title={kitPriced ? 'Added up from the kit above' : undefined}
                 onChange={e => set('unit_price', e.target.value)} placeholder="0.00" />
+              {kitPriced && <span className={styles.kitHint}>Added up from the kit above</span>}
             </div>
             {isAdmin && (
               <div className={styles.formGroup}>
@@ -143,11 +177,15 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
                       className={`${styles.gstBtn} ${costInclGst === incl ? styles.gstBtnOn : ''}`}
                       onClick={() => setCostInclGst(incl)}>{label}</button>
                   ))}
-                  <input type="number" min="0" step="0.01" value={form.cost_price}
+                  <input type="number" min="0" step="0.01"
+                    value={kitPriced ? (kitTotals.cost / 100).toFixed(2) : form.cost_price}
+                    readOnly={kitPriced}
                     onChange={e => set('cost_price', e.target.value)} placeholder="0.00" />
                 </div>
                 <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-                  {costInclGst
+                  {kitPriced
+                    ? <>Added up from the kit above.</>
+                    : costInclGst
                     ? <>Stored as <strong>${costExGst.toFixed(2)}</strong> excl. GST.</>
                     : <>Switch to Incl. GST to type the figure straight off a supplier invoice.</>}
                 </span>

@@ -14,6 +14,9 @@ router.get('/taxonomy', c.taxonomy);
 router.get('/:id', c.get);
 // Declared after /:id but they cannot collide — the extra segment makes them
 // distinct routes.
+// What a BOM kit is made of. Readable by anyone who can read the price list —
+// the cost figures inside are stripped for everyone but admin, as elsewhere.
+router.get('/:id/components', c.components);
 router.get('/:id/media', c.serveMediaImage);
 router.get('/:id/thumb', c.serveThumb);
 router.get('/:id/brochure', c.serveMediaBrochure);

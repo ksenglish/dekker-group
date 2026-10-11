@@ -53,7 +53,10 @@ async function get(req, res) {
   try {
     const { rows } = await pool.query('SELECT * FROM products WHERE id=$1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
-    const product = productToJson(rows[0]);
+    const { rows: [kitCount] } = await pool.query(
+      'SELECT COUNT(*)::int AS n FROM product_components WHERE parent_id = $1', [req.params.id]
+    );
+    const product = { ...productToJson(rows[0]), component_count: kitCount.n };
     if (req.user.role !== 'admin') {
       const { cost_price, ...rest } = product;
       return res.json(rest);
@@ -82,11 +85,134 @@ async function resolveMediaWrite({ incoming, existingKey, existingInline, prefix
   return { key: stored.key, inline: null, removedKey: existingKey };
 }
 
+// ── BOM kits ─────────────────────────────────────────────────────────────────
+//
+// A kit is a product whose price comes from its parts. Both figures are rolled
+// up and stored on the kit itself, rather than worked out on every read: a
+// quote already snapshots the price it was raised at, and a kit that silently
+// changed value between being looked at and being quoted would be worse than
+// one that has to be re-saved. Saving a kit adopts its components' prices as
+// they stand.
+
+// What the parts come to, from the prices on file right now.
+async function rollUp(components, client = pool) {
+  if (!components.length) return { cost_price: 0, unit_price: 0, lines: [] };
+  const ids = components.map(c => c.component_id);
+  const { rows } = await client.query(
+    'SELECT id, name, unit, unit_price, cost_price FROM products WHERE id = ANY($1::uuid[])', [ids]
+  );
+  const byId = new Map(rows.map(r => [r.id, r]));
+  let cost = 0, sell = 0;
+  const lines = [];
+  for (const c of components) {
+    const p = byId.get(c.component_id);
+    if (!p) continue;
+    const qty = parseFloat(c.quantity) || 0;
+    cost += Math.round(p.cost_price * qty);
+    sell += Math.round(p.unit_price * qty);
+    lines.push({
+      component_id: p.id, name: p.name, unit: p.unit, quantity: qty,
+      cost_price: p.cost_price, unit_price: p.unit_price,
+      line_cost: Math.round(p.cost_price * qty), line_price: Math.round(p.unit_price * qty),
+    });
+  }
+  return { cost_price: cost, unit_price: sell, lines };
+}
+
+// A kit may contain a kit, but nothing may contain itself at any depth — that
+// is a price that can never be worked out. Walks down from each component
+// looking for the kit being saved.
+async function wouldCycle(parentId, componentIds, client = pool) {
+  if (!parentId) return false;
+  if (componentIds.includes(parentId)) return true;
+  const seen = new Set(componentIds);
+  let frontier = componentIds;
+  while (frontier.length) {
+    const { rows } = await client.query(
+      'SELECT DISTINCT component_id FROM product_components WHERE parent_id = ANY($1::uuid[])', [frontier]
+    );
+    const next = [];
+    for (const r of rows) {
+      if (r.component_id === parentId) return true;
+      if (!seen.has(r.component_id)) { seen.add(r.component_id); next.push(r.component_id); }
+    }
+    frontier = next;
+  }
+  return false;
+}
+
+// Normalises what the form sent: [{ component_id, quantity }], de-duplicated,
+// anything without a real id or a positive quantity dropped.
+function cleanComponents(raw) {
+  if (!Array.isArray(raw)) return null;
+  const seen = new Set();
+  const out = [];
+  raw.forEach((c, i) => {
+    const id = c?.component_id || c?.id;
+    const qty = parseFloat(c?.quantity);
+    if (!id || seen.has(id) || !Number.isFinite(qty) || qty <= 0) return;
+    seen.add(id);
+    out.push({ component_id: id, quantity: Math.round(qty * 1000) / 1000, sort_order: i });
+  });
+  return out;
+}
+
+async function writeComponents(productId, components, client) {
+  await client.query('DELETE FROM product_components WHERE parent_id = $1', [productId]);
+  for (const c of components) {
+    await client.query(
+      `INSERT INTO product_components (parent_id, component_id, quantity, sort_order)
+       VALUES ($1,$2,$3,$4)`,
+      [productId, c.component_id, c.quantity, c.sort_order]
+    );
+  }
+}
+
+// What a kit is made of, for the editor and for anyone looking at the product.
+async function components(req, res) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT pc.component_id, pc.quantity, pc.sort_order,
+              p.name, p.unit, p.unit_price, p.cost_price, p.is_active
+         FROM product_components pc
+         JOIN products p ON p.id = pc.component_id
+        WHERE pc.parent_id = $1
+        ORDER BY pc.sort_order, p.name`,
+      [req.params.id]
+    );
+    const isAdmin = req.user.role === 'admin';
+    res.json(rows.map(r => {
+      const line = {
+        component_id: r.component_id, name: r.name, unit: r.unit,
+        quantity: parseFloat(r.quantity), unit_price: r.unit_price,
+        line_price: Math.round(r.unit_price * parseFloat(r.quantity)), is_active: r.is_active,
+      };
+      // Cost stays with admin here for the same reason it does everywhere else
+      // in the price list.
+      if (isAdmin) {
+        line.cost_price = r.cost_price;
+        line.line_cost = Math.round(r.cost_price * parseFloat(r.quantity));
+      }
+      return line;
+    }));
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
+}
+
 async function create(req, res) {
   const { name, description, quote_description, category, subcategory_1, subcategory_2, subcategory_3, subcategory_4,
     unit, unit_price, supplier, cost_price, media_base64, brochure_base64 } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  const kit = cleanComponents(req.body.components);
   try {
+    // A kit is priced from its parts, so whatever was typed in the price boxes
+    // is ignored rather than argued with.
+    let prices = null;
+    if (kit && kit.length) {
+      if (await wouldCycle(null, kit.map(c => c.component_id))) {
+        return res.status(400).json({ error: 'A kit cannot contain itself' });
+      }
+      prices = await rollUp(kit);
+    }
     const media = await resolveMediaWrite({ incoming: media_base64, prefix: 'products/media', filename: `${name}-image` });
     const brochure = await resolveMediaWrite({ incoming: brochure_base64, prefix: 'products/brochures', filename: `${name}-brochure` });
 
@@ -98,17 +224,34 @@ async function create(req, res) {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
       [name, description || null, quote_description || null, category || null,
        subcategory_1 || null, subcategory_2 || null, subcategory_3 || null, subcategory_4 || null,
-       unit || 'each', Math.round((unit_price || 0) * 100), supplier || null,
-       Math.round((cost_price || 0) * 100), media.inline, brochure.inline, media.key, brochure.key]
+       unit || 'each',
+       prices ? prices.unit_price : Math.round((unit_price || 0) * 100), supplier || null,
+       prices ? prices.cost_price : Math.round((cost_price || 0) * 100),
+       media.inline, brochure.inline, media.key, brochure.key]
     );
-    res.status(201).json(productToJson(rows[0]));
+    if (kit && kit.length) {
+      const client = await pool.connect();
+      try { await writeComponents(rows[0].id, kit, client); }
+      finally { client.release(); }
+    }
+    res.status(201).json({ ...productToJson(rows[0]), component_count: kit ? kit.length : 0 });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
 async function update(req, res) {
   const { name, description, quote_description, category, subcategory_1, subcategory_2, subcategory_3, subcategory_4,
     unit, unit_price, is_active, supplier, cost_price, media_base64, brochure_base64 } = req.body;
+  // Undefined means the form never mentioned components, so whatever the kit
+  // already is stays as it is. An empty list means "not a kit any more".
+  const kit = cleanComponents(req.body.components);
   try {
+    let prices = null;
+    if (kit && kit.length) {
+      if (await wouldCycle(req.params.id, kit.map(c => c.component_id))) {
+        return res.status(400).json({ error: 'That would make a kit contain itself' });
+      }
+      prices = await rollUp(kit);
+    }
     const { rows: [current] } = await pool.query(
       'SELECT media_key, brochure_key, media_base64, brochure_base64 FROM products WHERE id=$1', [req.params.id]
     );
@@ -131,22 +274,39 @@ async function update(req, res) {
        WHERE id=$18 RETURNING *`,
       [name, description || null, quote_description || null, category || null,
        subcategory_1 || null, subcategory_2 || null, subcategory_3 || null, subcategory_4 || null,
-       unit || 'each', Math.round((unit_price || 0) * 100), is_active !== false,
-       supplier || null, Math.round((cost_price || 0) * 100),
+       unit || 'each',
+       prices ? prices.unit_price : Math.round((unit_price || 0) * 100), is_active !== false,
+       supplier || null, prices ? prices.cost_price : Math.round((cost_price || 0) * 100),
        media.inline, brochure.inline, media.key, brochure.key, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    if (kit) {
+      const client = await pool.connect();
+      try { await writeComponents(req.params.id, kit, client); }
+      finally { client.release(); }
+    }
     // Only once the row is safely updated — otherwise a failed write would
     // leave the product pointing at a file that had already been removed.
     for (const gone of [media.removedKey, brochure.removedKey]) {
       if (gone && gone !== media.key && gone !== brochure.key) await fileStore.deleteObject(gone);
     }
-    res.json(productToJson(rows[0]));
+    res.json({ ...productToJson(rows[0]), component_count: kit ? kit.length : undefined });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
 async function remove(req, res) {
   try {
+    // Deleting a part of a kit would silently change that kit's price, so the
+    // kits are named and the delete refused.
+    const { rows: usedBy } = await pool.query(
+      `SELECT p.name FROM product_components pc JOIN products p ON p.id = pc.parent_id
+        WHERE pc.component_id = $1 ORDER BY p.name LIMIT 5`, [req.params.id]
+    );
+    if (usedBy.length) {
+      return res.status(400).json({
+        error: `This product is part of ${usedBy.length === 1 ? 'a kit' : 'kits'}: ${usedBy.map(u => u.name).join(', ')}. Take it out first.`,
+      });
+    }
     const { rows } = await pool.query(
       'DELETE FROM products WHERE id=$1 RETURNING media_key, brochure_key', [req.params.id]
     );
@@ -558,7 +718,7 @@ async function taxonomy(req, res) {
 }
 
 module.exports = {
-  list, get, create, update, remove, importCsv, importZip, categories, suppliers, taxonomy,
+  list, get, create, update, remove, components, importCsv, importZip, categories, suppliers, taxonomy,
   serveMediaImage: serveMedia('media'),
   serveMediaBrochure: serveMedia('brochure'),
   serveThumb,

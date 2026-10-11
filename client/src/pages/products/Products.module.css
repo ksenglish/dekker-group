@@ -278,3 +278,15 @@
   background: none; border: none; padding: 0; font-family: inherit; font-size: inherit;
   color: var(--color-primary); text-decoration: underline; cursor: pointer;
 }
+
+/* "Make BOM Kit" — the switch that turns a product into one built from others. */
+.kitToggle {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  cursor: pointer; margin-bottom: 8px;
+}
+.kitToggle input { width: 16px; height: 16px; cursor: pointer; }
+.kitToggle span { font-weight: 600; font-size: 14px; }
+.kitToggle em {
+  font-style: normal; font-size: 12px; color: var(--color-text-muted);
+}
+.kitHint { font-size: 12px; color: var(--color-text-muted); }

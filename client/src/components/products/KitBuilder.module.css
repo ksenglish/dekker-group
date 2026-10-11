@@ -1,0 +1,100 @@
+/* Building a product out of other products. Sits inside the Add/Edit Product
+   form, between the toggle that turns it on and the price fields it replaces. */
+
+.kit {
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  padding: 12px; background: #f8fafc;
+}
+.loading, .empty {
+  margin: 0; font-size: 13px; color: var(--color-text-muted);
+}
+.empty { padding: 10px 2px 2px; line-height: 1.5; }
+
+/* ── Finding a part ────────────────────────────────────────────────────────── */
+.search { position: relative; }
+.search input {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px;
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  background: var(--color-surface); color: var(--color-text);
+}
+.searchBusy {
+  position: absolute; right: 10px; top: 9px;
+  font-size: 12px; color: var(--color-text-muted);
+}
+.results {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 280px; overflow-y: auto;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+.result {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px; width: 100%; text-align: left; cursor: pointer;
+  padding: 8px 10px; background: none; border: none;
+  border-bottom: 1px solid var(--color-border);
+}
+.result:last-child { border-bottom: none; }
+.result:hover { background: #f1f5f9; }
+.resultName { font-size: 13px; font-weight: 600; color: var(--color-text); }
+.resultMeta {
+  grid-column: 1; font-size: 11px; color: var(--color-text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.resultPrice {
+  grid-row: 1 / span 2; align-self: center;
+  font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.noResults { padding: 8px 2px 0; font-size: 12px; color: var(--color-text-muted); }
+
+/* ── What is in it ─────────────────────────────────────────────────────────── */
+.table {
+  margin-top: 12px; background: var(--color-surface);
+  border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden;
+}
+.head, .row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 76px 80px 80px 88px 28px;
+  gap: 8px; align-items: center; padding: 7px 10px;
+}
+.head {
+  background: #f1f5f9; border-bottom: 1px solid var(--color-border);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--color-text-muted);
+}
+.row { border-bottom: 1px solid var(--color-border); font-size: 13px; }
+.row:last-of-type { border-bottom: none; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.num input {
+  width: 100%; box-sizing: border-box; padding: 4px 6px; font-size: 13px;
+  text-align: right; border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.partName { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.partName em {
+  font-style: normal; font-size: 11px; color: var(--color-text-muted);
+}
+.inactive { color: #b45309 !important; }
+.lineTotal { font-weight: 600; }
+.remove {
+  background: none; border: none; cursor: pointer; padding: 2px;
+  color: var(--color-text-muted); font-size: 13px;
+}
+.remove:hover { color: #b91c1c; }
+
+.totals {
+  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+  padding: 9px 10px; background: #f0fdf4; border-top: 1px solid #86efac;
+  font-size: 13px;
+}
+.totals > span:first-child { margin-right: auto; color: var(--color-text-muted); font-size: 12px; }
+.margin { font-size: 12px; color: #15803d; font-weight: 600; }
+
+.note {
+  margin: 10px 0 0; font-size: 12px; color: var(--color-text-muted); line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  /* The cost column is the first to go: on a phone the sell price and the line
+     total are what is being checked. */
+  .head, .row { grid-template-columns: minmax(0, 1fr) 64px 76px 24px; }
+  .head > span:nth-child(3), .row > span:nth-child(3),
+  .head > span:nth-child(4), .row > span:nth-child(4) { display: none; }
+}
