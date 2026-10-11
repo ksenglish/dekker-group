@@ -37,8 +37,12 @@
  *        AUTOMATION_API_KEY   the same value as the Render env var
  *        APP_REPO_PATH        path to that checkout (optional, defaults to
  *                             ../dekker-app-worker next to this repo)
- *   4. Start it:
- *        node automation/app-worker.js
+ *   4. Start it. Easiest is to double-click automation/start-app-worker.cmd,
+ *      which changes to the right folder itself. From a terminal, stand in the
+ *      repo root first — the paths below are relative to it:
+ *        npm run worker:app
+ *      (npm run from inside client/ or server/ looks in that workspace, not
+ *      here, so the root is the place to be.)
  *
  * Run it alongside the website worker — they are separate processes on separate
  * queues and do not interfere. They do share one Claude subscription, so a job

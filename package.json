@@ -11,7 +11,9 @@
     "build": "npm run build --workspace=client && npm run build --workspace=server",
     "install:all": "npm install && npm install --workspace=client && npm install --workspace=server",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "worker:app": "node automation/app-worker.js",
+    "worker:website": "node automation/website-worker.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
