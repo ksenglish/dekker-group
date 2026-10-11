@@ -106,12 +106,37 @@ function DocumentsTab({ isAdmin }) {
     } catch { alert('Failed to delete document.'); }
   }
 
-  function openDoc(doc) {
-    // Streams through the API so the browser gets a real PDF response with
-    // auth applied, rather than a giant base64 URL.
-    api.get(`/hub/documents/${doc.id}/data`, { responseType: 'blob' })
-      .then(res => window.open(URL.createObjectURL(res.data), '_blank'))
-      .catch(() => alert('Could not open that document.'));
+  // Opening a PDF, in a way an iPad will actually do.
+  //
+  // This used to fetch the file as a blob and then window.open it. Safari on
+  // iOS breaks that twice over: a window opened after an await is no longer
+  // part of the tap that asked for it, so it is blocked outright; and even
+  // allowed through, iOS will not render a blob: PDF in a new tab.
+  //
+  // So the tab is opened on the tap itself — synchronously, while the gesture
+  // still counts — and pointed at a short-lived signed URL once there is one.
+  // The browser then gets a plain application/pdf response and shows it in its
+  // own viewer, where it can be shared, printed or saved as usual.
+  async function openDoc(doc) {
+    const tab = window.open('', '_blank');
+    try {
+      const { data } = await api.post(`/hub/documents/${doc.id}/link`);
+      // The link comes back rooted at /api. In production the API is on another
+      // host, so it needs that origin in front of it; locally it is served from
+      // this one and the path is already right. Read from the environment the
+      // same way lib/api does, rather than reaching into axios's internals.
+      const url = `${import.meta.env.VITE_API_BASE_URL || ''}${data.url}`;
+      if (tab) {
+        tab.location.href = url;
+      } else {
+        // Popups blocked entirely: go there in this tab rather than failing.
+        // The Hub is a list, so coming back is one tap.
+        window.location.href = url;
+      }
+    } catch {
+      if (tab) tab.close();
+      alert('Could not open that document.');
+    }
   }
 
   if (loading) return <div className={styles.loading}>Loading…</div>;

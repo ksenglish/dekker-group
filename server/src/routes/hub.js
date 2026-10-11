@@ -2,10 +2,60 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { authenticate, requireRole, normaliseRole } = require('../middleware/auth');
+const { signFileToken, verifyFileToken } = require('../utils/jwt');
+
+// Declared above the login check so a signed link works on its own. A request
+// with no token still falls through to the usual header check, so the app's own
+// fetches are unaffected.
+router.get('/documents/:id/data', async (req, res, next) => {
+  if (!req.query.t) return authenticate(req, res, next);
+  try {
+    verifyFileToken(String(req.query.t), 'hub-doc', req.params.id);
+    next();
+  } catch {
+    res.status(401).json({ error: 'That link has expired. Open the document again from the Hub.' });
+  }
+}, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM hub_documents WHERE id=$1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    const doc = rows[0];
+    const buf = Buffer.from(doc.data_base64.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    res.set({
+      'Content-Type': doc.mime_type || 'application/pdf',
+      // inline, so iOS shows it in its own viewer rather than downloading a
+      // file the user then has to go and find.
+      'Content-Disposition': `inline; filename="${doc.filename.replace(/"/g, '')}"`,
+      // A signed link is good for minutes; caching it for longer would outlive
+      // the permission it carries.
+      'Cache-Control': 'private, max-age=60',
+    });
+    res.send(buf);
+  } catch (err) { console.error('[hub]', err.message); res.status(500).json({ error: 'Server error' }); }
+});
 
 router.use(authenticate);
 
 const isAdmin = req => normaliseRole(req.user.role) === 'admin';
+
+// Hands back a short-lived link to one document.
+//
+// An iPad will not show a PDF that arrives as a blob in a new tab, and Safari
+// blocks a window opened after the fetch that produced it — so the file has to
+// be a URL the browser can navigate to and get a real PDF back from. The API is
+// authenticated by a header a navigation cannot send, so the permission travels
+// in the link: one document, ten minutes.
+router.post('/documents/:id/link', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT id, filename FROM hub_documents WHERE id=$1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    const token = signFileToken('hub-doc', rows[0].id);
+    res.json({
+      url: `/api/hub/documents/${rows[0].id}/data?t=${encodeURIComponent(token)}`,
+      filename: rows[0].filename,
+    });
+  } catch (err) { console.error('[hub]', err.message); res.status(500).json({ error: 'Server error' }); }
+});
 
 // ── Documents ────────────────────────────────────────────────────────────────
 // Every signed-in staff member can read the folders; only admins change them.
@@ -60,19 +110,6 @@ router.post('/folders/:id/documents', requireRole('admin'), async (req, res) => 
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
-router.get('/documents/:id/data', async (req, res) => {
-  try {
-    const { rows } = await pool.query('SELECT * FROM hub_documents WHERE id=$1', [req.params.id]);
-    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
-    const doc = rows[0];
-    const buf = Buffer.from(doc.data_base64.replace(/^data:[^;]+;base64,/, ''), 'base64');
-    res.set({
-      'Content-Type': doc.mime_type || 'application/pdf',
-      'Content-Disposition': `inline; filename="${doc.filename.replace(/"/g, '')}"`,
-    });
-    res.send(buf);
-  } catch (err) { console.error('[hub]', err.message); res.status(500).json({ error: 'Server error' }); }
-});
 
 router.delete('/documents/:id', requireRole('admin'), async (req, res) => {
   try {

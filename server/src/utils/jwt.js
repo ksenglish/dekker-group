@@ -30,4 +30,28 @@ function verifyOtpToken(token) {
   return decoded;
 }
 
-module.exports = { signAccessToken, signRefreshToken, verifyAccessToken, verifyRefreshToken, signOtpToken, verifyOtpToken };
+// A link to one file that a browser can simply navigate to.
+//
+// Safari on an iPad will not render a PDF handed to it as a blob in a new tab,
+// and blocks a window opened after an await. Both of those go away if the file
+// is a real URL returning a real PDF — but the API is authenticated by a header
+// a plain navigation cannot send. So the permission travels in the link
+// instead: one file, a few minutes, and nothing else.
+function signFileToken(scope, id) {
+  return jwt.sign({ sub: String(id), scope, purpose: 'file' }, process.env.JWT_SECRET,
+    { expiresIn: process.env.FILE_LINK_EXPIRES_IN || '10m' });
+}
+
+function verifyFileToken(token, scope, id) {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  if (decoded.purpose !== 'file') throw new Error('Invalid token purpose');
+  if (decoded.scope !== scope) throw new Error('Token is not for this kind of file');
+  // Named rather than implied: a token for one document must not open another.
+  if (String(decoded.sub) !== String(id)) throw new Error('Token is not for this file');
+  return decoded;
+}
+
+module.exports = {
+  signAccessToken, signRefreshToken, verifyAccessToken, verifyRefreshToken,
+  signOtpToken, verifyOtpToken, signFileToken, verifyFileToken,
+};
