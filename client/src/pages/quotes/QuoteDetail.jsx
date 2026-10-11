@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useUnsavedChanges } from '../../context/UnsavedChangesContext';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import EmailComposeModal from './EmailComposeModal';
+import ReacceptModal from './ReacceptModal';
 import AttachJobModal from './AttachJobModal';
 import RichTextEditor from '../../components/RichTextEditor';
 import { appendDescription } from '../../lib/richText';
@@ -49,6 +50,7 @@ export default function QuoteDetail() {
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [reaccepting, setReaccepting] = useState(false);
   const [savingDetails, setSavingDetails] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [showAttachJob, setShowAttachJob] = useState(false);
@@ -178,12 +180,26 @@ export default function QuoteDetail() {
 
   function flash(type, text) { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); }
 
-  async function handleStatus(status) {
+  async function handleStatus(status, sync) {
+    // Accepting a quote that is already accepted means it has been edited and
+    // somebody has to say whether that should reach the job. Asked rather than
+    // assumed: one of the two answers throws work away.
+    if (status === 'accepted' && quote?.status === 'accepted' && !sync) {
+      setReaccepting(true);
+      return;
+    }
     setSaving(true);
     try {
-      const { data } = await api.put(`/quotes/${id}`, { status, notes });
+      const { data } = await api.put(`/quotes/${id}`, { status, notes, ...(sync || {}) });
       setQuote(q => ({ ...q, ...data }));
-      flash('success', `Quote marked as ${status}`);
+      setReaccepting(false);
+      const moved = [
+        data.synced?.line_items != null && `${data.synced.line_items} line item${data.synced.line_items === 1 ? '' : 's'}`,
+        data.synced?.materials?.added ? `${data.synced.materials.added} material${data.synced.materials.added === 1 ? '' : 's'}` : null,
+      ].filter(Boolean);
+      flash('success', moved.length
+        ? `Quote marked as ${status} — ${moved.join(' and ')} carried across to the job`
+        : `Quote marked as ${status}`);
       loadActivity();
     } catch { flash('error', 'Failed to update status'); }
     finally { setSaving(false); }
@@ -445,6 +461,14 @@ export default function QuoteDetail() {
           )}
         </div>
       </div>
+
+      {reaccepting && (
+        <ReacceptModal
+          busy={saving}
+          onClose={() => setReaccepting(false)}
+          onConfirm={sync => handleStatus('accepted', sync)}
+        />
+      )}
 
       {showEmailModal && (
         <EmailComposeModal

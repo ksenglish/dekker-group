@@ -332,3 +332,22 @@
   /* Clear the mobile bottom nav so the bar isn't hidden behind it. */
   .actionBar { bottom: 64px; }
 }
+
+/* Re-accepting an already-accepted quote: two choices, one of which throws
+   work away, so they are spelled out rather than labelled. */
+.reacceptIntro { margin: 0 0 14px; font-size: 14px; line-height: 1.5; }
+.reacceptOption {
+  display: flex; gap: 10px; align-items: flex-start; cursor: pointer;
+  padding: 10px 12px; margin-bottom: 8px;
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.reacceptOption:hover { background: #f8fafc; }
+.reacceptOption input { margin-top: 2px; }
+.reacceptOption strong { display: block; font-size: 14px; }
+.reacceptOption em {
+  display: block; margin-top: 2px; font-style: normal;
+  font-size: 12px; color: var(--color-text-muted); line-height: 1.5;
+}
+.reacceptNote {
+  margin: 4px 0 0; font-size: 12px; color: var(--color-text-muted);
+}
