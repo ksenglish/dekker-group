@@ -371,6 +371,46 @@ async function tick() {
   return true;
 }
 
+// ── One worker per checkout ──────────────────────────────────────────────────
+//
+// Two workers sharing a checkout take turns checking out each other's branches
+// mid-change, and the second one's window sits there looking broken while the
+// first quietly does the work — which is exactly how an afternoon gets lost.
+// Starting a window twice is easy to do and impossible to see, so the second
+// one says so and stops.
+const LOCK = path.join(REPO, '.app-worker.lock');
+
+function holderOf(lockPath) {
+  try {
+    const { pid, startedAt } = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+    // Signal 0 tests whether the process exists without touching it. A lock
+    // left behind by a worker that crashed names a pid nobody is using, and
+    // must not wedge the next one shut.
+    process.kill(pid, 0);
+    return { pid, startedAt };
+  } catch { return null; }
+}
+
+function takeLock() {
+  const held = holderOf(LOCK);
+  if (held) {
+    console.error('');
+    console.error(`  Another app worker is already running (process ${held.pid}`
+      + `${held.startedAt ? `, started ${new Date(held.startedAt).toLocaleTimeString('en-NZ')}` : ''}).`);
+    console.error('  It is the one doing the work — look for its window.');
+    console.error('  Close this one; two workers on one checkout get in each other\'s way.');
+    console.error('');
+    return false;
+  }
+  fs.writeFileSync(LOCK, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+  const release = () => { try { fs.unlinkSync(LOCK); } catch { /* already gone */ } };
+  process.on('exit', release);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
+    process.on(sig, () => { release(); process.exit(0); });
+  }
+  return true;
+}
+
 async function main() {
   if (!KEY) {
     console.error('AUTOMATION_API_KEY is not set. See the setup notes at the top of this file.');
@@ -380,6 +420,7 @@ async function main() {
     console.error(`No git checkout at ${REPO}. Clone the repo there, or set APP_REPO_PATH.`);
     process.exit(1);
   }
+  if (!takeLock()) process.exit(1);
   log(`App change worker watching ${API}`);
   log(`Working in ${REPO}`);
   if (!claudeAuthOk({ force: true })) {

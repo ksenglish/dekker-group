@@ -9,3 +9,7 @@ server/.env
 *.log
 .DS_Store
 Thumbs.db
+
+# The worker marks its own checkout while it is running, so a second one
+# started by mistake can say so instead of fighting it.
+.app-worker.lock
