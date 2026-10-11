@@ -15,19 +15,26 @@ const fileStore = require('./fileStore');
 const WORKER_STALE_MS = 5 * 60 * 1000;
 const SEEN_KEY = 'app_worker_seen';
 
-async function noteWorkerSeen() {
+// `authed` is whether Claude Code can sign in on the worker machine. A worker
+// that is running but signed out looks identical to one that is working, and
+// the office would sit waiting on a queue nothing is being taken off.
+async function noteWorkerSeen(authed) {
   await pool.query(
     `INSERT INTO settings (key, value) VALUES ($1, $2)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-    [SEEN_KEY, JSON.stringify({ at: new Date().toISOString() })]
+    [SEEN_KEY, JSON.stringify({ at: new Date().toISOString(), authed: authed !== false })]
   );
 }
 
 async function workerStatus() {
   const { rows } = await pool.query('SELECT value FROM settings WHERE key = $1', [SEEN_KEY]);
   const at = rows[0]?.value?.at || null;
-  if (!at) return { online: false, lastSeen: null, everRun: false };
-  return { online: Date.now() - new Date(at).getTime() < WORKER_STALE_MS, lastSeen: at, everRun: true };
+  if (!at) return { online: false, lastSeen: null, everRun: false, authed: true };
+  return {
+    online: Date.now() - new Date(at).getTime() < WORKER_STALE_MS,
+    lastSeen: at, everRun: true,
+    authed: rows[0]?.value?.authed !== false,
+  };
 }
 
 // Handing out work. The UPDATE picks the job itself rather than a select

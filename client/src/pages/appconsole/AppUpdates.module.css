@@ -143,3 +143,11 @@
   .when { display: none; }
   .instruction { white-space: normal; }
 }
+
+/* Running, but signed out of Claude — healthy-looking and doing nothing, which
+   is the state most worth naming. */
+.workerWarn { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+.cmd {
+  padding: 1px 6px; border-radius: 4px; background: #fef3c7;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+}

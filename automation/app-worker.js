@@ -152,6 +152,46 @@ function subscriptionEnv() {
   return env;
 }
 
+// Whether Claude Code can actually sign in. An expired session makes every run
+// exit in about a second with "OAuth session expired", which looks exactly like
+// a change that could not be made — so the queue is left alone instead, and the
+// jobs wait for somebody to sign in rather than failing one by one.
+//
+// Cached while it is good, re-checked every poll while it is not, so recovery is
+// quick without spawning a process every thirty seconds for no reason.
+const AUTH_GOOD_FOR_MS = 5 * 60 * 1000;
+let authCheckedAt = 0;
+let authOk = false;
+
+function claudeAuthOk({ force = false } = {}) {
+  if (!force && authOk && Date.now() - authCheckedAt < AUTH_GOOD_FOR_MS) return authOk;
+  const { file, argv } = claudeCommand(['auth', 'status']);
+  let out = '';
+  try {
+    out = execFileSync(file, argv, { encoding: 'utf8', env: subscriptionEnv(), timeout: 30000 });
+  } catch (err) {
+    // Signed out is itself a non-zero exit, with the answer on stdout — so the
+    // throw is the normal path here, not the exceptional one.
+    out = String(err.stdout || '');
+  }
+  let answer = null;
+  try { answer = JSON.parse(out).loggedIn === true; } catch { /* no answer */ }
+
+  if (answer !== null) {
+    authOk = answer;
+    authCheckedAt = Date.now();
+    return authOk;
+  }
+
+  // No JSON at all: the CLI is missing, too old to have `auth status`, or the
+  // spawn failed for a reason of its own. A check that cannot answer must not
+  // answer "fine" — that is how a signed-out worker goes back to eating the
+  // queue. Keep whatever was last known, and only assume it is fine if nothing
+  // has ever said otherwise, so a missing CLI does not wedge the worker shut.
+  if (!authCheckedAt) authOk = true;
+  return authOk;
+}
+
 function runClaude(instruction, scratchDir) {
   const rulesFile = path.join(scratchDir, 'rules.md');
   fs.writeFileSync(rulesFile, RULES);
@@ -305,7 +345,26 @@ async function runJob(job) {
 
 // ── The loop ─────────────────────────────────────────────────────────────────
 
+let warnedSignedOut = false;
+
 async function tick() {
+  // Checked before claiming, not after: a job taken by a worker that cannot run
+  // Claude is a job marked failed for a reason nobody at the office can act on.
+  if (!claudeAuthOk()) {
+    if (!warnedSignedOut) {
+      log('Claude Code is signed out on this machine, so nothing is being picked up.');
+      log('Fix it with:  claude auth login');
+      log('Jobs stay queued and will run once you are signed in.');
+      warnedSignedOut = true;
+    }
+    await api('/jobs/heartbeat', { authed: false }).catch(() => {});
+    return false;
+  }
+  if (warnedSignedOut) {
+    log('Signed in again — back to work.');
+    warnedSignedOut = false;
+  }
+
   const { job } = await api('/jobs/claim');
   if (!job) return false;
   await runJob(job);
@@ -323,10 +382,17 @@ async function main() {
   }
   log(`App change worker watching ${API}`);
   log(`Working in ${REPO}`);
+  if (!claudeAuthOk({ force: true })) {
+    log('');
+    log('  Claude Code is signed out on this machine.');
+    log('  Run:  claude auth login');
+    log('  The worker will keep waiting and start work once you have.');
+    log('');
+  }
 
   // The liveness signal on its own, so a long job does not make the app report
   // the worker as gone mid-change.
-  setInterval(() => api('/jobs/heartbeat').catch(() => {}), HEARTBEAT_MS).unref();
+  setInterval(() => api('/jobs/heartbeat', { authed: authOk }).catch(() => {}), HEARTBEAT_MS).unref();
 
   for (;;) {
     try {

@@ -17,7 +17,7 @@ const fileStore = require('../services/fileStore');
 // check on purpose; everything below it needs a signed-in person.
 router.post('/jobs/claim', authenticateAutomation, requireRole('admin'), async (req, res) => {
   try {
-    await jobs.noteWorkerSeen();
+    await jobs.noteWorkerSeen(true);
     await jobs.releaseAbandoned();
     const job = await jobs.claimNext();
     if (!job) return res.json({ job: null });
@@ -34,7 +34,7 @@ router.post('/jobs/claim', authenticateAutomation, requireRole('admin'), async (
 // This is the liveness signal on its own, sent on a timer whatever it is doing.
 router.post('/jobs/heartbeat', authenticateAutomation, requireRole('admin'), async (req, res) => {
   try {
-    await jobs.noteWorkerSeen();
+    await jobs.noteWorkerSeen(req.body?.authed);
     res.json({ ok: true });
   } catch (err) { console.error('App heartbeat failed:', err.message); res.status(500).json({ error: 'Server error' }); }
 });

@@ -216,11 +216,25 @@ export default function AppUpdatesPage() {
           </p>
         </div>
         {worker && (
-          <span className={`${styles.worker} ${worker.online ? styles.workerOn : styles.workerOff}`}>
-            {worker.online ? '● Worker running' : '○ Worker not running'}
+          <span className={`${styles.worker} ${
+            !worker.online ? styles.workerOff : worker.authed ? styles.workerOn : styles.workerWarn
+          }`}>
+            {!worker.online ? '○ Worker not running'
+              : worker.authed ? '● Worker running' : '● Needs signing in'}
           </span>
         )}
       </div>
+
+      {/* Running but signed out is the confusing case: the queue looks healthy
+          and nothing is being taken off it. Said plainly, with the one command
+          that fixes it. */}
+      {worker?.online && worker.authed === false && (
+        <div className={styles.offline}>
+          The worker is running, but Claude is signed out on that machine, so nothing is being
+          picked up. Anything asked for here will wait. On that machine, run{' '}
+          <code className={styles.cmd}>claude auth login</code> and it will carry on by itself.
+        </div>
+      )}
 
       {worker && !worker.online && (
         <div className={styles.offline}>
