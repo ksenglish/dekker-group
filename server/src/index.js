@@ -32,6 +32,7 @@ const stockRoutes = require('./routes/stock');
 const costRoutes = require('./routes/costs');
 const publicRoutes = require('./routes/public');
 const websiteRoutes = require('./routes/website');
+const appConsoleRoutes = require('./routes/appConsole');
 
 const app = express();
 // SERVER_PORT takes priority so a PORT already exported for the client dev
@@ -102,6 +103,7 @@ app.use('/api/stock', stockRoutes);
 app.use('/api/costs', costRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/website', websiteRoutes);
+app.use('/api/app-console', appConsoleRoutes);
 app.use('/api/marketing', require('./routes/marketing'));
 app.use('/api/forms', require('./routes/forms'));
 

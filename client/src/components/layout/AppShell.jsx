@@ -25,6 +25,7 @@ import MapPage from '../../pages/map/MapPage';
 import SalesPresenter from '../../pages/presenter/SalesPresenter';
 import PresenterAdmin from '../../pages/presenter/PresenterAdmin';
 import WebsitePage from '../../pages/website/WebsitePage';
+import AppUpdatesPage from '../../pages/appconsole/AppUpdatesPage';
 import DekkerHub from '../../pages/hub/DekkerHub';
 import InvoiceInboxPage from '../../pages/invoiceInbox/InvoiceInboxPage';
 import TodosPage from '../../pages/todos/TodosPage';
@@ -240,6 +241,7 @@ export default function AppShell() {
           <Route path="/presenter" element={<SalesPresenter />} />
           <Route path="/presenter/admin" element={<PresenterAdmin />} />
           <Route path="/website" element={<WebsitePage />} />
+          <Route path="/app-updates" element={<AppUpdatesPage />} />
           <Route path="/hub" element={<DekkerHub />} />
           <Route path="/invoice-inbox" element={<InvoiceInboxPage />} />
           <Route path="/todos" element={<TodosPage />} />

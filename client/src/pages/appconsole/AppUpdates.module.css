@@ -1,0 +1,145 @@
+/* App Updates — the office's console for changing Dekker App itself. */
+
+.page { padding: 24px; max-width: 1000px; }
+.pageHeader {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 18px;
+}
+.pageTitle { font-size: 26px; font-weight: 700; margin: 0; }
+.pageSubtitle { margin: 4px 0 0; font-size: 14px; color: var(--color-text-muted); }
+
+.worker {
+  font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  white-space: nowrap;
+}
+.workerOn { background: #f0fdf4; color: #15803d; border: 1px solid #86efac; }
+.workerOff { background: #f1f5f9; color: #475569; border: 1px solid var(--color-border); }
+
+.offline {
+  padding: 10px 14px; margin-bottom: 16px; font-size: 13px; line-height: 1.5;
+  background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius);
+  color: #92400e;
+}
+
+/* ── Asking ───────────────────────────────────────────────────────────────── */
+.ask {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 14px; margin-bottom: 20px;
+}
+.ask textarea {
+  width: 100%; box-sizing: border-box; padding: 10px; font-size: 14px;
+  font-family: inherit; line-height: 1.5; resize: vertical;
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.askRow {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px;
+}
+.examples { flex: 1; font-size: 12px; color: var(--color-text-muted); min-width: 220px; }
+.btnPrimary {
+  padding: 9px 18px; font-size: 14px; font-weight: 600;
+  background: var(--color-text); color: white;
+  border: none; border-radius: var(--radius); cursor: pointer;
+}
+.btnPrimary:disabled { opacity: 0.5; cursor: default; }
+.error { margin-top: 10px; font-size: 13px; color: #b91c1c; }
+
+/* ── The queue ────────────────────────────────────────────────────────────── */
+.jobs { display: flex; flex-direction: column; gap: 10px; }
+.empty { font-size: 13px; color: var(--color-text-muted); }
+
+.job {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.jobHead {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 12px 14px; background: none; border: none; cursor: pointer;
+}
+.jobHead:hover { background: #f8fafc; }
+.arrow { color: var(--color-text-muted); width: 12px; }
+.instruction {
+  flex: 1; font-size: 14px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.status {
+  font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  white-space: nowrap;
+}
+.stQueued    { background: #e0e7ff; color: #3730a3; }
+.stRunning   { background: #fef3c7; color: #92400e; }
+.stDone      { background: #dbeafe; color: #1d4ed8; }
+.stFailed    { background: #fee2e2; color: #b91c1c; }
+.stCancelled { background: #f1f5f9; color: #475569; }
+.stPublished { background: #dcfce7; color: #166534; }
+.when { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
+.cancel {
+  margin: 0 14px 12px; background: none; border: none; cursor: pointer;
+  font-size: 12px; color: var(--color-text-muted); text-decoration: underline;
+}
+
+/* ── What came back ───────────────────────────────────────────────────────── */
+.detail { padding: 0 14px 14px; border-top: 1px solid var(--color-border); }
+.detailLoading { padding: 14px; font-size: 13px; color: var(--color-text-muted); }
+.summary { margin: 14px 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+
+.checks { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.check {
+  font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: var(--radius);
+}
+.check em { font-style: normal; font-weight: 400; }
+.checkOk  { background: #f0fdf4; color: #15803d; border: 1px solid #86efac; }
+.checkBad { background: #fef2f2; color: #b91c1c; border: 1px solid #fca5a5; }
+
+.shots {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px; margin-bottom: 14px;
+}
+.shot { margin: 0; }
+.shot img {
+  width: 100%; display: block; border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+.shot figcaption { font-size: 11px; color: var(--color-text-muted); margin-top: 4px; }
+.shotLoading {
+  height: 160px; border-radius: var(--radius); background: #f1f5f9;
+  border: 1px solid var(--color-border);
+}
+
+.commits { font-size: 13px; margin-bottom: 14px; }
+.commits summary { cursor: pointer; color: var(--color-text-muted); }
+.commits ul { margin: 8px 0 0; padding-left: 20px; }
+.commits li { margin-bottom: 3px; }
+.commits code { font-size: 12px; color: var(--color-text-muted); }
+
+.publishRow {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding-top: 12px; border-top: 1px solid var(--color-border);
+}
+.btnPublish {
+  padding: 9px 18px; font-size: 14px; font-weight: 600;
+  background: #15803d; color: white; border: none;
+  border-radius: var(--radius); cursor: pointer;
+}
+.btnPublish:disabled { opacity: 0.5; cursor: default; }
+.publishNote { font-size: 13px; color: var(--color-text-muted); }
+.publishErr { font-size: 13px; color: #b91c1c; }
+.liveNote {
+  margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--color-border);
+  font-size: 13px; color: #15803d;
+}
+
+.logToggle {
+  margin-top: 12px; background: none; border: none; cursor: pointer;
+  font-size: 12px; color: var(--color-text-muted); text-decoration: underline; padding: 0;
+}
+.log {
+  margin-top: 8px; padding: 10px; max-height: 320px; overflow: auto;
+  background: #0f172a; color: #e2e8f0; border-radius: var(--radius);
+  font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+}
+
+@media (max-width: 640px) {
+  .page { padding: 16px; }
+  .when { display: none; }
+  .instruction { white-space: normal; }
+}

@@ -23,6 +23,12 @@ export const ADMIN_ITEMS = [
     description: 'Preview and publish dekkerair.co.nz, deals and pricing',
   },
   {
+    to: '/app-updates',
+    label: 'App Updates',
+    icon: '🛠',
+    description: 'Ask for a change to this app, review it, then publish it',
+  },
+  {
     to: '/settings',
     label: 'Settings',
     icon: '⚙',
