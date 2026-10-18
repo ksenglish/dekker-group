@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const pool = require('../db/pool');
 const { findJobType } = require('../services/jobTypes');
 const { normaliseRole } = require('../middleware/auth');
+const { can } = require('../utils/permissions');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getTheme } = require('./settingsController');
@@ -142,6 +143,33 @@ async function buildQuoteEmailContext(q, theme, sender) {
   };
 }
 
+// Who can reach one quote: whoever raised it, anyone assigned to the job it
+// belongs to, and anyone given the run of all quotes.
+//
+// The job is the unit of work, not the quote — two sales people on the same
+// job both need its quote, and which of them happened to type it is an
+// accident of the day. A quote with no job stays its author's alone.
+const reachable = n => `(q.created_by = $${n}
+    OR EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = q.job_id AND jt.user_id = $${n}))`;
+
+// The same rule for one quote, for the routes that load it by id.
+async function canReachQuote(user, quoteId) {
+  if (can(user, 'quotes.all')) return true;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM quotes q WHERE q.id = $2 AND ${reachable(1)}`,
+    [user.id, quoteId]
+  );
+  return rows.length > 0;
+}
+
+// Guard for the routes that take a quote id. Returns true when it has already
+// answered the request and the handler should stop.
+async function denyUnreachable(req, res) {
+  if (await canReachQuote(req.user, req.params.id)) return false;
+  res.status(403).json({ error: 'That quote belongs to a job you are not on.' });
+  return true;
+}
+
 async function list(req, res) {
   const { status, customer, job } = req.query;
   const conditions = [];
@@ -150,9 +178,8 @@ async function list(req, res) {
   if (status)   { conditions.push(`q.status = $${p}`);      params.push(status);   p++; }
   if (customer) { conditions.push(`q.customer_id = $${p}`); params.push(customer); p++; }
   if (job)      { conditions.push(`q.job_id = $${p}`);      params.push(job);      p++; }
-  // Non-admin users only see quotes they created
-  if (normaliseRole(req.user.role) !== 'admin') {
-    conditions.push(`q.created_by = $${p}`); params.push(req.user.id); p++;
+  if (!can(req.user, 'quotes.all')) {
+    conditions.push(reachable(p)); params.push(req.user.id); p++;
   }
   const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
   try {
@@ -170,6 +197,7 @@ async function list(req, res) {
 }
 
 async function get(req, res) {
+  if (await denyUnreachable(req, res)) return;
   try {
     const { rows } = await pool.query(
       `SELECT q.*, q.public_token, q.accepted_at, q.accepted_name,
@@ -306,6 +334,7 @@ async function update(req, res) {
   const sync_line_items = req.body?.sync_line_items;
   const sync_materials = req.body?.sync_materials;
   const { status, notes, theme_id, quote_date, expires_at, attachment_ids } = req.body;
+  if (await denyUnreachable(req, res)) return;
   try {
     // Totals always come from the quote's own line items
     const quote = await pool.query('SELECT job_id, status FROM quotes WHERE id=$1', [req.params.id]);
@@ -364,6 +393,7 @@ async function update(req, res) {
 async function updateLineItems(req, res) {
   const { items } = req.body;
   if (!Array.isArray(items)) return res.status(400).json({ error: 'Items must be an array' });
+  if (await denyUnreachable(req, res)) return;
   const client = await pool.connect();
   try {
     const { rows: [quote] } = await pool.query('SELECT job_id FROM quotes WHERE id=$1', [req.params.id]);
@@ -587,9 +617,11 @@ async function copyQuote(req, res) {
   } finally { client.release(); }
 }
 
-// Admins can delete any quote; everyone else only the ones they raised.
+// Deleting stays narrower than reading: the person who raised the quote, and
+// anyone holding the run of all quotes. Being on the job lets you read and
+// edit it, not throw away someone else's work.
 function canDeleteQuote(user, quote) {
-  return normaliseRole(user.role) === 'admin' || quote.created_by === user.id;
+  return can(user, 'quotes.all') || quote.created_by === user.id;
 }
 
 // An invoice keeps a reference to the quote it came from, so deleting that

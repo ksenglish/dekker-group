@@ -69,6 +69,10 @@ export default function QuoteDetail() {
   const [thumbs, setThumbs] = useState({});
   const [detailsSavedAt, setDetailsSavedAt] = useState(null);
   const [lineItemsDirty, setLineItemsDirty] = useState(false);
+  // Why the quote didn't load, when the server has something to say about it —
+  // a quote on someone else's job is refused, not missing, and saying
+  // "not found" would send whoever opened the link looking for a bug.
+  const [loadError, setLoadError] = useState('');
 
   // Details, description, theme, dates and attachments all save together, so
   // one snapshot of the lot decides whether anything is outstanding.
@@ -119,7 +123,8 @@ export default function QuoteDetail() {
         expiresAt: toDateInput(r.data.expires_at),
         attachmentIds: [...(r.data.attachment_ids || [])].sort(),
       });
-    }).finally(() => setLoading(false));
+    }).catch(err => setLoadError(err.response?.data?.error || ''))
+      .finally(() => setLoading(false));
     api.get('/settings/themes').then(r => setThemes(r.data.filter(t => !t.archived))).catch(() => {});
     loadActivity();
   }, [id]);
@@ -397,7 +402,7 @@ export default function QuoteDetail() {
   }
 
   if (loading) return <div className={styles.page}><div className={styles.loading}>Loading…</div></div>;
-  if (!quote) return <div className={styles.page}><div className={styles.empty}>Quote not found.</div></div>;
+  if (!quote) return <div className={styles.page}><div className={styles.empty}>{loadError || 'Quote not found.'}</div></div>;
 
   const items = quote.line_items || [];
 

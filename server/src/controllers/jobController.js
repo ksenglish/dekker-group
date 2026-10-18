@@ -1,5 +1,6 @@
 const pool = require('../db/pool');
 const { normaliseRole } = require('../middleware/auth');
+const { can } = require('../utils/permissions');
 const { getTheme } = require('./settingsController');
 const { buildElectricalCocPDF } = require('../utils/electricalCocPdf');
 const { sendMail } = require('../utils/email');
@@ -56,8 +57,8 @@ async function list(req, res) {
     }
   }
 
-  // Non-admin users only see jobs they're assigned to
-  if (normaliseRole(req.user.role) !== 'admin') {
+  // You see the jobs you're on, unless you've been given all of them.
+  if (!can(req.user, 'jobs.all')) {
     conditions.push(`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id=j.id AND jt.user_id=$${p})`);
     params.push(req.user.id); p++;
   }
@@ -199,8 +200,9 @@ async function create(req, res) {
        (tech_ids?.[0]) || null,
        !!is_recurring, recurrence_interval || null, nextDate, parent_job_id || null]
     );
-    // Non-admin creators are auto-assigned so they can see the job they created
-    const finalTechIds = normaliseRole(req.user.role) !== 'admin'
+    // Someone whose view is limited to their own jobs is put on the one they
+    // just created, so it doesn't vanish the moment they save it.
+    const finalTechIds = !can(req.user, 'jobs.all')
       ? [...new Set([...(tech_ids || []), req.user.id])]
       : (tech_ids || []);
     await saveTechnicians(client, rows[0].id, finalTechIds);

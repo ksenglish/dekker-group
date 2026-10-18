@@ -102,3 +102,18 @@
   .actions { grid-column: 2; grid-row: 1 / 3; }
   .formGrid { grid-template-columns: 1fr; }
 }
+
+/* Extra access — one row per grant, each with its own line of explanation so
+   whoever is ticking knows what it opens. */
+.permChecks { display: grid; gap: 8px; }
+.permCheck {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px;
+  align-items: start; cursor: pointer;
+  padding: 9px 12px; border: 1px solid var(--color-border); border-radius: var(--radius);
+}
+.permCheck:hover { background: #f8fafc; }
+.permCheck input { margin-top: 2px; grid-row: span 2; }
+.permCheckLabel { font-size: 13px; font-weight: 500; }
+.permCheckHelp { font-size: 12px; color: var(--color-text-muted); }
+.permCheckOn { border-color: var(--color-primary); background: var(--color-primary-light); }
+.permCheckOn:hover { background: var(--color-primary-light); }

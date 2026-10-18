@@ -1,14 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const c = require('../controllers/invoiceController');
-const { authenticate, requireRawRole } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
+const { requirePermission } = require('../utils/permissions');
 const xero = require('../utils/xero');
 const { onJobStatusChanged } = require('../utils/jobCompleteNotify');
 
 router.use(authenticate);
-// Raw role check — sales/operations must NOT get in via the sales/operations
-// -> office equivalence that requireRole normally applies.
-router.use(requireRawRole('admin', 'office'));
+// Raw roles only — sales/operations must NOT get in via the sales/operations
+// -> office equivalence that requireRole applies. They get in one at a time
+// instead, by being ticked for Invoices on the Users page.
+router.use(requirePermission('invoices', 'admin', 'office'));
 
 router.get('/', c.list);
 router.get('/:id', c.get);

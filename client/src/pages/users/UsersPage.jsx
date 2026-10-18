@@ -6,8 +6,8 @@ import { overlayClose } from '../../lib/overlayClose';
 
 const ROLES = [
   { value: 'admin',         label: 'Admin',         desc: 'Full access — settings, users, all data' },
-  { value: 'sales',         label: 'Sales',         desc: 'Customers, Price List, Sales Presenter, own jobs, schedule, quotes & timesheets' },
-  { value: 'operations',    label: 'Operations',    desc: 'Same access as Sales — jobs, schedule, customers, quotes & timesheets' },
+  { value: 'sales',         label: 'Sales',         desc: 'Customers, Price List, Sales Presenter, own jobs, schedule & timesheets, quotes on their jobs. Extra access can be ticked on below.' },
+  { value: 'operations',    label: 'Operations',    desc: 'Same access as Sales — jobs, schedule, customers & timesheets. Extra access can be ticked on below.' },
   { value: 'subcontractor', label: 'Subcontractor', desc: 'Own schedule and own jobs only' },
 ];
 
@@ -57,16 +57,33 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
     password: '',
     confirmPassword: '',
     is_active: user?.is_active !== false,
+    permissions: user?.permissions || {},
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [billingRates, setBillingRates] = useState([]);
+  // The extra-access catalogue comes from the server, so its wording and the
+  // checks that use it can't drift apart.
+  const [permOptions, setPermOptions] = useState([]);
+  const [grantableRoles, setGrantableRoles] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const isNew = !user;
 
   useEffect(() => {
     api.get('/settings/billing-rates').then(r => setBillingRates(r.data)).catch(() => {});
+    api.get('/users/permission-options').then(r => {
+      setPermOptions(r.data.permissions || []);
+      setGrantableRoles(r.data.grantable_roles || []);
+    }).catch(() => {});
   }, []);
+
+  function togglePermission(key) {
+    setForm(f => {
+      const next = { ...f.permissions };
+      if (next[key]) delete next[key]; else next[key] = true;
+      return { ...f, permissions: next };
+    });
+  }
 
   function toggleDiary(d) {
     setForm(f => ({
@@ -92,6 +109,10 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
         licence_number: form.licence_number || null, mobile: form.mobile || null,
         address: form.address || null, gst_number: form.gst_number || null,
         gst_registered: form.gst_registered,
+        // Sent for every role: the server drops it for the roles that can't hold
+        // it, which is what clears a grant when someone is made an admin or a
+        // subcontractor.
+        permissions: form.permissions,
       };
       if (form.password) payload.password = form.password;
       const { data } = user
@@ -148,6 +169,31 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
                 ))}
               </div>
             </div>
+            {/* Extra access, for someone who needs more than their role gives
+                without needing to be an admin. Only offered to the roles it
+                means anything for; switching to any other role clears it. */}
+            {grantableRoles.includes(form.role) && permOptions.length > 0 && (
+              <div className={styles.field} style={{ gridColumn: '1/-1' }}>
+                <label>Extra Access</label>
+                <p className={styles.hint}>
+                  A {ROLE_LABEL[form.role]} login sees its own jobs, its own diary and the quotes on
+                  jobs it’s assigned to. Tick anything this person needs beyond that. Everything left
+                  unticked stays admin-only, and none of this gives access to Settings, Users or the
+                  Price List.
+                </p>
+                <div className={styles.permChecks}>
+                  {permOptions.map(opt => (
+                    <label key={opt.key}
+                      className={`${styles.permCheck} ${form.permissions[opt.key] ? styles.permCheckOn : ''}`}>
+                      <input type="checkbox" checked={!!form.permissions[opt.key]}
+                        onChange={() => togglePermission(opt.key)} />
+                      <span className={styles.permCheckLabel}>{opt.label}</span>
+                      <span className={styles.permCheckHelp}>{opt.help}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className={styles.field} style={{ gridColumn: '1/-1' }}>
               <label>Default Billing Rate</label>
               <p className={styles.hint}>Pre-selected when this person logs time on a job — they can still change it per entry.</p>

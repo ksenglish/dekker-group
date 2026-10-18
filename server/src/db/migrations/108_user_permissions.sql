@@ -1,0 +1,12 @@
+-- Extra access granted to one person, on top of what their role gives them.
+--
+-- Roles stay as they are: a sales or operations login still sees its own jobs,
+-- its own diary and its own quotes. This is the exceptions list — the senior
+-- sales person who needs the whole team's diary, the operations lead who needs
+-- Invoices — so they can be given those doors one at a time instead of being
+-- made an admin.
+--
+-- A JSONB object of key -> true. Keys are the catalogue in
+-- server/src/utils/permissions.js; anything not in it is ignored on the way in,
+-- so an old key left behind by a removed feature grants nothing.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS permissions JSONB NOT NULL DEFAULT '{}'::jsonb;

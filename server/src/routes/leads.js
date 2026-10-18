@@ -1,8 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
-const { authenticate, requireRole, requireRawRole } = require('../middleware/auth');
+const { authenticate, requireRole } = require('../middleware/auth');
+const { requirePermission } = require('../utils/permissions');
 const { sendMail } = require('../utils/email');
+
+// Raw roles only — sales/operations don't get in on the sales/operations ->
+// office equivalence requireRole applies. They get in one at a time instead,
+// by being ticked for New Leads on the Users page.
+const leadAccess = requirePermission('leads', 'admin', 'office');
 
 const LEAD_STATUSES = ['new', 'contacted', 'call_back', 'converted', 'not_interested'];
 const SALES_EMAIL = 'sales@dekkergroup.co.nz';
@@ -228,7 +234,7 @@ async function ensureJob(client, lead, customerId) {
 
 router.use(authenticate);
 
-router.get('/', requireRawRole('admin', 'office'), async (req, res) => {
+router.get('/', leadAccess, async (req, res) => {
   const { status } = req.query;
   const params = [];
   let where = '';
@@ -246,7 +252,7 @@ router.get('/', requireRawRole('admin', 'office'), async (req, res) => {
 
 // Manual entry — same fields as adding a new customer, so a phone enquiry is
 // tracked identically to a website one.
-router.post('/', requireRawRole('admin', 'office'), async (req, res) => {
+router.post('/', leadAccess, async (req, res) => {
   await createLead(
     { ...req.body, source: req.body.source || 'Manual Entry' },
     res,
@@ -255,7 +261,7 @@ router.post('/', requireRawRole('admin', 'office'), async (req, res) => {
 });
 
 // Conversion timing, for the "how fast do we action leads" report.
-router.get('/stats', requireRawRole('admin', 'office'), async (req, res) => {
+router.get('/stats', leadAccess, async (req, res) => {
   try {
     const { rows: [s] } = await pool.query(`
       SELECT
@@ -296,7 +302,7 @@ router.get('/stats', requireRawRole('admin', 'office'), async (req, res) => {
 //
 // Filtered on created_at: "how many leads did we get in March" is a question
 // about when they arrived, not when they were dealt with.
-router.get('/report', requireRawRole('admin', 'office'), async (req, res) => {
+router.get('/report', leadAccess, async (req, res) => {
   const { from, to } = req.query;
   const range = [from || null, to || null];
   // $1/$2 are the window; null means unbounded on that side.
@@ -443,13 +449,13 @@ async function findDuplicates(lead) {
 }
 
 // Checked before saving a manual lead, and again from the lead itself.
-router.post('/check-duplicates', requireRawRole('admin', 'office'), async (req, res) => {
+router.post('/check-duplicates', leadAccess, async (req, res) => {
   try {
     res.json(await findDuplicates(req.body || {}));
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
-router.get('/:id/duplicates', requireRawRole('admin', 'office'), async (req, res) => {
+router.get('/:id/duplicates', leadAccess, async (req, res) => {
   try {
     const { rows: [lead] } = await pool.query('SELECT * FROM leads WHERE id=$1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
@@ -463,7 +469,7 @@ router.get('/:id/duplicates', requireRawRole('admin', 'office'), async (req, res
 // Attach a lead to a customer that already exists instead of creating a second
 // record. Only fills gaps on the customer — an existing value is never
 // overwritten by lead data, which is usually the less complete of the two.
-router.post('/:id/merge', requireRawRole('admin', 'office'), async (req, res) => {
+router.post('/:id/merge', leadAccess, async (req, res) => {
   const { customer_id } = req.body || {};
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required' });
   const client = await pool.connect();
@@ -550,7 +556,7 @@ router.post('/:id/merge', requireRawRole('admin', 'office'), async (req, res) =>
 
 // Call notes, newest first, with who wrote each one and the result it was
 // logged against.
-router.get('/:id/notes', requireRawRole('admin', 'office'), async (req, res) => {
+router.get('/:id/notes', leadAccess, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT n.id, n.note, n.result, n.created_at, n.user_id, u.name AS author_name
@@ -563,7 +569,7 @@ router.get('/:id/notes', requireRawRole('admin', 'office'), async (req, res) => 
 });
 
 // A note on its own, without recording a call result.
-router.post('/:id/notes', requireRawRole('admin', 'office'), async (req, res) => {
+router.post('/:id/notes', leadAccess, async (req, res) => {
   const { note } = req.body || {};
   if (!note?.trim()) return res.status(400).json({ error: 'Note is required' });
   try {
@@ -576,7 +582,7 @@ router.post('/:id/notes', requireRawRole('admin', 'office'), async (req, res) =>
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 });
 
-router.patch('/:id/status', requireRawRole('admin', 'office'), async (req, res) => {
+router.patch('/:id/status', leadAccess, async (req, res) => {
   const { status } = req.body;
   if (!LEAD_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
   const client = await pool.connect();
@@ -617,7 +623,7 @@ router.patch('/:id/status', requireRawRole('admin', 'office'), async (req, res) 
 
 // Edit a lead's details after it's been saved. Available at any stage — a
 // phone number taken down wrong shouldn't need the lead converting first.
-router.put('/:id', requireRawRole('admin', 'office'), async (req, res) => {
+router.put('/:id', leadAccess, async (req, res) => {
   const f = req.body || {};
   if (!f.name?.trim()) return res.status(400).json({ error: 'Name is required' });
   try {
@@ -646,7 +652,7 @@ router.put('/:id', requireRawRole('admin', 'office'), async (req, res) => {
 // Record the outcome of a call. This is the main way a lead moves: the result
 // picked decides the status, so nobody has to remember which status goes with
 // "left a voicemail".
-router.post('/:id/result', requireRawRole('admin', 'office'), async (req, res) => {
+router.post('/:id/result', leadAccess, async (req, res) => {
   const { result, call_back_on, note } = req.body || {};
   const mapped = CALL_RESULTS[result];
   if (!mapped) return res.status(400).json({ error: 'Unknown call result' });
@@ -711,7 +717,7 @@ router.post('/:id/result', requireRawRole('admin', 'office'), async (req, res) =
 
 // Kept for the existing "convert" action — now opens a job rather than just a
 // customer, so converted means booked work.
-router.post('/:id/convert', requireRawRole('admin', 'office'), async (req, res) => {
+router.post('/:id/convert', leadAccess, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

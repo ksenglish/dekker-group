@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { authenticate, requireRole } = require('../middleware/auth');
+const { can } = require('../utils/permissions');
 const pool = require('../db/pool');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
@@ -263,7 +264,7 @@ router.delete('/marketing/costs/:id', requireRole('admin'), async (req, res) => 
 
 router.get('/revenue', async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = can(req.user, 'reports.all');
     const params = [];
     let userFilter = '';
     if (!isAdmin) {
@@ -290,7 +291,7 @@ router.get('/revenue', async (req, res) => {
 // Job stats by status — filtered to user's jobs for non-admin
 router.get('/jobs', async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = can(req.user, 'reports.all');
     const { from, to } = req.query;
     const conditions = [];
     const params = [];
@@ -332,7 +333,7 @@ router.get('/customers', async (req, res) => {
 // Tech hours summary — non-admin sees only their own
 router.get('/timesheets', async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
+    const isAdmin = can(req.user, 'reports.all');
     const { from, to } = req.query;
     const params = [];
     let p = 1;
@@ -427,9 +428,10 @@ function fmtDay(d) {
   return d ? new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 }
 
-// Only admins can report on someone else; everyone else is pinned to themselves.
+// Reporting on someone else takes the whole-team grant; everyone else is
+// pinned to themselves.
 function targetUserId(req) {
-  return req.user.role === 'admin' ? (req.query.user_id || req.body?.user_id || req.user.id) : req.user.id;
+  return can(req.user, 'reports.all') ? (req.query.user_id || req.body?.user_id || req.user.id) : req.user.id;
 }
 
 // Jobs that were in one team member's diary over a period, with where each
@@ -579,7 +581,7 @@ function salesStatusGroups(statuses) {
 
 router.get('/sales', async (req, res) => {
   const { from, to } = req.query;
-  const isAdmin = req.user.role === 'admin';
+  const isAdmin = can(req.user, 'reports.all');
   try {
     const { rows: settingsRows } = await pool.query(`SELECT value FROM settings WHERE key='job_statuses'`);
     const statuses = settingsRows[0]?.value || DEFAULT_STATUSES;

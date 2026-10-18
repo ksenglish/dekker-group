@@ -1,5 +1,5 @@
 const pool = require('../db/pool');
-const { normaliseRole } = require('../middleware/auth');
+const { can } = require('../utils/permissions');
 const { advanceJobStatusByLabel } = require('../utils/jobStatusFlow');
 
 const isSiteVisit       = l => l.includes('site visit');
@@ -53,10 +53,10 @@ async function list(req, res) {
   if (appointment_type) { conditions.push(`s.appointment_type = $${p}`); params.push(appointment_type); p++; }
   if (job)  { conditions.push(`s.job_id = $${p}`);          params.push(job);  p++; }
 
-  // Non-admin users only see their own appointments — unless viewing one
-  // job's full schedule (e.g. the job's Schedule tab), which any team
-  // member on the job should be able to see in full.
-  if (!job && normaliseRole(req.user.role) !== 'admin') {
+  // You see your own appointments — unless you've been given the whole
+  // team's diary, or you're looking at one job's full schedule (the job's
+  // Schedule tab), which anyone on the job should see in full.
+  if (!job && !can(req.user, 'schedule.all')) {
     conditions.push(`s.user_id = $${p}`);
     params.push(req.user.id); p++;
   }

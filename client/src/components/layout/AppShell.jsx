@@ -35,18 +35,19 @@ import SalesPage from '../../pages/reports/SalesPage';
 import MarketingPage from '../../pages/reports/MarketingPage';
 import AdminPage from '../../pages/admin/AdminPage';
 import { ADMIN_ITEMS } from './adminItems';
+import { can } from '../../lib/permissions';
 import styles from './AppShell.module.css';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '⊞', exact: true },
   { to: '/todos', label: 'To-Do List', icon: '☑', badge: 'todos', newBadge: 'todosNew' },
-  { to: '/leads', label: 'New Leads', icon: '📥', officeOnly: true, badge: 'leads' },
-  { to: '/invoice-inbox', label: 'PDF Check', icon: '🧾', officeOnly: true, badge: 'inbox' },
+  { to: '/leads', label: 'New Leads', icon: '📥', officeOnly: true, needs: 'leads', badge: 'leads' },
+  { to: '/invoice-inbox', label: 'PDF Check', icon: '🧾', officeOnly: true, needs: 'invoices', badge: 'inbox' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/jobs', label: 'Jobs', icon: '🔧' },
   { to: '/schedule', label: 'Schedule', icon: '📅' },
-  { to: '/quotes', label: 'Quotes', icon: '📋', hideForOperations: true },
-  { to: '/invoices', label: 'Invoices', icon: '💰', officeOnly: true },
+  { to: '/quotes', label: 'Quotes', icon: '📋', hideForOperations: true, needs: 'quotes.all' },
+  { to: '/invoices', label: 'Invoices', icon: '💰', officeOnly: true, needs: 'invoices' },
   { to: '/products', label: 'Price List', icon: '🏷', hideForOperations: true },
   { to: '/map', label: 'Map', icon: '🗺' },
   { to: '/timesheets', label: 'Timesheets', icon: '⏱' },
@@ -55,11 +56,19 @@ const NAV_ITEMS = [
   { to: '/hub', label: 'Dekker Hub', icon: '🏢' },
 ];
 
-function visibleNavItems(items, role) {
+// What to put in the rail. The server decides what anyone can actually open;
+// this only keeps people out of sections that would refuse them.
+//
+// `needs` names a grant from the Users page, and holding it opens the item
+// whatever the role rules say — which is the whole point of granting it.
+function visibleNavItems(items, user) {
+  const role = user?.role;
   return items.filter(item =>
-    (!item.adminOnly || role === 'admin') &&
-    (!item.officeOnly || ['admin', 'office'].includes(role)) &&
-    (!item.hideForOperations || role !== 'operations')
+    (item.needs && can(user, item.needs)) || (
+      (!item.adminOnly || role === 'admin') &&
+      (!item.officeOnly || ['admin', 'office'].includes(role)) &&
+      (!item.hideForOperations || role !== 'operations')
+    )
   );
 }
 
@@ -79,7 +88,11 @@ export default function AppShell() {
   const [dueTodos, setDueTodos] = useState(0);
   const [newTodos, setNewTodos] = useState(0);
 
-  const canSeeLeads = ['admin', 'office'].includes(user?.role);
+  // The two badge counts, gated the same way their sections are so a granted
+  // person gets the count and nobody else fetches a 403.
+  const officeRole = ['admin', 'office'].includes(user?.role);
+  const canSeeLeads = officeRole || can(user, 'leads');
+  const canSeeInbox = officeRole || can(user, 'invoices');
 
   const refreshLeadCount = useCallback(() => {
     if (!canSeeLeads) { setOpenLeads(0); return; }
@@ -89,11 +102,11 @@ export default function AppShell() {
   }, [canSeeLeads]);
 
   const refreshInboxCount = useCallback(() => {
-    if (!canSeeLeads) { setInboxCount(0); return; }
+    if (!canSeeInbox) { setInboxCount(0); return; }
     api.get('/invoice-inbox/count')
       .then(r => setInboxCount(r.data.count || 0))
       .catch(() => {});
-  }, [canSeeLeads]);
+  }, [canSeeInbox]);
 
   // To-dos are open to every role, so this one isn't gated on canSeeLeads.
   const refreshTodoCount = useCallback(() => {
@@ -148,7 +161,7 @@ export default function AppShell() {
         <nav className={styles.nav}>
           {/* sales/operations deliberately excluded from officeOnly items — unlike
               most of the app they don't get office-equivalent access to those tabs. */}
-          {visibleNavItems(NAV_ITEMS, user?.role).map(item => (
+          {visibleNavItems(NAV_ITEMS, user).map(item => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -257,24 +270,24 @@ export default function AppShell() {
           { to: '/todos',     icon: '☑', label: 'To-Do' },
           // Admin only on mobile, so a new enquiry can be picked up and called
           // back from the phone rather than waiting for someone at a desk.
-          { to: '/leads',     icon: '📥', label: 'New Leads', adminOnly: true },
+          { to: '/leads',     icon: '📥', label: 'New Leads', adminOnly: true, needs: 'leads' },
           { to: '/jobs',      icon: '🔧', label: 'Jobs' },
           { to: '/schedule',  icon: '📅', label: 'Schedule' },
-          { to: '/quotes',    icon: '📋', label: 'Quotes', hideForOperations: true },
+          { to: '/quotes',    icon: '📋', label: 'Quotes', hideForOperations: true, needs: 'quotes.all' },
           { to: '/customers', icon: '👥', label: 'Customers' },
           { to: '/products',  icon: '🏷', label: 'Price List', hideForOperations: true },
           { to: '/timesheets', icon: '⏱', label: 'Timesheets' },
           // Admin only, matching who can act on what's in here — mainly so
           // receipts can be photographed and filed into Operating Costs on the
           // phone rather than having to get back to a desktop.
-          { to: '/reports',   icon: '📊', label: 'Reports', adminOnly: true },
+          { to: '/reports',   icon: '📊', label: 'Reports', adminOnly: true, needs: 'reports.all' },
           { to: '/presenter', icon: '🎯', label: 'Presenter', hideForOperations: true },
           { to: '/hub',       icon: '🏢', label: 'Hub' },
           // The admin pages live in the desktop sidebar, which is hidden on a
           // phone. This opens a menu of them instead of adding four more items
           // to a rail that already has to scroll.
           { to: '/admin',     icon: '🛠', label: 'Admin', adminOnly: true },
-        ], user?.role).map(item => (
+        ], user).map(item => (
           <NavLink key={item.to} to={item.to} end={item.exact}
             className={({ isActive }) =>
               `${styles.bottomNavItem} ${isActive ? styles.bottomNavItemActive : ''}`
