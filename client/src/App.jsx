@@ -9,15 +9,33 @@ import PublicQuote from './pages/quotes/PublicQuote';
 import PublicServiceReport from './pages/jobs/PublicServiceReport';
 import Dashboard from './pages/Dashboard';
 
+// Shown while the server is away — a deploy, a restart — rather than the login
+// page. Nobody has been signed out; the app simply cannot reach the server to
+// say so yet, and it keeps trying on its own.
+function Reconnecting() {
+  return (
+    <div className="page-loading">
+      <div>Reconnecting to the server…</div>
+      <div style={{ fontSize: 13, opacity: 0.7, marginTop: 8 }}>
+        You are still signed in. This usually clears within a minute.
+      </div>
+    </div>
+  );
+}
+
 function PrivateRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, offline } = useAuth();
   if (loading) return <div className="page-loading">Loading…</div>;
+  if (!user && offline) return <Reconnecting />;
   return user ? children : <Navigate to="/login" replace />;
 }
 
 function PublicRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, offline } = useAuth();
   if (loading) return <div className="page-loading">Loading…</div>;
+  // Not sent to the login page either: signing in needs the same server that
+  // isn't answering, so a password typed here would only fail.
+  if (!user && offline) return <Reconnecting />;
   return user ? <Navigate to="/" replace /> : children;
 }
 

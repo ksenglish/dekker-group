@@ -6,6 +6,10 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const pool = require('./db/pool');
 const { runMigrations } = require('./db/migrate');
+const { configureImageMemory } = require('./utils/imageMemory');
+const {
+  trackRequests, startMemoryWatch, memorySnapshot, installShutdownHandlers,
+} = require('./services/instanceHealth');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -76,6 +80,10 @@ app.use((req, res, next) => {
 // reaches the generic JSON parser.
 app.use('/api/xero/webhook', express.raw({ type: 'application/json' }), xeroWebhookRoutes);
 
+// Before the body parsers, so a request that dies parsing a large upload is
+// still counted among what was in flight when memory went up.
+app.use(trackRequests());
+
 app.use(express.json({ limit: '15mb' }));
 app.use(cookieParser());
 
@@ -107,12 +115,16 @@ app.use('/api/app-console', appConsoleRoutes);
 app.use('/api/marketing', require('./routes/marketing'));
 app.use('/api/forms', require('./routes/forms'));
 
+// Reports memory as well as the database. A health check that only says
+// "the database answered" cannot tell you the instance is about to be killed
+// for the thing that actually keeps killing it.
 app.get('/api/health', async (req, res) => {
+  const memory = memorySnapshot();
   try {
     await pool.query('SELECT 1');
-    res.json({ status: 'ok', db: 'connected' });
+    res.json({ status: 'ok', db: 'connected', memory });
   } catch {
-    res.status(500).json({ status: 'error', db: 'disconnected' });
+    res.status(500).json({ status: 'error', db: 'disconnected', memory });
   }
 });
 
@@ -135,16 +147,22 @@ async function start() {
     console.log('Running migrations…');
     await runMigrations();
   }
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Dekker Group server running on http://localhost:${PORT}`);
     // Worth saying out loud — the fallback works, so a missing credential is
     // otherwise invisible until a large drawing fails to store.
     console.log(require('./services/fileStore').isConfigured()
       ? 'Attachments: object storage configured'
       : 'Attachments: no object storage configured, storing in the database (large files will fail)');
+    const image = configureImageMemory();
+    if (image) console.log(`Images: ${image.concurrency} at a time, libvips cache off`);
+    startMemoryWatch();
     require('./services/siteVisitSweep').startSiteVisitSweep();
     require('./services/stalledJobSweep').startStalledJobSweep();
   });
+  // A deploy or a restart should finish what it is serving first — being cut
+  // off mid-response is what the team sees as the app "crashing".
+  installShutdownHandlers(server, pool);
 }
 
 // Catch unhandled async errors in route handlers (Express 4 doesn't catch these automatically)
