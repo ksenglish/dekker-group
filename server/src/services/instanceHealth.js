@@ -15,7 +15,7 @@
 //                       second deploy into errors on everyone's screen.
 const os = require('os');
 const v8 = require('v8');
-const { containerLimitBytes } = require('../heap-budget');
+const { containerLimitBytes } = require('../containerLimit');
 
 const MB = 1024 * 1024;
 const mb = bytes => Math.round(bytes / MB);
@@ -89,17 +89,24 @@ function checkMemory() {
 function startMemoryWatch(intervalMs = 30_000) {
   const limit = containerLimitBytes();
   // The cap V8 is actually running under, not the heap it happens to have
-  // grown to — the one number that says whether the start command took. If
-  // this is far larger than the container, the flag did not reach node and
-  // the instance is still liable to be killed without V8 noticing.
+  // grown to. Node works this out from the container on its own — on a 512MB
+  // instance it settles on about 259MB — so this is a check rather than
+  // something that had to be configured. It is also only half the picture:
+  // Buffers and the image library are allocated outside the heap entirely and
+  // this cap does nothing to hold them, which is why the warnings below count
+  // resident memory and not just heap.
   const heapCap = mb(v8.getHeapStatistics().heap_size_limit);
   if (limit) {
     console.log(`Memory: ${mb(limit)}MB instance limit, V8 heap capped at ${heapCap}MB.`);
     if (heapCap > mb(limit)) {
+      // Not expected: node sizes the heap from the container by itself. If it
+      // ever does not, it will grow past the limit without feeling any
+      // pressure, and the process will be killed rather than collect — so it
+      // is worth saying out loud rather than discovering from a restart.
       console.warn(
         `Memory: the heap cap (${heapCap}MB) is above the instance limit (${mb(limit)}MB), ` +
-        'so V8 will not collect before the platform kills the process. The start command ' +
-        'should be: node $(node server/src/heap-budget.js) server/src/index.js');
+        'so V8 may not collect before the platform kills the process. Starting node with ' +
+        `--max-old-space-size=${Math.floor(mb(limit) * 0.6)} would hold it below the limit.`);
     }
   } else {
     console.log(`Memory: no container limit here (${mb(os.totalmem())}MB on this machine), V8 heap cap ${heapCap}MB.`);

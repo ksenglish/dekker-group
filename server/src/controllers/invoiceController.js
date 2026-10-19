@@ -4,12 +4,37 @@ const { sendMail } = require('../utils/email');
 const { getThemeById } = require('../utils/documentThemes');
 const { logActivity } = require('../utils/activity');
 const { onJobStatusChanged } = require('../utils/jobCompleteNotify');
+const fileStore = require('../services/fileStore');
+
+// An invoice's items live on its job — accepting a quote copies the agreed
+// scope there, and that's what gets billed. An invoice raised from a quote
+// that never had a job has nowhere to read them from, so it falls back to the
+// quote's own items, which are the same agreed scope.
+async function getInvoiceItems(inv) {
+  if (inv.job_id) {
+    const { rows } = await pool.query(
+      'SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL ORDER BY created_at', [inv.job_id]
+    );
+    return rows;
+  }
+  if (!inv.quote_id) return [];
+  const { rows } = await pool.query(
+    'SELECT * FROM line_items WHERE quote_id=$1 ORDER BY created_at', [inv.quote_id]
+  );
+  return rows;
+}
 
 async function enrichItemsWithImages(items) {
   const ids = items.map(i => i.product_id).filter(Boolean);
   if (!ids.length) return items;
-  const { rows } = await pool.query(`SELECT id, media_base64 FROM products WHERE id = ANY($1)`, [ids]);
-  const map = Object.fromEntries(rows.map(r => [r.id, r.media_base64]));
+  const { rows } = await pool.query(`SELECT id, media_base64, media_key FROM products WHERE id = ANY($1)`, [ids]);
+  // Product images live in the bucket now, so the thumbnail is fetched back as
+  // a data URL for the PDF builder. Products from before that still carry
+  // their own bytes and are passed straight through.
+  const map = {};
+  for (const row of rows) {
+    map[row.id] = await fileStore.readDataUrl({ key: row.media_key, inline: row.media_base64 });
+  }
   return items.map(i => ({ ...i, media_base64: i.product_id ? (map[i.product_id] || null) : null }));
 }
 
@@ -56,8 +81,7 @@ async function get(req, res) {
       [req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Invoice not found' });
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL ORDER BY created_at', [rows[0].job_id]);
-    res.json({ ...rows[0], line_items: items.rows });
+    res.json({ ...rows[0], line_items: await getInvoiceItems(rows[0]) });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
@@ -102,8 +126,7 @@ async function downloadPdf(req, res) {
       [req.params.id]
     );
     if (!inv) return res.status(404).json({ error: 'Not found' });
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL ORDER BY created_at', [inv.job_id]);
-    const enrichedItems = await enrichItemsWithImages(items.rows);
+    const enrichedItems = await enrichItemsWithImages(await getInvoiceItems(inv));
     const docTheme = await getThemeById(inv.theme_id);
     const pdf = await buildPDF({
       type: 'Invoice', number: inv.invoice_number ? `INV-${String(inv.invoice_number).padStart(4,'0')}` : `INV-${inv.id.slice(0,8).toUpperCase()}`,
@@ -126,8 +149,7 @@ async function sendEmail(req, res) {
     );
     if (!inv) return res.status(404).json({ error: 'Not found' });
     if (!inv.customer_email) return res.status(400).json({ error: 'Customer has no email address' });
-    const items = await pool.query('SELECT * FROM line_items WHERE job_id=$1 AND quote_id IS NULL ORDER BY created_at', [inv.job_id]);
-    const enrichedItems = await enrichItemsWithImages(items.rows);
+    const enrichedItems = await enrichItemsWithImages(await getInvoiceItems(inv));
     const docTheme = await getThemeById(inv.theme_id);
     const pdf = await buildPDF({
       type: 'Invoice', number: inv.invoice_number ? `INV-${String(inv.invoice_number).padStart(4,'0')}` : `INV-${inv.id.slice(0,8).toUpperCase()}`,

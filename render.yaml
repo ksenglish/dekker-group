@@ -7,14 +7,7 @@ services:
     # here means the deploy would have shipped a fault. Warnings do not fail
     # the build.
     buildCommand: npm install && npm run lint && cd client && npm install && npm run build && cd .. && cd server && npm install && cd ..
-    # Deliberately a script rather than the command itself. The server is
-    # started with a heap cap worked out from the instance's own memory limit,
-    # which takes a shell — and Render does not do variable interpolation in
-    # Blueprint files, so command substitution written here fails the
-    # Blueprint sync instead of running. Their guidance is a start script, so
-    # the shell lives in server/start.sh — which is also the only place in this
-    # file that needs one. See server/src/heap-budget.js for what it computes.
-    startCommand: sh server/start.sh
+    startCommand: node server/src/index.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
