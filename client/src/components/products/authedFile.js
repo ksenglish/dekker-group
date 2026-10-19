@@ -47,3 +47,14 @@ export async function fetchAsDataUrl(path) {
     reader.readAsDataURL(blob);
   });
 }
+
+// The same bytes as an object URL, fetched fresh every time.
+//
+// The cache above is keyed on the path, and a product's image path does not
+// change when its image does — so the editor, which is the one place images
+// get replaced, asks for its own copy rather than being handed the picture it
+// has just overwritten. The caller owns the URL and revokes it.
+export async function fetchAuthedObjectUrl(path) {
+  const { data: blob } = await api.get(path, { responseType: 'blob' });
+  return { url: URL.createObjectURL(blob), type: blob.type || '' };
+}
