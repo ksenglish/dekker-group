@@ -1,0 +1,6 @@
+# Shell scripts must keep Unix line endings whatever the machine they are
+# edited on. This repo is worked on from Windows, and a .sh checked out with
+# CRLF fails on Linux with "bad interpreter: /bin/sh^M" — which looks nothing
+# like a line-ending problem and would take the API down on the next deploy,
+# since server/start.sh is the start command.
+*.sh text eol=lf
