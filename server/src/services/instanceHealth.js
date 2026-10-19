@@ -14,6 +14,7 @@
 //                       cut off mid-response — which is what turns a thirty
 //                       second deploy into errors on everyone's screen.
 const os = require('os');
+const v8 = require('v8');
 const { containerLimitBytes } = require('../heap-budget');
 
 const MB = 1024 * 1024;
@@ -87,9 +88,22 @@ function checkMemory() {
 
 function startMemoryWatch(intervalMs = 30_000) {
   const limit = containerLimitBytes();
-  console.log(limit
-    ? `Memory: ${mb(limit)}MB limit on this instance, heap capped at ${Math.round(process.memoryUsage().heapTotal / MB)}MB and growing as needed`
-    : `Memory: no container limit detected (${mb(os.totalmem())}MB on this machine)`);
+  // The cap V8 is actually running under, not the heap it happens to have
+  // grown to — the one number that says whether the start command took. If
+  // this is far larger than the container, the flag did not reach node and
+  // the instance is still liable to be killed without V8 noticing.
+  const heapCap = mb(v8.getHeapStatistics().heap_size_limit);
+  if (limit) {
+    console.log(`Memory: ${mb(limit)}MB instance limit, V8 heap capped at ${heapCap}MB.`);
+    if (heapCap > mb(limit)) {
+      console.warn(
+        `Memory: the heap cap (${heapCap}MB) is above the instance limit (${mb(limit)}MB), ` +
+        'so V8 will not collect before the platform kills the process. The start command ' +
+        'should be: node $(node server/src/heap-budget.js) server/src/index.js');
+    }
+  } else {
+    console.log(`Memory: no container limit here (${mb(os.totalmem())}MB on this machine), V8 heap cap ${heapCap}MB.`);
+  }
   const timer = setInterval(checkMemory, intervalMs);
   // Never the reason the process stays up.
   timer.unref();
