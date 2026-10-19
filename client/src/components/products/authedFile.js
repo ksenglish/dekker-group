@@ -30,3 +30,20 @@ export function loadAuthedFile(path) {
 }
 
 export const cachedAuthedFile = path => cache.get(path) || null;
+
+// The same bytes as a data: URL rather than an object URL.
+//
+// Copying a product has to hand the new one its own picture, not a reference
+// to the original's — two products sharing a stored file means deleting one
+// takes the other's image with it. A data: URL is what the save path reads as
+// a genuine upload, so the copy gets a file of its own.
+export async function fetchAsDataUrl(path) {
+  const { data: blob } = await api.get(path, { responseType: 'blob' });
+  if (!blob || !blob.size) return '';
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}

@@ -24,7 +24,7 @@ export function rollUp(lines) {
   }), { cost: 0, sell: 0 });
 }
 
-function Search({ onPick, exclude }) {
+function Search({ onPick, exclude, placeholder }) {
   const [q, setQ] = useState('');
   const [results, setResults] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -48,7 +48,7 @@ function Search({ onPick, exclude }) {
   return (
     <div className={styles.search}>
       <input value={q} onChange={e => setQ(e.target.value)}
-        placeholder="Search the price list to add a part…" />
+        placeholder={placeholder || 'Search the price list to add a part…'} />
       {busy && <span className={styles.searchBusy}>Searching…</span>}
       {results.length > 0 && (
         <div className={styles.results}>
@@ -75,6 +75,8 @@ export default function KitBuilder({ productId, value, onChange, isAdmin }) {
   // value: [{ component_id, name, unit, quantity, cost_price, unit_price }]
   const lines = value || [];
   const [loading, setLoading] = useState(!!productId);
+  // Which line, if any, is having its part replaced.
+  const [swapping, setSwapping] = useState(null);
   const loaded = useRef(false);
 
   // An existing kit loads its parts once, when the form opens.
@@ -93,11 +95,26 @@ export default function KitBuilder({ productId, value, onChange, isAdmin }) {
       quantity: 1, cost_price: p.cost_price || 0, unit_price: p.unit_price || 0,
     }]);
   }
+  // Putting a different part in an existing line, keeping its quantity and its
+  // place in the list.
+  //
+  // This is what copying a kit is usually for: the same job, the same labour,
+  // the same fixings, a different unit in the middle of it. Taking the old
+  // line out and adding a new one loses both the quantity and the order, and
+  // then has to be retyped from the one that was just deleted.
+  function swap(oldId, p) {
+    onChange(lines.map(l => (l.component_id === oldId
+      ? { ...l, component_id: p.id, name: p.name, unit: p.unit,
+          cost_price: p.cost_price || 0, unit_price: p.unit_price || 0 }
+      : l)));
+    setSwapping(null);
+  }
   function setQty(id, q) {
     onChange(lines.map(l => (l.component_id === id ? { ...l, quantity: q } : l)));
   }
   function drop(id) {
     onChange(lines.filter(l => l.component_id !== id));
+    setSwapping(s => (s === id ? null : s));
   }
 
   const totals = rollUp(lines.map(l => ({ ...l, quantity: parseFloat(l.quantity) || 0 })));
@@ -125,11 +142,13 @@ export default function KitBuilder({ productId, value, onChange, isAdmin }) {
             <span className={styles.num}>Sell</span>
             <span className={styles.num}>Line</span>
             <span />
+            <span />
           </div>
           {lines.map(l => {
             const q = parseFloat(l.quantity) || 0;
             return (
-              <div key={l.component_id} className={styles.row}>
+              <div key={l.component_id} className={styles.rowWrap}>
+              <div className={styles.row}>
                 <span className={styles.partName}>
                   {l.name}
                   {l.is_active === false && <em className={styles.inactive}>archived</em>}
@@ -142,8 +161,21 @@ export default function KitBuilder({ productId, value, onChange, isAdmin }) {
                 {isAdmin && <span className={styles.num}>{fmt(l.cost_price)}</span>}
                 <span className={styles.num}>{fmt(l.unit_price)}</span>
                 <span className={`${styles.num} ${styles.lineTotal}`}>{fmt(Math.round(l.unit_price * q))}</span>
+                <button type="button"
+                  className={`${styles.swap} ${swapping === l.component_id ? styles.swapOn : ''}`}
+                  title={`Put a different part in place of ${l.name}, keeping the quantity`}
+                  onClick={() => setSwapping(s => (s === l.component_id ? null : l.component_id))}>⇄</button>
                 <button type="button" className={styles.remove} title={`Take ${l.name} out of the kit`}
                   onClick={() => drop(l.component_id)}>✕</button>
+              </div>
+              {swapping === l.component_id && (
+                <div className={styles.swapRow}>
+                  <span className={styles.swapLabel}>Replace {l.name} with:</span>
+                  <Search onPick={p => swap(l.component_id, p)}
+                    exclude={lines.filter(o => o.component_id !== l.component_id).map(o => o.component_id)}
+                    placeholder="Search the price list for the part to use instead…" />
+                </div>
+              )}
               </div>
             );
           })}

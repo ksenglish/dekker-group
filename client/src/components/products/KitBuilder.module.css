@@ -52,7 +52,7 @@
   border: 1px solid var(--color-border); border-radius: var(--radius); overflow: hidden;
 }
 .head, .row {
-  display: grid; grid-template-columns: minmax(0, 1fr) 76px 80px 80px 88px 28px;
+  display: grid; grid-template-columns: minmax(0, 1fr) 76px 80px 80px 88px 28px 28px;
   gap: 8px; align-items: center; padding: 7px 10px;
 }
 .head {
@@ -60,8 +60,9 @@
   font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--color-text-muted);
 }
-.row { border-bottom: 1px solid var(--color-border); font-size: 13px; }
-.row:last-of-type { border-bottom: none; }
+.rowWrap { border-bottom: 1px solid var(--color-border); }
+.rowWrap:last-of-type { border-bottom: none; }
+.row { font-size: 13px; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .num input {
   width: 100%; box-sizing: border-box; padding: 4px 6px; font-size: 13px;
@@ -79,6 +80,20 @@
 }
 .remove:hover { color: #b91c1c; }
 
+/* Swapping one part for another, in place. */
+.swap {
+  background: none; border: none; cursor: pointer; padding: 2px;
+  color: var(--color-text-muted); font-size: 14px; line-height: 1;
+}
+.swap:hover { color: var(--color-primary); }
+.swapOn { color: var(--color-primary); font-weight: 700; }
+.swapRow {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 10px 10px; background: var(--color-primary-light);
+}
+.swapRow > :last-child { flex: 1 1 240px; min-width: 0; }
+.swapLabel { font-size: 12px; font-weight: 600; }
+
 .totals {
   display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
   padding: 9px 10px; background: #f0fdf4; border-top: 1px solid #86efac;
@@ -94,7 +109,10 @@
 @media (max-width: 640px) {
   /* The cost column is the first to go: on a phone the sell price and the line
      total are what is being checked. */
-  .head, .row { grid-template-columns: minmax(0, 1fr) 64px 76px 24px; }
+  /* Two buttons rather than one, so the numbers and the gap give the part
+     name back the width it costs — a part no one can read is worse than a
+     line total a few pixels narrower. */
+  .head, .row { grid-template-columns: minmax(0, 1fr) 54px 70px 22px 22px; gap: 5px; }
   .head > span:nth-child(3), .row > span:nth-child(3),
   .head > span:nth-child(4), .row > span:nth-child(4) { display: none; }
 }

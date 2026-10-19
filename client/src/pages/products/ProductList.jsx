@@ -9,6 +9,7 @@ import PickOrAdd from '../../components/products/PickOrAdd';
 import CategoryFields from '../../components/products/CategoryFields';
 import useTaxonomy from '../../components/products/useTaxonomy';
 import KitBuilder, { rollUp } from '../../components/products/KitBuilder';
+import { fetchAsDataUrl } from '../../components/products/authedFile';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const GST_RATE = 0.15;
@@ -37,6 +38,12 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  // Copying turns this dialog into a new, unsaved product carrying everything
+  // the original had. `product` is still here to read from, so saving has to
+  // ask whether it is writing back to it or raising a new one.
+  const [isCopy, setIsCopy] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const nameRef = useRef(null);
   // Every category path and supplier already in use, so nothing gets retyped.
   const { picks, paths, error: picksError } = useTaxonomy();
   // Whether the cost being typed includes GST. What is stored is always
@@ -80,7 +87,12 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
       // field the form never knew the value of would delete the file — which
       // is exactly what editing a product from the list used to do, since the
       // list carries no image data to populate the form with.
+      // Both prices come from the parts while the kit is pricing. The sell box
+      // is read-only and shows the rolled-up figure, but `form.unit_price` still
+      // holds whatever was last typed or loaded — so it is sent explicitly
+      // rather than left to go stale behind the kit it is meant to describe.
       const payload = { ...form, cost_price: Math.round(costExGst * 100) / 100 };
+      if (kitPriced) payload.unit_price = kitTotals.sell / 100;
       // Always sent once the toggle has been touched: an empty list is how a
       // kit goes back to being an ordinary product.
       if (isKit || (product?.component_count || 0) > 0) {
@@ -90,7 +102,7 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
       }
       if (form.media_base64 === initialMedia.current) delete payload.media_base64;
       if (form.brochure_base64 === initialBrochure.current) delete payload.brochure_base64;
-      if (product) {
+      if (product && !isCopy) {
         const { data } = await api.put(`/products/${product.id}`, payload);
         onSave(data);
       } else {
@@ -100,20 +112,65 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
     } catch (e) { setErr(e.response?.data?.error || 'Save failed'); setSaving(false); }
   }
 
+  // Copying the product that's open.
+  //
+  // Building "the same kit with a different heat pump in it" was retyping the
+  // whole thing: every part, every quantity, the labour lines, the category
+  // path, the wording. This takes all of that as it stands and turns the open
+  // dialog into a new, unsaved product — so the one part that differs can be
+  // swapped and the rest left alone. Nothing exists until Save Product.
+  async function startCopy() {
+    setCopying(true); setErr('');
+    try {
+      // A kit whose parts haven't arrived yet would copy as an empty kit, so
+      // they're fetched here rather than trusted to have loaded.
+      if (isKit && kitLines.length === 0 && (product.component_count || 0) > 0) {
+        const { data } = await api.get(`/products/${product.id}/components`);
+        setKitLines(data);
+      }
+      // The picture and brochure are held as URLs pointing at the original's
+      // stored file. The copy fetches the bytes so it uploads a file of its
+      // own — sharing one would mean deleting either product took the other's
+      // image with it.
+      const [media, brochure] = await Promise.all([
+        product.media_url ? fetchAsDataUrl(`/products/${product.id}/media`).catch(() => '') : form.media_base64,
+        product.brochure_url ? fetchAsDataUrl(`/products/${product.id}/brochure`).catch(() => '') : form.brochure_base64,
+      ]);
+      // Both are now genuinely new uploads, so neither counts as "untouched".
+      initialMedia.current = null;
+      initialBrochure.current = null;
+      setForm(f => ({ ...f, name: `${f.name} (copy)`, media_base64: media, brochure_base64: brochure }));
+      setIsCopy(true);
+      // The name is the first thing to change, so it's selected ready to type over.
+      setTimeout(() => { nameRef.current?.focus(); nameRef.current?.select(); }, 0);
+    } catch {
+      setErr('Could not copy this product. Nothing has been changed.');
+      setIsCopy(false);
+    } finally { setCopying(false); }
+  }
+
   return (
     <div className={styles.modalOverlay} {...overlayClose(onClose)}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
-          <h2>{product ? 'Edit Product' : 'Add Product'}</h2>
+          <h2>{isCopy ? 'Copy Product' : product ? 'Edit Product' : 'Add Product'}</h2>
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
         <form onSubmit={save} className={styles.modalBody}>
           {err && <div className={styles.formError}>{err}</div>}
+          {isCopy && (
+            <div className={styles.copyNote}>
+              A copy of <strong>{product.name}</strong>, with its parts, quantities and
+              wording. Change what differs — usually the name and one part of the kit —
+              then save. The original is untouched, and nothing is added to the price
+              list until you do.
+            </div>
+          )}
 
           <div className={styles.formGrid}>
             <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
               <label>Product Name *</label>
-              <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Supply & Install Split System 2.5kW" />
+              <input ref={nameRef} value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Supply & Install Split System 2.5kW" />
             </div>
             <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
               <label>Description</label>
@@ -154,7 +211,7 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
                   <em>Build this product from others on the price list and price it from them</em>
                 </label>
                 {isKit && (
-                  <KitBuilder productId={product?.id} value={kitLines}
+                  <KitBuilder productId={isCopy ? undefined : product?.id} value={kitLines}
                     onChange={setKitLines} isAdmin={isAdmin} />
                 )}
               </div>
@@ -218,8 +275,16 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
           </div>
 
           <div className={styles.modalFooter}>
+            {product && !isCopy && isAdmin && (
+              <button type="button" className={styles.btnCopy} onClick={startCopy} disabled={copying}
+                title="Start a new product from this one, parts and all">
+                {copying ? 'Copying…' : '⧉ Copy Product'}
+              </button>
+            )}
             <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
-            <button type="submit" className={styles.btnPrimary} disabled={saving}>{saving ? 'Saving…' : 'Save Product'}</button>
+            <button type="submit" className={styles.btnPrimary} disabled={saving}>
+              {saving ? 'Saving…' : isCopy ? 'Save Copy' : 'Save Product'}
+            </button>
           </div>
         </form>
       </div>

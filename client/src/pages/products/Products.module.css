@@ -197,6 +197,26 @@
 }
 .btnSecondary:hover { background: #f1f5f9; }
 
+/* Copy sits at the far left of the footer, away from Cancel and Save: it is a
+   different kind of action, and it is not the one anyone is reaching for in a
+   hurry. */
+.btnCopy {
+  margin-right: auto;
+  padding: 9px 14px; background: var(--color-surface); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.btnCopy:hover:not(:disabled) { background: #f1f5f9; border-color: var(--color-primary); color: var(--color-primary); }
+.btnCopy:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Says, at the top of the dialog, that this is a new product rather than the
+   one that was opened — the two look otherwise identical. */
+.copyNote {
+  padding: 10px 14px; margin-bottom: 4px;
+  background: var(--color-primary-light); border: 1px solid var(--color-primary);
+  border-radius: var(--radius); font-size: 13px; line-height: 1.5;
+}
+
 /* Product search dropdown (used in job line items) */
 .productSearch { position: relative; }
 /* Positioned from JS against the viewport (see ProductSearch) so the list can
