@@ -26,3 +26,60 @@
     gap: 22px;
   }
 }
+
+/* The product detail sheet.
+ *
+ * Same reason as the grid above: the layout changes with the viewport and a
+ * style object cannot carry a media query. It was laid out as a fixed 260px
+ * picture beside the details, which on a phone left the details 122px wide
+ * inside a 327px card — the price, the unit and the description all ran off
+ * the right-hand edge and were simply not readable.
+ *
+ * Narrow screens now get the picture above the words, each with the full
+ * width, and the sheet goes edge to edge: on a 375px screen the 24px of
+ * overlay padding and the rounded corners were costing more than they gave.
+ */
+.detailOverlay {
+  position: fixed; inset: 0; z-index: 400;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.detailCard {
+  background: var(--color-surface); border-radius: 12px;
+  width: min(920px, 100%); max-height: 90vh; overflow: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.detailHead {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; padding: 18px 22px;
+  border-bottom: 1px solid var(--color-border);
+  /* Stays put while the description and brochure scroll under it, so it is
+     always obvious which product is being read and how to shut it. */
+  position: sticky; top: 0; z-index: 1;
+  background: var(--color-surface);
+}
+.detailBody { display: grid; grid-template-columns: 1fr; gap: 22px; padding: 22px; }
+.detailImage {
+  background: #f8fafc; border-radius: 8px; height: 260px;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+
+@media (min-width: 640px) {
+  /* Only once there is room for both. 260 + 22 + a readable column needs
+     about 600px of card before it is an improvement on stacking. */
+  .detailBodyWithImage { grid-template-columns: 260px 1fr; }
+}
+
+@media (max-width: 639px) {
+  .detailOverlay { padding: 0; align-items: stretch; }
+  .detailCard {
+    width: 100%; max-height: none; height: 100%;
+    border-radius: 0; box-shadow: none;
+  }
+  .detailHead { padding: 14px 16px; }
+  .detailBody { padding: 16px; gap: 16px; }
+  /* A picture the whole width of the screen does not need to be as tall as
+     one in a 260px column. */
+  .detailImage { height: 200px; }
+}

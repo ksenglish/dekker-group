@@ -65,10 +65,7 @@ function FolderTile({ name, count, onClick }) {
 
 function ProductTile({ product, onOpen }) {
   // Descriptions hold rich text, so the markup is flattened rather than shown
-  // as literal tags. Not every product has one — an imported price list row
-  // often arrives with a code and a price and nothing else — and a tile with
-  // only a number on it identifies nothing, so the name stands in when there
-  // is no description to show.
+  // as literal tags.
   const description = htmlToText(product.description).trim();
   return (
     <button style={card} onClick={() => onOpen(product)} title={product.name}
@@ -85,13 +82,26 @@ function ProductTile({ product, onOpen }) {
           : <span style={{ fontSize: 38, opacity: 0.35 }}>🏷</span>}
       </div>
       <div style={{ padding: '14px 16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-        {/* Clamped rather than truncated mid-word: a description can run to a
-            paragraph, and every tile in a row has to stay the same height. */}
+        {/* The name leads, because it is what tells one product from another.
+            A supplier's price list sells the same gate in ninety-nine sizes,
+            and every one of those carries the identical marketing paragraph —
+            led by the description they were ninety-nine tiles reading the same
+            words, with nothing on screen to say which size was which.
+
+            Clamped rather than truncated mid-word, so every tile in a row
+            stays the same height. */}
         <div style={{
           fontSize: 14, fontWeight: 600, lineHeight: 1.45,
           display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}>{description || product.name}</div>
+          overflow: 'hidden', overflowWrap: 'anywhere',
+        }}>{product.name}</div>
+        {description && (
+          <div style={{
+            fontSize: 12.5, lineHeight: 1.45, color: 'var(--color-text-muted)', marginTop: 4,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}>{description}</div>
+        )}
         {/* Pinned to the bottom, so the prices line up across a row rather
             than floating wherever the description happens to end. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 'auto', paddingTop: 10, flexWrap: 'wrap' }}>
@@ -115,7 +125,26 @@ function ProductTile({ product, onOpen }) {
   );
 }
 
+// Whether this is a phone-width screen, watched rather than read once — a
+// tablet turned on its side changes the answer, and the layout should follow.
+//
+// Only used where the difference is what gets rendered at all, not how it
+// looks; anything that is purely appearance belongs in the stylesheet.
+function useNarrowScreen(query = '(max-width: 639px)') {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = e => setNarrow(e.matches);
+    mq.addEventListener('change', onChange);
+    setNarrow(mq.matches);
+    return () => mq.removeEventListener('change', onChange);
+  }, [query]);
+  return narrow;
+}
+
 function ProductDetail({ product, onClose, onPick, picking }) {
+  const narrow = useNarrowScreen();
   // The brochure is fetched with authentication like the pictures are — the
   // URL the server hands out needs a bearer token, which an <object data> or
   // <img src> can't send, and it carries no extension to tell a PDF from an
@@ -135,36 +164,29 @@ function ProductDetail({ product, onClose, onPick, picking }) {
   }, [product.id, product.has_brochure]);
 
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(15,23,42,0.55)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-    }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: 'var(--color-surface)', borderRadius: 12, width: 'min(920px, 100%)',
-        maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-      }}>
-        <div style={{
-          display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-          gap: 16, padding: '18px 22px', borderBottom: '1px solid var(--color-border)',
-        }}>
-          <div>
-            <h2 style={{ fontSize: 18, fontWeight: 700 }}>{product.name}</h2>
+    <div className={styles.detailOverlay} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} className={styles.detailCard}>
+        <div className={styles.detailHead}>
+          <div style={{ minWidth: 0 }}>
+            {/* minWidth:0 so a long product name wraps instead of forcing the
+                row wider than the sheet and pushing the close button off. */}
+            <h2 style={{ fontSize: 18, fontWeight: 700, overflowWrap: 'anywhere' }}>{product.name}</h2>
             <div style={{ fontSize: 12.5, color: 'var(--color-text-muted)', marginTop: 3 }}>
               {LEVELS.map(l => product[l]).filter(Boolean).join(' › ') || 'Uncategorised'}
             </div>
           </div>
           <button onClick={onClose} style={{
-            background: 'none', border: 'none', fontSize: 24, cursor: 'pointer',
+            background: 'none', border: 'none', fontSize: 28, cursor: 'pointer',
             color: 'var(--color-text-muted)', lineHeight: 1,
+            // A comfortable target on a phone — the 24px glyph alone was a
+            // small thing to hit with a thumb.
+            padding: 4, margin: -4, flexShrink: 0,
           }} aria-label="Close">×</button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: product.has_image ? '260px 1fr' : '1fr', gap: 22, padding: 22 }}>
+        <div className={`${styles.detailBody} ${product.has_image ? styles.detailBodyWithImage : ''}`}>
           {product.has_image && (
-            <div style={{
-              background: '#f8fafc', borderRadius: 8, height: 260,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-            }}>
+            <div className={styles.detailImage}>
               <ProductImage productId={product.id} size="full" alt={product.name}
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             </div>
@@ -218,10 +240,27 @@ function ProductDetail({ product, onClose, onPick, picking }) {
             ) : !brochure ? (
               <div style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>Loading…</div>
             ) : brochure.type.includes('pdf') ? (
-              <object data={brochure.url} type="application/pdf"
-                style={{ width: '100%', height: 520, border: '1px solid var(--color-border)', borderRadius: 8 }}>
-                <a href={brochure.url} target="_blank" rel="noreferrer">Open the brochure</a>
-              </object>
+              // On a phone this was a 520px slab of empty grey. iOS will not
+              // render a PDF inside an <object> at all, and even where it does
+              // work a viewer that tall buries everything under it. A button
+              // that opens the file in the device's own viewer is both smaller
+              // and the thing people actually want.
+              narrow ? (
+                <a href={brochure.url} target="_blank" rel="noreferrer"
+                  style={{
+                    display: 'block', textAlign: 'center', padding: '13px 16px',
+                    border: '1px solid var(--color-border)', borderRadius: 8,
+                    background: '#f8fafc', color: 'var(--color-primary)',
+                    fontSize: 14, fontWeight: 600, textDecoration: 'none',
+                  }}>
+                  📄 Open the brochure
+                </a>
+              ) : (
+                <object data={brochure.url} type="application/pdf"
+                  style={{ width: '100%', height: 520, border: '1px solid var(--color-border)', borderRadius: 8 }}>
+                  <a href={brochure.url} target="_blank" rel="noreferrer">Open the brochure</a>
+                </object>
+              )
             ) : (
               <img src={brochure.url} alt={`${product.name} brochure`}
                 style={{ width: '100%', borderRadius: 8, border: '1px solid var(--color-border)' }} />
