@@ -69,11 +69,11 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
     }
     const inserted = [];
     for (let i = 0; i < items.length; i++) {
-      const { description, quantity, unit_price } = items[i];
+      const { description, sku, quantity, unit_price } = items[i];
       const { rows: [row] } = await pool.query(
-        `INSERT INTO job_costs (job_id, scan_id, description, quantity, unit_price, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [req.params.id, scanId, description, quantity || 1, Math.round((unit_price || 0) * 100), i]
+        `INSERT INTO job_costs (job_id, scan_id, description, sku, quantity, unit_price, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [req.params.id, scanId, description, sku || null, quantity || 1, Math.round((unit_price || 0) * 100), i]
       );
       inserted.push(row);
     }
@@ -628,9 +628,9 @@ router.post('/:id/cost-scans/:scanId/costs', requireRole('admin'), async (req, r
       'SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM job_costs WHERE scan_id=$1', [req.params.scanId]
     );
     const { rows: [row] } = await pool.query(
-      `INSERT INTO job_costs (job_id, scan_id, description, quantity, unit_price, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [req.params.id, req.params.scanId, String(description).trim(), qty, Math.round(price * 100), next.n]
+      `INSERT INTO job_costs (job_id, scan_id, description, sku, quantity, unit_price, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [req.params.id, req.params.scanId, String(description).trim(), req.body.sku || null, qty, Math.round(price * 100), next.n]
     );
     res.status(201).json(row);
   } catch (err) { res.status(500).json({ error: err.message }); }

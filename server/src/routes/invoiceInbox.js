@@ -130,11 +130,11 @@ router.post('/:id/link', authenticate, async (req, res) => {
     // Use items from request, falling back to what Claude parsed originally
     const costItems = (items && items.length > 0) ? items : (scan.parsed_items || []);
     for (let i = 0; i < costItems.length; i++) {
-      const { description, quantity, unit_price } = costItems[i];
+      const { description, sku, quantity, unit_price } = costItems[i];
       await client.query(
-        `INSERT INTO job_costs (job_id, scan_id, description, quantity, unit_price, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [job_id, scan.id, description, quantity || 1, Math.round((unit_price || 0) * 100), i]
+        `INSERT INTO job_costs (job_id, scan_id, description, sku, quantity, unit_price, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [job_id, scan.id, description, sku || null, quantity || 1, Math.round((unit_price || 0) * 100), i]
       );
     }
 

@@ -33,6 +33,7 @@ import StockPage from '../../pages/stock/StockPage';
 import CostsPage from '../../pages/costs/CostsPage';
 import SalesPage from '../../pages/reports/SalesPage';
 import MarketingPage from '../../pages/reports/MarketingPage';
+import PriceChangesPage from '../../pages/reports/PriceChangesPage';
 import AdminPage from '../../pages/admin/AdminPage';
 import { ADMIN_ITEMS } from './adminItems';
 import { can } from '../../lib/permissions';
@@ -251,6 +252,7 @@ export default function AppShell() {
           <Route path="/reports/costs" element={<CostsPage />} />
           <Route path="/reports/sales" element={<SalesPage />} />
           <Route path="/reports/marketing" element={<MarketingPage />} />
+          <Route path="/reports/price-changes" element={<PriceChangesPage />} />
           <Route path="/presenter" element={<SalesPresenter />} />
           <Route path="/presenter/admin" element={<PresenterAdmin />} />
           <Route path="/website" element={<WebsitePage />} />

@@ -17,6 +17,11 @@ Set "gst_treatment" to "exclusive" or "inclusive" to record which case applies.
 
 STEP 2 — Extract each line item with these fields:
 - "description": string (item name/description)
+- "sku": string — the supplier's own code for the item, if the line shows one.
+  Trade invoices usually print it beside or above the description, in a column
+  headed Item, Code, SKU, Product, Part No or similar. Copy it exactly,
+  including letters and punctuation. Use null when the line has no code — do
+  not invent one, and do not use a line number, an order number or a quantity.
 - "quantity": number (default 1 if not specified)
 - "unit_price": number — always the GST-EXCLUSIVE (ex-GST) price after applying Step 1
 - "line_total": number — the amount printed at the END of that line (its TOTAL
@@ -56,7 +61,7 @@ Ignore totals, subtotals, GST lines, freight/delivery charges, and payment terms
 If you cannot find any line items, return an empty "items" array.
 
 Return ONLY a JSON object, no markdown fences, no explanation:
-{"supplier":"Bunnings","supplier_gst_number":"24-882-403","invoice_number":"INV-1234","gst_treatment":"exclusive","invoice_date":"2026-09-29","document_type":"invoice","document_total":37.00,"items":[{"description":"Filter replacement","quantity":2,"unit_price":18.50,"line_total":37.00}]}`;
+{"supplier":"Bunnings","supplier_gst_number":"24-882-403","invoice_number":"INV-1234","gst_treatment":"exclusive","invoice_date":"2026-09-29","document_type":"invoice","document_total":37.00,"items":[{"description":"Filter replacement","sku":"0123456","quantity":2,"unit_price":18.50,"line_total":37.00}]}`;
 
 // The suppliers already on file. Giving them to the scan stops one business
 // arriving under four spellings, and gives it something to match a logo
@@ -119,8 +124,22 @@ async function extractLineItems({ base64, mimeType, knownSuppliers = [] }) {
       // end of the row. Any one of them is enough to make the line a credit.
       const totalRaw = parseFloat(i.line_total);
       const isCredit = qty * price < 0 || (Number.isFinite(totalRaw) && totalRaw < 0);
+      // A code is only worth keeping if it looks like one. Models read a
+      // quantity or a line number into this field often enough that a bare
+      // number of one or two digits is more likely to be noise than a code,
+      // and a wrong code is worse than none — it merges two products.
+      const rawSku = i.sku == null ? '' : String(i.sku).trim();
+      // What a model writes when the line had no code. Stored it would show
+      // on screen as though it were one.
+      const placeholder = /^(n\/a|na|none|null|nil|-+)$/i.test(rawSku);
+      const looksLikeCode = !placeholder && /^[A-Za-z0-9][A-Za-z0-9._/-]{2,}$/.test(rawSku);
+      // A bare one or two digit number is a line number or a quantity far
+      // more often than it is a product code.
+      const tooShortToBeACode = /^[0-9]{1,2}$/.test(rawSku);
+      const sku = looksLikeCode && !tooShortToBeACode ? rawSku.slice(0, 64) : null;
       return {
         description: String(i.description).slice(0, 255),
+        sku,
         quantity: Math.max(0.01, Math.abs(qty)),
         unit_price: isCredit ? -Math.abs(price) : Math.abs(price),
       };

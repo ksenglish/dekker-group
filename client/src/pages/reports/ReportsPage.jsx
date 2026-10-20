@@ -92,6 +92,7 @@ export default function ReportsPage() {
           {isAdmin && <Link to="/reports/marketing" className={styles.stockLink}>Marketing →</Link>}
           <Link to="/reports/costs" className={styles.stockLink}>Costs →</Link>
           <Link to="/reports/stock" className={styles.stockLink}>Stock →</Link>
+          {isAdmin && <Link to="/reports/price-changes" className={styles.stockLink}>Price Red Flags →</Link>}
         </div>
       </div>
 

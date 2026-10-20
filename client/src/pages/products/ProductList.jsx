@@ -9,6 +9,7 @@ import PickOrAdd from '../../components/products/PickOrAdd';
 import CategoryFields from '../../components/products/CategoryFields';
 import useTaxonomy from '../../components/products/useTaxonomy';
 import KitBuilder, { rollUp } from '../../components/products/KitBuilder';
+import FromInvoicesTab from '../../components/products/FromInvoicesTab';
 import { fetchAsDataUrl } from '../../components/products/authedFile';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -24,6 +25,7 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
     unit_price: product ? (product.unit_price / 100).toFixed(2) : '',
     cost_price: product ? (product.cost_price / 100).toFixed(2) : '',
     supplier: product?.supplier || '',
+    sku: product?.sku || '',
     quote_description: product?.quote_description || '',
     subcategory_1: product?.subcategory_1 || '',
     subcategory_2: product?.subcategory_2 || '',
@@ -198,6 +200,17 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
                 placeholder="e.g. Daikin NZ, Mitsubishi Electric" />
             </div>
             <div className={styles.formGroup}>
+              <label>Supplier Code / SKU</label>
+              <p className={styles.hint}>
+                The supplier’s own code for this item, as printed on their invoice.
+                It is what stops the same product arriving twice under two spellings
+                of its name, and it is how a price rise on an invoice is matched back
+                to this product.
+              </p>
+              <input value={form.sku} onChange={e => set('sku', e.target.value)}
+                placeholder="e.g. 0123456" />
+            </div>
+            <div className={styles.formGroup}>
               <label>Unit</label>
               <select value={form.unit} onChange={e => set('unit', e.target.value)}>
                 {PRODUCT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
@@ -345,9 +358,14 @@ function ImportModal({ onDone, onClose }) {
             <button className={`${styles.importTab} ${tab === 'csv' ? styles.importTabActive : ''}`} onClick={() => { setTab('csv'); setResult(null); }}>
               📄 CSV only
             </button>
+            <button className={`${styles.importTab} ${tab === 'invoices' ? styles.importTabActive : ''}`} onClick={() => { setTab('invoices'); setResult(null); }}>
+              🧾 From our invoices
+            </button>
           </div>
 
-          {tab === 'zip' ? (
+          {tab === 'invoices' ? (
+            <FromInvoicesTab onDone={onDone} />
+          ) : tab === 'zip' ? (
             <>
               <div className={styles.importNote}>
                 <p>Create a <strong>.zip</strong> file containing:</p>
@@ -401,9 +419,14 @@ function ImportModal({ onDone, onClose }) {
 
           <div className={styles.modalFooter}>
             <button className={styles.btnSecondary} onClick={onClose}>Close</button>
-            <button className={styles.btnPrimary} disabled={!canImport || loading} onClick={doImport}>
-              {loading ? 'Importing…' : 'Import'}
-            </button>
+            {/* The invoices tab imports from its own button, after showing
+                what it is about to do — a generic Import beside it would be a
+                second way to start the same thing, skipping the preview. */}
+            {tab !== 'invoices' && (
+              <button className={styles.btnPrimary} disabled={!canImport || loading} onClick={doImport}>
+                {loading ? 'Importing…' : 'Import'}
+              </button>
+            )}
           </div>
         </div>
       </div>
