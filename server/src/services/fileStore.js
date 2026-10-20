@@ -50,7 +50,34 @@ function buildKey(prefix, filename) {
   return `${prefix}/${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${safe}`;
 }
 
-async function putObject({ prefix, filename, buffer, contentType }) {
+// A key derived from the bytes, so the same file always lands in the same
+// place. Used where one picture legitimately belongs to many rows: a gate
+// sold in ninety-nine sizes is ninety-nine products sharing one photograph,
+// and storing that photograph ninety-nine times is most of a price list's
+// storage spent on copies of one file.
+//
+// The extension comes off the content type so the object is still recognisable
+// in the bucket.
+function contentKey(prefix, buffer, contentType) {
+  const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  const ext = String(contentType || '').split('/')[1] || 'bin';
+  return `${prefix}/${hash}.${ext.replace(/[^\w]/g, '')}`;
+}
+
+// `dedupe` makes the key a hash of the content and skips the upload when that
+// object is already there. Off by default: a shared key means deleting one
+// row's file would take it away from every other row using it, so only the
+// callers that check for other references before deleting may ask for it.
+async function putObject({ prefix, filename, buffer, contentType, dedupe = false }) {
+  if (dedupe) {
+    const key = contentKey(prefix, buffer, contentType);
+    if (await objectExists(key)) return key;   // already stored; nothing to do
+    await s3().send(new PutObjectCommand({
+      Bucket: BUCKET, Key: key, Body: buffer,
+      ContentType: contentType || 'application/octet-stream',
+    }));
+    return key;
+  }
   const key = buildKey(prefix, filename);
   await s3().send(new PutObjectCommand({
     Bucket: BUCKET,
@@ -59,6 +86,15 @@ async function putObject({ prefix, filename, buffer, contentType }) {
     ContentType: contentType || 'application/octet-stream',
   }));
   return key;
+}
+
+async function objectExists(key) {
+  try {
+    await s3().send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function getObject(key) {
@@ -128,11 +164,11 @@ const mimeOfDataUrl = value => (String(value).match(/^data:([^;]+);base64,/) || 
 
 // Returns the key to store, or null when there is no bucket — in which case the
 // caller keeps writing the data URL into its column exactly as before.
-async function storeDataUrl({ prefix, filename, dataUrl }) {
+async function storeDataUrl({ prefix, filename, dataUrl, dedupe = false }) {
   if (!configured || !dataUrl) return null;
   const contentType = mimeOfDataUrl(dataUrl);
   const buffer = Buffer.from(stripDataUrl(dataUrl), 'base64');
-  const key = await putObject({ prefix, filename: filename || 'file', buffer, contentType });
+  const key = await putObject({ prefix, filename: filename || 'file', buffer, contentType, dedupe });
   return { key, size: buffer.length, contentType };
 }
 

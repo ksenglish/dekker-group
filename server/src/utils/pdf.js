@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 const { PDFDocument: PdfLib } = require('pdf-lib');
+const { toPdfImages } = require('./pdfImage');
 
 const LIGHT_GREY = '#f1f5f9';
 const MID_GREY = '#94a3b8';
@@ -230,8 +231,19 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
   };
   items = (items || []).map(i => ({ ...i, description: stripDiacritics(i.description) }));
 
-  // Determine if any item has a product image
-  const hasImages = items.some(i => i.media_base64);
+  // Every picture turned into something pdfkit can draw, before any drawing
+  // starts. doc.image() is synchronous and understands only JPEG and PNG, so
+  // a WebP has to be converted here or not at all — and since the draw calls
+  // below swallow their own errors, an unconvertible image would silently
+  // leave a blank space on a quote that goes to a customer.
+  const readyImages = await toPdfImages(items.map(i => i.media_base64));
+  items = items.map((i, n) => ({ ...i, pdfImage: readyImages[n] }));
+  const readyAppendix = await toPdfImages(appendixImages);
+
+  // Whether to make room for a thumbnail column — asked of the converted
+  // image, not the stored one, so a row whose picture could not be used does
+  // not reserve a column that stays empty.
+  const hasImages = items.some(i => i.pdfImage);
   const IMG_COL = 36; // thumbnail width
   const IMG_PAD = hasImages ? IMG_COL + 8 : 0;
 
@@ -410,10 +422,9 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
         const lineTotal = item.unit_price * item.quantity;
         if (i % 2 === 1) doc.rect(50, y, W, ROW_H).fill(LIGHT_GREY);
 
-        if (hasImages && item.media_base64) {
+        if (hasImages && item.pdfImage) {
           try {
-            const buf = Buffer.from(item.media_base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-            doc.image(buf, 52, y + 3, { width: IMG_COL, height: IMG_COL, fit: [IMG_COL, IMG_COL] });
+            doc.image(item.pdfImage, 52, y + 3, { width: IMG_COL, height: IMG_COL, fit: [IMG_COL, IMG_COL] });
           } catch { /* skip bad image */ }
         }
 
@@ -463,14 +474,9 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
       // page between the Proposal and the brochures. The quote ends here;
       // Terms & Conditions still gets its own page, appended after
       // brochures below.
-      for (const image of appendixImages || []) {
+      for (const buf of readyAppendix) {
+        if (!buf) continue;   // nothing drawable came of it
         try {
-          // Buffers are what the quote path passes now — decoding a data URL
-          // here meant holding the string and the bytes at the same time, twice
-          // over. Still accepted so any other caller keeps working.
-          const buf = Buffer.isBuffer(image)
-            ? image
-            : Buffer.from(String(image).replace(/^data:image\/\w+;base64,/, ''), 'base64');
           doc.addPage();
           doc.fontSize(18).font('Helvetica-Bold').fillColor(BRAND).text('Proposal', MARGIN, MARGIN);
           const imgTop = MARGIN + 18 + 16;
@@ -549,13 +555,10 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
         if (i % 2 === 1) doc.rect(50, rowY, W, ROW_H).fill(LIGHT_GREY);
 
         // Product thumbnail
-        if (hasImages) {
-          if (item.media_base64) {
-            try {
-              const buf = Buffer.from(item.media_base64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
-              doc.image(buf, 52, rowY + 3, { width: IMG_COL, height: IMG_COL, fit: [IMG_COL, IMG_COL] });
-            } catch { /* skip bad image */ }
-          }
+        if (hasImages && item.pdfImage) {
+          try {
+            doc.image(item.pdfImage, 52, rowY + 3, { width: IMG_COL, height: IMG_COL, fit: [IMG_COL, IMG_COL] });
+          } catch { /* skip bad image */ }
         }
 
         const textY = hasImages ? rowY + 8 : rowY + 6;

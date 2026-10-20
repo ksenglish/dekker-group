@@ -1,6 +1,7 @@
 const pool = require('../db/pool');
 const AdmZip = require('adm-zip');
 const sharp = require('sharp');
+const { toStoredImage } = require('../utils/productImage');
 const fileStore = require('../services/fileStore');
 
 // A product row on its way out. Media held in the bucket is handed over as a
@@ -65,6 +66,29 @@ async function get(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+// Throwing away a stored file, but only if nothing else is still using it.
+//
+// Product images are stored under a key derived from their contents, so one
+// photograph used by many products is one object rather than one per row —
+// which is the difference between 120MB and 10MB on a price list where a gate
+// is sold in ninety-nine sizes. The cost of that is this check: deleting a
+// product's picture must not take it away from every other product sharing it.
+//
+// Asked of the database rather than counted anywhere, so it cannot drift out
+// of step with what the rows actually say.
+async function deleteFileIfUnused(key, exceptProductId = null) {
+  if (!key) return;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM products
+      WHERE (media_key = $1 OR brochure_key = $1)
+        AND ($2::uuid IS NULL OR id <> $2)
+      LIMIT 1`,
+    [key, exceptProductId]
+  );
+  if (rows.length) return;   // still in use by another product
+  await fileStore.deleteObject(key);
+}
+
 // Deciding what a media field on an incoming request actually means.
 //
 // The edit form loads a product, shows its image, and posts the whole thing
@@ -80,7 +104,9 @@ async function resolveMediaWrite({ incoming, existingKey, existingInline, prefix
     return { key: existingKey, inline: existingInline, unchanged: true };
   }
 
-  const stored = await fileStore.storeDataUrl({ prefix, filename, dataUrl: incoming });
+  const stored = await fileStore.storeDataUrl({
+    prefix, filename, dataUrl: await toStoredImage(incoming), dedupe: true,
+  });
   if (!stored) return { key: null, inline: incoming, removedKey: existingKey };
   return { key: stored.key, inline: null, removedKey: existingKey };
 }
@@ -288,7 +314,9 @@ async function update(req, res) {
     // Only once the row is safely updated — otherwise a failed write would
     // leave the product pointing at a file that had already been removed.
     for (const gone of [media.removedKey, brochure.removedKey]) {
-      if (gone && gone !== media.key && gone !== brochure.key) await fileStore.deleteObject(gone);
+      if (gone && gone !== media.key && gone !== brochure.key) {
+        await deleteFileIfUnused(gone, req.params.id);
+      }
     }
     res.json({ ...productToJson(rows[0]), component_count: kit ? kit.length : undefined });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
@@ -311,7 +339,7 @@ async function remove(req, res) {
       'DELETE FROM products WHERE id=$1 RETURNING media_key, brochure_key', [req.params.id]
     );
     for (const key of [rows[0]?.media_key, rows[0]?.brochure_key]) {
-      if (key) await fileStore.deleteObject(key);
+      await deleteFileIfUnused(key);
     }
     res.json({ message: 'Deleted' });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
@@ -404,15 +432,21 @@ async function upsertProduct(fields) {
 
   // A price list ZIP is where most images and brochures actually arrive, so
   // this is the path that matters most for keeping them out of the database.
-  const media = supplied(fields.media_base64)
-    ? await fileStore.storeDataUrl({ prefix: 'products/media', filename: `${name}-image`, dataUrl: fields.media_base64 })
+  // Converted to WebP on the way in, and stored under a key derived from the
+  // bytes. A supplier's price list is the same photograph repeated across
+  // every size a product comes in, so without both of those a single import
+  // writes the same picture to the bucket a hundred times over at full size.
+  const mediaIn = supplied(fields.media_base64) ? await toStoredImage(fields.media_base64) : null;
+  const brochureIn = supplied(fields.brochure_base64) ? await toStoredImage(fields.brochure_base64) : null;
+  const media = mediaIn
+    ? await fileStore.storeDataUrl({ prefix: 'products/media', filename: `${name}-image`, dataUrl: mediaIn, dedupe: true })
     : null;
-  const brochure = supplied(fields.brochure_base64)
-    ? await fileStore.storeDataUrl({ prefix: 'products/brochures', filename: `${name}-brochure`, dataUrl: fields.brochure_base64 })
+  const brochure = brochureIn
+    ? await fileStore.storeDataUrl({ prefix: 'products/brochures', filename: `${name}-brochure`, dataUrl: brochureIn, dedupe: true })
     : null;
   // Without a bucket these stay in their columns exactly as before.
-  const mediaInline = media ? null : (supplied(fields.media_base64) ? fields.media_base64 : null);
-  const brochureInline = brochure ? null : (supplied(fields.brochure_base64) ? fields.brochure_base64 : null);
+  const mediaInline = media ? null : mediaIn;
+  const brochureInline = brochure ? null : brochureIn;
 
   if (!existing) {
     await pool.query(
@@ -482,8 +516,8 @@ async function upsertProduct(fields) {
   );
   // Only after the row points at the new file — the keys were read before the
   // update, since afterwards there is nothing left saying where the old one was.
-  if (media?.key && existing.media_key) await fileStore.deleteObject(existing.media_key);
-  if (brochure?.key && existing.brochure_key) await fileStore.deleteObject(existing.brochure_key);
+  if (media?.key && existing.media_key) await deleteFileIfUnused(existing.media_key, existing.id);
+  if (brochure?.key && existing.brochure_key) await deleteFileIfUnused(existing.brochure_key, existing.id);
   return 'updated';
 }
 
@@ -568,9 +602,27 @@ async function importZip(req, res) {
       const fname = entry.entryName.split('/').pop(); // strip folder prefix
       if (!FILE_EXTS.test(fname)) continue;
       const ext = fname.split('.').pop().toLowerCase();
-      const mime = ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : 'image/jpeg';
+      // Named rather than assumed. This used to call everything that was not
+      // a .png a JPEG, so a WebP went in labelled image/jpeg — a data URL
+      // whose declared type contradicts its bytes, which is not reliably
+      // displayable and which a format check downstream would believe.
+      const mime = {
+        pdf: 'application/pdf', png: 'image/png', webp: 'image/webp',
+        jpg: 'image/jpeg', jpeg: 'image/jpeg',
+      }[ext] || 'application/octet-stream';
       const b64 = entry.getData().toString('base64');
       images[fname.toLowerCase()] = `data:${mime};base64,${b64}`;
+    }
+
+    // Converted once per file, before any row is written.
+    //
+    // A price list names the same picture on many rows — one gate sold in
+    // ninety-nine sizes is ninety-nine rows and one photograph — so doing this
+    // per row would re-encode the same image ninety-nine times. On a small
+    // instance that is both slow and a lot of memory churn for no difference
+    // in what gets stored.
+    for (const name of Object.keys(images)) {
+      images[name] = await toStoredImage(images[name]);
     }
 
     // Parse CSV
