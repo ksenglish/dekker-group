@@ -59,6 +59,10 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly,
     unit_price: (parseFloat(i.unit_price) || 0) / (1 + GST_RATE),
     product_id: i.product_id || null,
     product_name: i.product_name || null,
+    // Where the line came from, sent back untouched. Nothing here edits it,
+    // but every line is rewritten on a save, so leaving it out of the payload
+    // is the same as deleting it.
+    proposal_id: i.proposal_id || null,
   }));
 
   const save = useCallback(async rows => {

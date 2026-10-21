@@ -34,16 +34,29 @@ async function diagnose(jobId) {
   const label = q => (q.quote_number ? `QT-${String(q.quote_number).padStart(4, '0')}` : 'the quote');
 
   // There is an accepted quote, so the question is what is on it. Counting the
-  // three kinds of line separately, because each means something different
-  // about what to do next.
+  // two kinds of line separately, because each means something different about
+  // what to do next.
   const { rows: [counts] } = await pool.query(
     `SELECT
        COUNT(*)::int AS lines,
-       COUNT(*) FILTER (WHERE product_id IS NOT NULL)::int AS with_product,
-       COUNT(*) FILTER (WHERE proposal_id IS NOT NULL)::int AS from_proposal
+       COUNT(*) FILTER (WHERE product_id IS NOT NULL)::int AS with_product
      FROM line_items WHERE quote_id = ANY($1::uuid[])`,
     [accepted.map(q => q.id)]
   );
+
+  // Which proposals were quoted onto these quotes. Asked of the proposal, the
+  // same way the materials are built: the tag on a line item does not survive
+  // a save, and a proposal that was not itemised never put one on a line at
+  // all — so looking only there is how a quote built from a proposal came to
+  // be described as typed in by hand.
+  const { rows: proposals } = await pool.query(
+    `SELECT id FROM job_proposals WHERE quoted_on = ANY($1::uuid[])
+      UNION
+     SELECT DISTINCT proposal_id FROM line_items
+      WHERE quote_id = ANY($1::uuid[]) AND proposal_id IS NOT NULL`,
+    [accepted.map(q => q.id)]
+  );
+  const proposalIds = proposals.map(p => p.id).filter(Boolean);
 
   if (!counts || counts.lines === 0) {
     return {
@@ -55,15 +68,12 @@ async function diagnose(jobId) {
 
   // Lines from a proposal are only orderable if that proposal still holds the
   // products its price was built from.
-  if (counts.from_proposal > 0) {
+  if (proposalIds.length) {
     const { rows: [pp] } = await pool.query(
       `SELECT COUNT(*)::int AS n
          FROM job_proposal_products pp
-        WHERE pp.proposal_id IN (
-          SELECT DISTINCT proposal_id FROM line_items
-           WHERE quote_id = ANY($1::uuid[]) AND proposal_id IS NOT NULL)
-          AND pp.quantity > 0`,
-      [accepted.map(q => q.id)]
+        WHERE pp.proposal_id = ANY($1::uuid[]) AND pp.quantity > 0`,
+      [proposalIds]
     );
     if (pp.n > 0) {
       // Everything needed is there, which means the list simply was not built

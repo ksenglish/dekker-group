@@ -268,7 +268,7 @@ export default function QuoteDetail() {
       ...(quote.line_items || []).map(i => ({
         description: i.description, quantity: i.quantity,
         unit_price: i.unit_price / 100, product_id: i.product_id,
-        product_name: i.product_name,
+        product_name: i.product_name, proposal_id: i.proposal_id,
       })),
       {
         // Two different descriptions on a price list product: `description` is

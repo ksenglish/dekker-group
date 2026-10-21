@@ -19,6 +19,60 @@ const pool = require('../db/pool');
 const num = v => (Number.isFinite(parseFloat(v)) ? parseFloat(v) : 0);
 const round3 = n => Math.round(n * 1000) / 1000;
 
+// The products a proposal was priced from, exploded — a kit inside one is
+// parts all the way down, the same as a kit on the quote itself.
+async function proposalProducts(proposalId, client) {
+  const { rows } = await client.query(
+    `SELECT pp.description, pp.quantity, pp.product_id,
+            p.supplier, p.unit, p.name AS product_true_name,
+            (SELECT COUNT(*)::int FROM product_components pc WHERE pc.parent_id = p.id) AS kit_parts
+       FROM job_proposal_products pp
+       LEFT JOIN products p ON p.id = pp.product_id
+      WHERE pp.proposal_id = $1
+      ORDER BY pp.sort_order, pp.id`,
+    [proposalId]
+  );
+  const out = [];
+  for (const pp of rows) {
+    const qty = num(pp.quantity);
+    if (qty <= 0) continue;
+    if (pp.product_id && pp.kit_parts > 0) {
+      out.push(...await kitParts(pp.product_id, qty, 'proposal_product', client));
+    } else {
+      out.push({
+        product_id: pp.product_id || null,
+        description: pp.description || pp.product_true_name || 'Material',
+        supplier: pp.supplier || null,
+        unit: pp.unit || null,
+        quantity: qty,
+        source: 'proposal_product',
+      });
+    }
+  }
+  return out;
+}
+
+// Which proposals this quote was built from.
+//
+// Asked of the proposal rather than of the quote's lines. A proposal records
+// the quote it was quoted onto, and that survives things the line items do
+// not: editing the quote deletes and rewrites every line, and a proposal is
+// one summary line anyway when "Itemise on the quote" is left off — so the
+// materials cannot depend on a tag riding along on a line that may not exist
+// and may not have survived.
+//
+// The line tag is still read, for quotes raised before proposals recorded it.
+async function proposalsFor(quoteId, client) {
+  const { rows } = await client.query(
+    `SELECT id FROM job_proposals WHERE quoted_on = $1
+      UNION
+     SELECT DISTINCT proposal_id FROM line_items
+      WHERE quote_id = $1 AND proposal_id IS NOT NULL`,
+    [quoteId]
+  );
+  return rows.map(r => r.id).filter(Boolean);
+}
+
 // One quote's worth of orderable material, already exploded and merged.
 async function explodeQuote(quoteId, client = pool) {
   const { rows: lines } = await client.query(
@@ -33,51 +87,43 @@ async function explodeQuote(quoteId, client = pool) {
   );
 
   const out = [];
-  const seenProposals = new Set();
+
+  // The proposals first, whatever the quote's lines happen to look like. A
+  // proposal that was quoted stands for its whole scope, and the materials are
+  // the products that scope was priced from — one set per proposal, whether it
+  // reached the quote as a single summary line or as one line per product.
+  //
+  // Every product a proposal accounts for is remembered, including the kits it
+  // is made of, so the lines below cannot add the same thing a second time.
+  const covered = new Set();
+  for (const proposalId of await proposalsFor(quoteId, client)) {
+    const { rows: own } = await client.query(
+      'SELECT product_id FROM job_proposal_products WHERE proposal_id = $1 AND product_id IS NOT NULL',
+      [proposalId]
+    );
+    own.forEach(r => covered.add(r.product_id));
+    for (const item of await proposalProducts(proposalId, client)) {
+      if (item.product_id) covered.add(item.product_id);
+      out.push(item);
+    }
+  }
 
   for (const line of lines) {
     const qty = num(line.quantity);
     if (qty <= 0) continue;
 
-    // A line raised from a proposal stands for the whole scope. The materials
-    // are the products that scope was priced from, taken once however many
-    // lines the proposal contributed.
-    if (line.proposal_id) {
-      if (seenProposals.has(line.proposal_id)) continue;
-      seenProposals.add(line.proposal_id);
-      const { rows: products } = await client.query(
-        `SELECT pp.description, pp.quantity, pp.product_id,
-                p.supplier, p.unit, p.name AS product_true_name,
-                (SELECT COUNT(*)::int FROM product_components pc WHERE pc.parent_id = p.id) AS kit_parts
-           FROM job_proposal_products pp
-           LEFT JOIN products p ON p.id = pp.product_id
-          WHERE pp.proposal_id = $1
-          ORDER BY pp.sort_order, pp.id`,
-        [line.proposal_id]
-      );
-      for (const pp of products) {
-        const ppQty = num(pp.quantity);
-        if (ppQty <= 0) continue;
-        // A kit inside a proposal explodes too — it is parts all the way down.
-        if (pp.product_id && pp.kit_parts > 0) {
-          out.push(...await kitParts(pp.product_id, ppQty, 'proposal_product', client));
-        } else {
-          out.push({
-            product_id: pp.product_id || null,
-            description: pp.description || pp.product_true_name || 'Material',
-            supplier: pp.supplier || null,
-            unit: pp.unit || null,
-            quantity: ppQty,
-            source: 'proposal_product',
-          });
-        }
-      }
-      continue;
-    }
+    // Its proposal has been taken care of above, however the line is tagged.
+    if (line.proposal_id) continue;
 
     // No product behind it: labour, an adjustment, something typed in. Nothing
     // to order.
     if (!line.product_id) continue;
+
+    // An itemised proposal puts its products on the quote as ordinary lines,
+    // and editing a quote strips the tag that said where they came from. The
+    // proposal has already accounted for these, and merge() adds quantities
+    // together — so counting them here would order twice as much timber.
+    if (covered.has(line.product_id)) continue;
 
     if (line.kit_parts > 0) {
       out.push(...await kitParts(line.product_id, qty, 'kit_component', client));

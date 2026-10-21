@@ -403,8 +403,15 @@ async function updateLineItems(req, res) {
     for (const item of items) {
       if (!item.description) continue;
       await client.query(
-        'INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-        [quote.job_id, req.params.id, item.description, item.quantity || 1, Math.round((item.unit_price || 0) * 100), item.product_id || null, item.product_name || null]
+        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name, proposal_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [quote.job_id, req.params.id, item.description, item.quantity || 1,
+         Math.round((item.unit_price || 0) * 100), item.product_id || null, item.product_name || null,
+         // Kept, rather than dropped on the floor. Every line is deleted and
+         // rewritten on a save, and leaving this off meant opening a quote
+         // and saving it severed the link back to the proposal it was built
+         // from — which is where its materials come from.
+         item.proposal_id || null]
       );
     }
     await client.query('COMMIT');
