@@ -176,14 +176,24 @@ export default function JobMaterials({ jobId, user }) {
     <div>
       <div className={styles.toolbar}>
         <span className={styles.count}>
-          {toOrder > 0 ? `${toOrder} still to order` : 'Everything is ordered'}
+          {/* "Everything is ordered" is only true if there was anything to
+              order. On an empty list it read as reassurance that the job was
+              taken care of, which is the opposite of what it meant. */}
+          {data.groups.length === 0 ? 'Nothing on the list'
+            : toOrder > 0 ? `${toOrder} still to order`
+            : 'Everything is ordered'}
         </span>
         <span className={styles.spacer} />
         <button className={styles.btnSmall} onClick={() => setAdding(a => !a)}>+ Add a material</button>
-        <button className={styles.btnSmall} onClick={regenerate}
-          title="Rebuild from the accepted quote. Anything added by hand is kept.">
-          ↻ Rebuild from the quote
-        </button>
+        {/* On an empty list this button appears again beside the sentence
+            explaining why, which is where it belongs — two of them side by
+            side is just the same thing twice. */}
+        {data.groups.length > 0 && (
+          <button className={styles.btnSmall} onClick={regenerate}
+            title="Rebuild from the accepted quote. Anything added by hand is kept.">
+            ↻ Rebuild from the quote
+          </button>
+        )}
       </div>
 
       {error && <div className={styles.error}>{error}</div>}
@@ -204,8 +214,21 @@ export default function JobMaterials({ jobId, user }) {
 
       {data.groups.length === 0 && (
         <div className={styles.empty}>
-          Nothing on the list yet. It fills in when a quote on this job is accepted —
-          or add what you need by hand.
+          {/* The server works out which of several quite different reasons this
+              is empty for. They look identical on screen otherwise, which is
+              how an accepted quote with materials sitting on it reads exactly
+              like a job nobody has quoted. */}
+          {data.empty_because?.message || (
+            <>Nothing on the list yet. It fills in when a quote on this job is accepted —
+              or add what you need by hand.</>
+          )}
+          {data.empty_because?.rebuildable && (
+            <div style={{ marginTop: 10 }}>
+              <button className={styles.btnSmallPrimary} onClick={regenerate}>
+                ↻ Rebuild from the quote
+              </button>
+            </div>
+          )}
         </div>
       )}
 

@@ -9,6 +9,7 @@ const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
 const { getDefaultTheme, getThemeById } = require('../utils/documentThemes');
 const { findJobType } = require('../services/jobTypes');
 const materials = require('../services/jobMaterials');
+const { diagnose } = require('../services/materialsDiagnosis');
 
 const escapeHtml = s => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -68,6 +69,10 @@ async function list(req, res) {
       },
       groups,
       orders,
+      // Only when there is nothing to show. An empty list has several quite
+      // different causes that look identical on screen, and saying which one
+      // this is saves somebody going to read the database to find out.
+      empty_because: groups.length ? null : await diagnose(req.params.id),
     });
   } catch (err) { console.error('[materials]', err.message); res.status(500).json({ error: 'Server error' }); }
 }
