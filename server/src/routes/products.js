@@ -15,6 +15,7 @@ router.get('/suppliers', c.suppliers);
 const supplierContacts = require('../controllers/materialsController');
 router.get('/supplier-contacts', supplierContacts.listSuppliers);
 router.put('/supplier-contacts', requireRole('admin', 'office'), supplierContacts.saveSupplier);
+router.delete('/supplier-contacts/:supplierId', requireRole('admin', 'office'), supplierContacts.removeSupplier);
 router.get('/taxonomy', c.taxonomy);
 
 // Building the price list out of what has actually been bought, and watching

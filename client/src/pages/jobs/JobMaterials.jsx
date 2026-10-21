@@ -304,6 +304,7 @@ export default function JobMaterials({ jobId, user }) {
         <OrderModal
           jobId={jobId}
           job={data.job}
+          team={data.team || []}
           method={ordering.method}
           group={ordering.group}
           materialIds={ordering.group.items.filter(i => picked.includes(i.id)).map(i => i.id)}

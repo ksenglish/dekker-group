@@ -5,10 +5,11 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
-import { isAdmin } from '../../lib/permissions';
+import { isAdmin, canEditCustomer } from '../../lib/permissions';
 import { compressImage } from '../../lib/image';
 import FormsTab from './FormsTab';
 import ProposalTemplatesTab from './ProposalTemplatesTab';
+import SuppliersTab from './SuppliersTab';
 import styles from './Settings.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 import RichTextEditor from '../../components/RichTextEditor';
@@ -18,6 +19,9 @@ const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templ
 // Proposal templates carry cost rates, so the tab is only offered to admins —
 // the routes behind it are admin-only too.
 const ADMIN_TABS = ['Proposals'];
+// Supplier contacts are what an order is sent with, so anyone who can place
+// an order can keep them — the routes behind it allow the same people.
+const OFFICE_TABS = ['Suppliers'];
 
 // ── Sortable job status row (drag to reorder) ─────────────────────────────────
 function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
@@ -45,7 +49,7 @@ function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const tabs = isAdmin(user?.role) ? [...TABS, ...ADMIN_TABS] : TABS;
+  const tabs = [...TABS, ...(canEditCustomer(user?.role) ? OFFICE_TABS : []), ...(isAdmin(user?.role) ? ADMIN_TABS : [])];
   const [searchParams] = useSearchParams();
   // Supports deep-linking to a tab, e.g. /settings?tab=Integrations from the Xero OAuth callback
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'My Account');
@@ -179,6 +183,8 @@ export default function SettingsPage() {
           {activeTab === 'Billing Rates' && <BillingRatesTab />}
 
           {activeTab === 'Proposals' && isAdmin(user?.role) && <ProposalTemplatesTab />}
+
+          {activeTab === 'Suppliers' && canEditCustomer(user?.role) && <SuppliersTab />}
 
           {activeTab === 'Website Pricing' && <WebsitePricingTab />}
 

@@ -246,9 +246,11 @@ async function syncFromQuote(quoteId, jobId) {
 // The job's list, grouped the way it is ordered: by supplier.
 async function listForJob(jobId) {
   const { rows } = await pool.query(
-    `SELECT m.*, s.email AS supplier_email, s.account_ref AS supplier_account
+    `SELECT m.*, s.email AS supplier_email, s.account_ref AS supplier_account,
+            s.order_emails AS supplier_order_emails, p.sku
        FROM job_materials m
        LEFT JOIN suppliers s ON LOWER(s.name) = LOWER(m.supplier)
+       LEFT JOIN products p ON p.id = m.product_id
       WHERE m.job_id = $1
       ORDER BY COALESCE(m.supplier, 'zzz'), m.sort_order, m.created_at`,
     [jobId]
@@ -261,6 +263,9 @@ async function listForJob(jobId) {
         supplier: m.supplier || null,
         supplier_email: m.supplier_email || null,
         supplier_account: m.supplier_account || null,
+        // The other addresses an order to them must also reach, so the order
+        // screen can say where it is going before it goes.
+        supplier_order_emails: m.supplier_order_emails || [],
         items: [],
       });
     }

@@ -28,6 +28,39 @@ const qty = v => {
   return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000);
 };
 
+// A unit is worth printing when it tells the supplier something. "280 m" and
+// "4 sheets" do; "280 each" does not — the number already said it, and on an
+// order form the word is in the way of the number.
+const FILLER_UNITS = new Set(['each', 'ea', 'ea.', 'item', 'items', 'unit', 'units', 'pc', 'pcs', 'qty', 'no', 'no.']);
+const unitWord = u => {
+  const s = String(u || '').trim();
+  return s && !FILLER_UNITS.has(s.toLowerCase()) ? s : '';
+};
+const qtyWithUnit = (q, u) => `${qty(q)}${unitWord(u) ? ` ${unitWord(u)}` : ''}`;
+
+const isEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+// One address or several, however they were separated — a comma, a semicolon
+// or a new line are all things people type into a list of addresses.
+const splitEmails = v => (Array.isArray(v) ? v : String(v || '').split(/[,;\s]+/))
+  .map(e => String(e).trim()).filter(Boolean);
+
+// The people on this job, for the order form to offer as the site contact
+// rather than have somebody type a name and go hunting for a mobile number.
+// Both the team on the job and anyone booked onto it, since a job often gets
+// scheduled to someone who was never added to its team.
+async function teamFor(jobId) {
+  const { rows } = await pool.query(
+    `SELECT DISTINCT u.id, u.name, u.mobile
+       FROM users u
+      WHERE u.is_active IS NOT FALSE
+        AND (u.id IN (SELECT user_id FROM job_technicians WHERE job_id = $1)
+          OR u.id IN (SELECT user_id FROM schedules WHERE job_id = $1))
+      ORDER BY u.name`,
+    [jobId]
+  );
+  return rows.map(u => ({ id: u.id, name: u.name, phone: u.mobile || '' }));
+}
+
 async function jobFor(jobId) {
   const { rows: [job] } = await pool.query(
     `SELECT j.id, j.job_number, j.external_ref, j.description, j.type,
@@ -49,8 +82,9 @@ async function list(req, res) {
   try {
     const job = await jobFor(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
-    const [groups, { rows: orders }] = await Promise.all([
+    const [groups, team, { rows: orders }] = await Promise.all([
       materials.listForJob(req.params.id),
+      teamFor(req.params.id),
       pool.query(
         `SELECT o.*, u.name AS sent_by_name,
                 (SELECT COUNT(*)::int FROM material_order_lines l WHERE l.order_id = o.id) AS line_count
@@ -69,6 +103,8 @@ async function list(req, res) {
       },
       groups,
       orders,
+      // Who could stand at the gate when the truck arrives.
+      team,
       // Only when there is nothing to show. An empty list has several quite
       // different causes that look identical on screen, and saying which one
       // this is saves somebody going to read the database to find out.
@@ -174,25 +210,71 @@ async function saveSupplier(req, res) {
   const name = String(req.body?.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Which supplier?' });
   const email = String(req.body?.email || '').trim();
-  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+  if (email && !isEmail(email)) {
     return res.status(400).json({ error: 'That does not look like an email address' });
   }
+  // The others an order must also reach. The main address is not repeated here
+  // even if somebody types it twice.
+  const extras = splitEmails(req.body?.order_emails);
+  const badExtra = extras.find(e => !isEmail(e));
+  if (badExtra) return res.status(400).json({ error: `"${badExtra}" does not look like an email address` });
+  const orderEmails = [...new Set(extras.map(e => e.toLowerCase()))]
+    .filter(e => e !== email.toLowerCase());
+
+  // Only the fields that were actually sent are written. The order screen saves
+  // an address and nothing else, and must not wipe the account number somebody
+  // set up in Settings; the Settings form sends every field, so clearing one
+  // there really does clear it.
+  const sent = {};
+  if (req.body?.email !== undefined) sent.email = email || null;
+  for (const k of ['phone', 'account_ref', 'notes', 'contact_name']) {
+    if (req.body?.[k] !== undefined) sent[k] = String(req.body[k] ?? '').trim() || null;
+  }
+  if (req.body?.order_emails !== undefined) sent.order_emails = orderEmails;
+
+  const cols = Object.keys(sent);
+  const values = [name, ...cols.map(k => sent[k])];
   try {
     const { rows: [row] } = await pool.query(
-      `INSERT INTO suppliers (name, email, phone, account_ref, notes)
-       VALUES ($1,$2,$3,$4,$5)
+      `INSERT INTO suppliers (name${cols.map(c => `, ${c}`).join('')})
+       VALUES ($1${cols.map((_, i) => `, $${i + 2}`).join('')})
        ON CONFLICT (LOWER(name)) DO UPDATE
-          SET email = EXCLUDED.email, phone = EXCLUDED.phone,
-              account_ref = EXCLUDED.account_ref, notes = EXCLUDED.notes, updated_at = NOW()
+          SET updated_at = NOW()${cols.map(c => `, ${c} = EXCLUDED.${c}`).join('')}
        RETURNING *`,
-      [name, email || null, req.body?.phone?.trim() || null,
-       req.body?.account_ref?.trim() || null, req.body?.notes?.trim() || null]
+      values
     );
     res.json(row);
   } catch (err) { console.error('[materials]', err.message); res.status(500).json({ error: 'Server error' }); }
 }
 
+// Removing a supplier takes away the contact details, nothing else. The orders
+// already sent keep their own copy of where they went, and the products keep
+// the supplier's name — that comes off the product, not from here.
+async function removeSupplier(req, res) {
+  try {
+    const { rowCount } = await pool.query('DELETE FROM suppliers WHERE id = $1', [req.params.supplierId]);
+    if (!rowCount) return res.status(404).json({ error: 'No such supplier' });
+    res.json({ ok: true });
+  } catch (err) { console.error('[materials]', err.message); res.status(500).json({ error: 'Server error' }); }
+}
+
 // ── Ordering ─────────────────────────────────────────────────────────────────
+
+// The chosen materials, with the product behind each one. A supplier matches
+// an order against their own catalogue, so the code they know it by goes on
+// the order next to the name.
+async function orderLines(jobId, ids) {
+  const { rows } = await pool.query(
+    `SELECT m.id, m.description, m.unit, m.quantity,
+            COALESCE(p.name, m.description) AS product_name, p.sku
+       FROM job_materials m
+       LEFT JOIN products p ON p.id = m.product_id
+      WHERE m.job_id = $1 AND m.id = ANY($2::uuid[])
+      ORDER BY m.sort_order, m.created_at`,
+    [jobId, ids]
+  );
+  return rows;
+}
 
 function orderEmail({ job, order, lines, theme }) {
   const collect = order.method === 'collect';
@@ -200,11 +282,18 @@ function orderEmail({ job, order, lines, theme }) {
   const title = collect ? 'Click & Collect order' : 'Delivery request';
   const ref = order.reference;
 
+  // The product as the supplier knows it — their own code first where we hold
+  // one, since that is what they pick off a shelf — then the name, then the
+  // number wanted. The unit only appears when it means something: "280 each"
+  // is a worse line on an order form than "280".
   const rows = lines.map(l => `
     <tr>
-      <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;">${escapeHtml(l.description)}</td>
-      <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:right;white-space:nowrap;">
-        ${escapeHtml(qty(l.quantity))}${l.unit ? ` ${escapeHtml(l.unit)}` : ''}
+      <td style="padding:7px 10px;border-bottom:1px solid #e2e8f0;">
+        ${l.sku ? `<span style="font-family:monospace;color:#475569;">${escapeHtml(l.sku)}</span><br>` : ''}
+        ${escapeHtml(l.product_name || l.description)}
+      </td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e2e8f0;text-align:right;white-space:nowrap;font-weight:700;">
+        ${escapeHtml(qty(l.quantity))}${unitWord(l.unit) ? `<span style="font-weight:400;color:#475569;"> ${escapeHtml(unitWord(l.unit))}</span>` : ''}
       </td>
     </tr>`).join('');
 
@@ -230,8 +319,8 @@ function orderEmail({ job, order, lines, theme }) {
       </table>
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;font-size:14px;">
         <tr style="background:#f1f5f9;">
-          <th align="left" style="padding:7px 10px;font-size:12px;letter-spacing:0.04em;">ITEM</th>
-          <th align="right" style="padding:7px 10px;font-size:12px;letter-spacing:0.04em;">QTY</th>
+          <th align="left" style="padding:7px 10px;font-size:12px;letter-spacing:0.04em;">PRODUCT</th>
+          <th align="right" style="padding:7px 10px;font-size:12px;letter-spacing:0.04em;">QUANTITY</th>
         </tr>
         ${rows}
       </table>
@@ -248,7 +337,7 @@ function orderEmail({ job, order, lines, theme }) {
     '',
     ...detail.map(([k, v]) => `${k}: ${v}`),
     '',
-    ...lines.map(l => `- ${l.description} — ${qty(l.quantity)}${l.unit ? ` ${l.unit}` : ''}`),
+    ...lines.map(l => `- ${qtyWithUnit(l.quantity, l.unit)} × ${l.sku ? `[${l.sku}] ` : ''}${l.product_name || l.description}`),
     order.instructions ? `\nNotes: ${order.instructions}` : '',
     '',
     `Please reply to confirm${collect ? ' when this is ready to collect' : ' the delivery'}. Thank you.`,
@@ -266,10 +355,15 @@ async function createOrder(req, res) {
   }
   const ids = Array.isArray(material_ids) ? material_ids.filter(Boolean) : [];
   if (!ids.length) return res.status(400).json({ error: 'Choose at least one material to order' });
-  const to = String(email_to || '').trim();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+  // More than one address is ordinary: a branch desk and a head-office account
+  // both wanting the order.
+  const typed = splitEmails(email_to);
+  const bad = typed.find(e => !isEmail(e));
+  if (bad) return res.status(400).json({ error: `"${bad}" does not look like an email address` });
+  if (!typed.length) {
     return res.status(400).json({ error: 'An email address for the supplier is needed to send this' });
   }
+  const to = typed.join(', ');
   if (required_date && !/^\d{4}-\d{2}-\d{2}$/.test(String(required_date))) {
     return res.status(400).json({ error: 'The date must be a real date' });
   }
@@ -279,17 +373,21 @@ async function createOrder(req, res) {
     const job = await jobFor(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
 
-    const { rows: lines } = await pool.query(
-      `SELECT id, description, unit, quantity FROM job_materials
-        WHERE job_id = $1 AND id = ANY($2::uuid[]) ORDER BY sort_order, created_at`,
-      [req.params.id, ids]
-    );
+    const lines = await orderLines(req.params.id, ids);
     if (!lines.length) return res.status(400).json({ error: 'None of those materials are on this job' });
 
     // The theme the job documents itself with, so an order looks like the
     // quote the supplier may already have seen.
     const type = await findJobType(job.type);
     const theme = type?.theme_id ? await getThemeById(type.theme_id) : await getDefaultTheme();
+
+    // Addresses held against the supplier in Settings, so an order cannot go
+    // out missing the branch that actually picks it.
+    const { rows: [known] } = await pool.query(
+      'SELECT order_emails FROM suppliers WHERE LOWER(name) = LOWER($1)',
+      [String(supplier || '').trim()]
+    );
+    const supplierExtras = (known?.order_emails || []).filter(isEmail);
 
     await client.query('BEGIN');
     const { rows: [order] } = await client.query(
@@ -320,7 +418,11 @@ async function createOrder(req, res) {
     const { subject, html, text } = orderEmail({ job, order, lines, theme });
     let sent = false, error = null;
     try {
-      await sendMail({ to, cc: OFFICE_RECORDS_EMAIL, subject, html, text });
+      // Everyone this supplier has said must receive an order, plus whatever
+      // was typed on the form. The office copy goes bcc: it is our filing, not
+      // something the supplier needs to see on the order.
+      const recipients = [...new Set([...typed, ...supplierExtras].map(e => e.toLowerCase()))];
+      await sendMail({ to: recipients, bcc: OFFICE_RECORDS_EMAIL, subject, html, text });
       sent = true;
     } catch (err) {
       error = err.message;
@@ -357,11 +459,7 @@ async function previewOrder(req, res) {
   try {
     const job = await jobFor(req.params.id);
     if (!job) return res.status(404).json({ error: 'Job not found' });
-    const { rows: lines } = await pool.query(
-      `SELECT id, description, unit, quantity FROM job_materials
-        WHERE job_id = $1 AND id = ANY($2::uuid[]) ORDER BY sort_order, created_at`,
-      [req.params.id, ids]
-    );
+    const lines = await orderLines(req.params.id, ids);
     const type = await findJobType(job.type);
     const theme = type?.theme_id ? await getThemeById(type.theme_id) : await getDefaultTheme();
     const order = {
@@ -379,5 +477,5 @@ async function previewOrder(req, res) {
 
 module.exports = {
   list, regenerate, addItem, updateItem, removeItem,
-  listSuppliers, saveSupplier, createOrder, previewOrder,
+  listSuppliers, saveSupplier, removeSupplier, createOrder, previewOrder,
 };

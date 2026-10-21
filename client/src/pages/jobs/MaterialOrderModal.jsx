@@ -16,6 +16,15 @@ const qty = v => {
   return Number.isInteger(n) ? String(n) : String(Math.round(n * 1000) / 1000);
 };
 
+// "280 m" tells the supplier something. "280 each" does not — the number has
+// already said it. Kept in step with the same list on the server, which is
+// what the emailed order is built from.
+const FILLER_UNITS = new Set(['each', 'ea', 'ea.', 'item', 'items', 'unit', 'units', 'pc', 'pcs', 'qty', 'no', 'no.']);
+const unitWord = u => {
+  const s = String(u || '').trim();
+  return s && !FILLER_UNITS.has(s.toLowerCase()) ? s : '';
+};
+
 // Tomorrow, as a sensible default — almost nothing is wanted the same day.
 const tomorrow = () => {
   const d = new Date();
@@ -23,7 +32,7 @@ const tomorrow = () => {
   return d.toLocaleDateString('en-CA');
 };
 
-export default function OrderModal({ jobId, job, method, group, materialIds, onClose, onSent }) {
+export default function OrderModal({ jobId, job, team = [], method, group, materialIds, onClose, onSent }) {
   const collect = method === 'collect';
   const items = group.items.filter(i => materialIds.includes(i.id));
 
@@ -41,7 +50,20 @@ export default function OrderModal({ jobId, job, method, group, materialIds, onC
   const [error, setError] = useState('');
   const [saveEmail, setSaveEmail] = useState(!group.supplier_email);
 
+  const [pickedPerson, setPickedPerson] = useState('');
+  const alsoTo = (group.supplier_order_emails || [])
+    .filter(e => e.toLowerCase() !== form.email_to.trim().toLowerCase());
+
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Picking someone fills both fields. The phone stays editable afterwards —
+  // a second number for the day is a normal thing to want.
+  function choosePerson(id) {
+    setPickedPerson(id);
+    const person = team.find(p => p.id === id);
+    if (!person) return;
+    setForm(f => ({ ...f, contact_name: person.name, contact_phone: person.phone || '' }));
+  }
 
   // The preview comes from the server so it cannot drift from the email.
   useEffect(() => {
@@ -101,6 +123,11 @@ export default function OrderModal({ jobId, job, method, group, materialIds, onC
               Email the order to
               <input type="email" value={form.email_to} placeholder="orders@supplier.co.nz"
                 onChange={e => set('email_to', e.target.value)} />
+              {/* Set up in Settings → Suppliers. Said here so nobody adds an
+                  address that is already going to get a copy. */}
+              {alsoTo.length > 0 && (
+                <span className={styles.alsoTo}>Also going to {alsoTo.join(', ')}</span>
+              )}
             </label>
             <label className={styles.field}>
               {collect ? 'Collection date' : 'Delivery date'}
@@ -117,7 +144,25 @@ export default function OrderModal({ jobId, job, method, group, materialIds, onC
 
             <label className={styles.field}>
               Site contact
-              <input value={form.contact_name} onChange={e => set('contact_name', e.target.value)} />
+              {/* The people on this job, so the name and the mobile arrive
+                  together — the number is the point of the field, and nobody
+                  wants to go and look it up on the Users screen. Still typable
+                  for the customer's own site contact. */}
+              {team.length > 0 && (
+                <select className={styles.picker} value={pickedPerson}
+                  onChange={e => choosePerson(e.target.value)}>
+                  <option value="">Someone else…</option>
+                  {team.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.phone ? '' : ' (no mobile saved)'}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <input value={form.contact_name} onChange={e => {
+                setPickedPerson('');
+                set('contact_name', e.target.value);
+              }} />
             </label>
             <label className={styles.field}>
               Contact phone
@@ -140,10 +185,20 @@ export default function OrderModal({ jobId, job, method, group, materialIds, onC
           )}
 
           <div className={styles.itemList}>
+            <div className={`${styles.itemLine} ${styles.itemHead}`}>
+              <span>Product</span>
+              <span className={styles.qty}>Quantity</span>
+            </div>
             {items.map(i => (
               <div key={i.id} className={styles.itemLine}>
-                <span>{i.description}</span>
-                <span className={styles.qty}>{qty(i.quantity)}{i.unit ? ` ${i.unit}` : ''}</span>
+                <span>
+                  {i.sku && <span className={styles.sku}>{i.sku}</span>}
+                  {i.description}
+                </span>
+                <span className={styles.qty}>
+                  {qty(i.quantity)}
+                  {unitWord(i.unit) && <span className={styles.qtyUnit}> {unitWord(i.unit)}</span>}
+                </span>
               </div>
             ))}
           </div>
