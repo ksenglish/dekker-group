@@ -265,3 +265,20 @@
   .tplLabHead, .tplProdHead { display: none; }
   .tplLabRow, .tplProdRow { grid-template-columns: minmax(0, 1fr) 82px 26px; row-gap: 4px; padding: 8px 0; }
 }
+
+/* A button that reads as part of a sentence, for an action offered in passing. */
+.linkish {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font: inherit; color: var(--color-primary); text-decoration: underline;
+}
+
+/* Choosing one of several names: the control leads, the name follows it. */
+.chooseRow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 2px; font-size: 14px; cursor: pointer;
+  border-bottom: 1px solid var(--color-border);
+}
+.chooseRow:last-of-type { border-bottom: none; }
+.chooseRow input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary); flex: none; }
+.chooseName { font-weight: 500; }
+.chooseWhat { color: var(--color-text-muted); font-size: 12px; }

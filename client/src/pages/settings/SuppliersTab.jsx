@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
+import { isAdmin } from '../../lib/permissions';
 import styles from './Settings.module.css';
 
 // Who we buy from, and how to reach them.
@@ -30,9 +32,22 @@ const toForm = s => ({
   notes: s.notes || '',
 });
 
+// Names that look like the same business: everything up to the first word that
+// only tells you what kind of company it is. "Bunnings", "Bunnings Limited"
+// and "Bunnings Trade" all come back as "bunnings", so they can be offered
+// together rather than found by eye.
+const COMPANY_WORDS = /\b(limited|ltd|trade|trades|nz|new zealand|group|co|company|supplies|supply|\(?20\d\d\)?|pty|inc|holdings|wholesale|branch)\b/gi;
+const familyOf = name => String(name || '').toLowerCase()
+  .replace(COMPANY_WORDS, ' ')
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim();
+
 export default function SuppliersTab() {
+  const { user } = useAuth();
+  const canMerge = isAdmin(user?.role);
   const [rows, setRows] = useState([]);
   const [known, setKnown] = useState([]);
+  const [merging, setMerging] = useState(null);   // { keep, picked: [names] }
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);   // supplier id, or 'new'
   const [form, setForm] = useState(blank);
@@ -101,12 +116,55 @@ export default function SuppliersTab() {
     } catch { setError('Could not remove that supplier'); }
   }
 
+  async function doMerge() {
+    const names = merging.picked;
+    if (!names.length) return setError('Choose at least one name to merge in');
+    if (!confirm(
+      `Merge ${names.join(', ')} into ${merging.keep}?\n\n`
+      + 'Every product, order and scanned invoice under those names will say '
+      + `${merging.keep} instead. Contact details fill in any gaps, and the old `
+      + 'spellings are remembered so future invoices are filed correctly.\n\n'
+      + 'This cannot be undone automatically.'
+    )) return;
+    setBusy(true); setError('');
+    try {
+      const { data } = await api.post('/products/supplier-contacts/merge',
+        { keep: merging.keep, merge: names });
+      const moved = Object.entries(data.moved || {})
+        .map(([t, n]) => `${n} ${t.replace(/_/g, ' ')}`).join(', ');
+      setMerging(null);
+      setSaved(`${merging.keep} — ${moved || 'nothing needed moving'}`);
+      setTimeout(() => setSaved(''), 6000);
+      await load();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Could not merge those');
+    } finally { setBusy(false); }
+  }
+
   if (loading) return <div className={styles.loading}>Loading…</div>;
 
   // On the price list but with nothing saved here, so an order to them would
   // have to have its address typed from memory every time.
   const haveNames = new Set(rows.map(r => r.name.toLowerCase()));
   const missing = known.filter(n => !haveNames.has(String(n).toLowerCase()));
+
+  // Every supplier name in use, whether or not anybody has saved details for
+  // it — a duplicate spelling usually exists only on the products.
+  const allNames = [...new Map(
+    [...rows.map(r => r.name), ...known].map(n => [String(n).toLowerCase(), String(n)])
+  ).values()].sort((a, b) => a.localeCompare(b));
+
+  // Spellings that look like one business. Offered, never applied on their own:
+  // "Dekker Air" and "Dekker Fencing" would land in the same family and are
+  // emphatically not the same supplier.
+  const families = canMerge
+    ? [...allNames.reduce((m, n) => {
+        const k = familyOf(n);
+        if (k) m.set(k, [...(m.get(k) || []), n]);
+        return m;
+      }, new Map()).values()].filter(g => g.length > 1)
+    : [];
+  const detailFor = n => rows.find(r => r.name.toLowerCase() === n.toLowerCase());
 
   return (
     <div className={styles.section}>
@@ -190,6 +248,98 @@ export default function SuppliersTab() {
             </div>
           </div>
         </div>
+      )}
+
+      {merging && (
+        <div className={styles.card} style={{ marginBottom: 18 }}>
+          <div className={styles.cardHeader}><strong>Merge suppliers</strong></div>
+          <div className={styles.cardBody}>
+            <h3 className={styles.subHeading}>Keep this name</h3>
+            {merging.names.map(n => (
+              <label key={n} className={styles.chooseRow}>
+                <input type="radio" name="keepName" checked={merging.keep === n}
+                  onChange={() => setMerging(m => ({
+                    ...m, keep: n, picked: m.names.filter(x => x !== n),
+                  }))} />
+                <span className={styles.chooseName}>{n}</span>
+                <span className={styles.chooseWhat}>
+                  {detailFor(n)
+                    ? [detailFor(n).account_ref && `account ${detailFor(n).account_ref}`,
+                       detailFor(n).email].filter(Boolean).join(' · ') || 'no details saved'
+                    : 'on products only, no details saved'}
+                </span>
+              </label>
+            ))}
+
+            <h3 className={styles.subHeading}>Merge these into it</h3>
+            {merging.names.filter(n => n !== merging.keep).map(n => (
+              <label key={n} className={styles.chooseRow}>
+                <input type="checkbox" checked={merging.picked.includes(n)}
+                  onChange={e => setMerging(m => ({
+                    ...m,
+                    picked: e.target.checked
+                      ? [...m.picked, n] : m.picked.filter(x => x !== n),
+                  }))} />
+                <span className={styles.chooseName}>{n}</span>
+              </label>
+            ))}
+
+            <p className={styles.hint} style={{ marginTop: 12 }}>
+              Products, orders and scanned invoices under the merged names will say
+              {' '}<strong>{merging.keep}</strong> instead. Any contact detail the kept
+              supplier is missing is taken from the others, and their order addresses
+              are pooled. Products themselves are not combined — two that are really
+              the same thing still need merging on the price list.
+            </p>
+
+            <div className={styles.formActions} style={{ marginTop: 14 }}>
+              <button className={styles.btnSecondary} onClick={() => setMerging(null)}>Cancel</button>
+              <button className={styles.btnPrimary} onClick={doMerge} disabled={busy}>
+                {busy ? 'Merging…' : `Merge into ${merging.keep}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {families.length > 0 && !merging && (
+        <div className={styles.card} style={{ marginBottom: 18 }}>
+          <div className={styles.cardHeader}>
+            <strong>These look like the same supplier</strong>
+          </div>
+          <div className={styles.cardBody}>
+            {families.map(group => (
+              <div key={group.join('|')} className={styles.templateRow}>
+                <div>
+                  <div className={styles.templateName}>{group.join(' · ')}</div>
+                  <div className={styles.templateMeta}>
+                    {group.length} spellings — one price list, one account, one address to order from.
+                  </div>
+                </div>
+                <div className={styles.tplActions}>
+                  <button className={styles.btnSmall} onClick={() => {
+                    // The one with details saved is the one worth keeping, and
+                    // the shortest name is usually the business's own.
+                    const best = [...group].sort((a, b) =>
+                      (detailFor(b) ? 1 : 0) - (detailFor(a) ? 1 : 0) || a.length - b.length)[0];
+                    setMerging({ names: group, keep: best, picked: group.filter(n => n !== best) });
+                    setError('');
+                  }}>Merge…</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {canMerge && allNames.length > 1 && !merging && families.length === 0 && (
+        <p className={styles.hint} style={{ marginBottom: 14 }}>
+          No duplicate spellings spotted.{' '}
+          <button className={styles.linkish}
+            onClick={() => setMerging({ names: allNames, keep: allNames[0], picked: [] })}>
+            Merge two by hand
+          </button>
+        </p>
       )}
 
       {rows.length === 0 && editing === null && (

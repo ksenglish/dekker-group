@@ -16,6 +16,9 @@ const supplierContacts = require('../controllers/materialsController');
 router.get('/supplier-contacts', supplierContacts.listSuppliers);
 router.put('/supplier-contacts', requireRole('admin', 'office'), supplierContacts.saveSupplier);
 router.delete('/supplier-contacts/:supplierId', requireRole('admin', 'office'), supplierContacts.removeSupplier);
+// Folding three spellings of one supplier into one. Admin only: it rewrites
+// the name on every product, order and scanned invoice that used the others.
+router.post('/supplier-contacts/merge', requireRole('admin'), supplierContacts.mergeSuppliers);
 router.get('/taxonomy', c.taxonomy);
 
 // Building the price list out of what has actually been bought, and watching

@@ -104,6 +104,17 @@
 .orderMethod, .orderCount { color: var(--color-text-muted); font-size: 12px; }
 .orderSent { margin-left: auto; font-size: 12px; color: #15803d; }
 .orderFailed { margin-left: auto; font-size: 12px; color: #b91c1c; }
+/* An order that was undone: still on the record, plainly no longer standing. */
+.orderUndone {
+  margin-left: auto; font-size: 12px; color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+/* Undo sits beside the thing it undoes, and should not compete with it. */
+.linkBtnQuiet {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-size: 12px; color: var(--color-text-muted); white-space: nowrap;
+}
+.linkBtnQuiet:hover { color: var(--color-text); text-decoration: underline; }
 
 /* ── The order form ───────────────────────────────────────────────────────── */
 .modalOverlay {

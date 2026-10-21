@@ -10,6 +10,7 @@ const { getDefaultTheme, getThemeById } = require('../utils/documentThemes');
 const { findJobType } = require('../services/jobTypes');
 const materials = require('../services/jobMaterials');
 const { diagnose } = require('../services/materialsDiagnosis');
+const supplierMemory = require('../services/supplierMemory');
 
 const escapeHtml = s => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -247,6 +248,103 @@ async function saveSupplier(req, res) {
   } catch (err) { console.error('[materials]', err.message); res.status(500).json({ error: 'Server error' }); }
 }
 
+// Every table that holds a supplier's name as text rather than as a reference.
+// Merging has to reach all of them, or the price list and the invoices end up
+// disagreeing about who sold us something.
+const SUPPLIER_NAME_COLUMNS = [
+  ['products', 'supplier'],
+  ['job_materials', 'supplier'],
+  ['material_orders', 'supplier'],
+  ['job_cost_scans', 'supplier'],
+  ['supplier_identities', 'supplier'],
+];
+
+// Bunnings, Bunnings Limited and Bunnings Trade are one supplier with three
+// spellings, and until they are one name the price list has three of every
+// product and an order goes to whichever address happened to be saved.
+//
+// Merging picks the name to keep and rewrites the others to it everywhere.
+// Contact details fill in rather than fight: a field the kept supplier has is
+// left alone, one it is missing is taken from whichever of the others has it,
+// and the addresses an order goes to are pooled.
+//
+// The old spellings are remembered as aliases, so an invoice that still says
+// "BUNNINGS TRADE" is filed under the kept name instead of starting the whole
+// thing again.
+async function mergeSuppliers(req, res) {
+  const keep = String(req.body?.keep || '').trim();
+  const fold = s => String(s || '').trim().toLowerCase();
+  const merge = [...new Set((Array.isArray(req.body?.merge) ? req.body.merge : [])
+    .map(n => String(n || '').trim()).filter(Boolean)
+    .filter(n => fold(n) !== fold(keep)))];
+
+  if (!keep) return res.status(400).json({ error: 'Which name should be kept?' });
+  if (!merge.length) return res.status(400).json({ error: 'Choose at least one supplier to merge in' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // The details held against the names being merged away, so anything the
+    // kept one is missing can be taken from them.
+    const { rows: losing } = await client.query(
+      `SELECT * FROM suppliers WHERE LOWER(name) = ANY($1::text[]) ORDER BY updated_at DESC`,
+      [merge.map(fold)]
+    );
+    const { rows: [kept] } = await client.query(
+      'SELECT * FROM suppliers WHERE LOWER(name) = LOWER($1)', [keep]);
+
+    const firstOf = f => kept?.[f] || losing.map(l => l[f]).find(Boolean) || null;
+    const pooled = [...new Set([
+      ...(kept?.order_emails || []),
+      ...losing.flatMap(l => l.order_emails || []),
+      // An address that was the main one for a name being merged away is still
+      // an address that supplier wants orders at.
+      ...losing.map(l => l.email).filter(Boolean),
+    ].map(e => e.toLowerCase()))];
+    const mainEmail = firstOf('email');
+
+    await client.query(
+      `INSERT INTO suppliers (name, email, phone, account_ref, notes, contact_name, order_emails)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (LOWER(name)) DO UPDATE
+          SET email = EXCLUDED.email, phone = EXCLUDED.phone,
+              account_ref = EXCLUDED.account_ref, notes = EXCLUDED.notes,
+              contact_name = EXCLUDED.contact_name, order_emails = EXCLUDED.order_emails,
+              updated_at = NOW()`,
+      [keep, mainEmail, firstOf('phone'), firstOf('account_ref'), firstOf('notes'),
+       firstOf('contact_name'),
+       pooled.filter(e => e !== String(mainEmail || '').toLowerCase())]
+    );
+
+    // The name itself, everywhere it is written down.
+    const moved = {};
+    for (const [table, column] of SUPPLIER_NAME_COLUMNS) {
+      const { rowCount } = await client.query(
+        `UPDATE ${table} SET ${column} = $1 WHERE LOWER(${column}) = ANY($2::text[])`,
+        [keep, merge.map(fold)]
+      );
+      if (rowCount) moved[table] = rowCount;
+    }
+
+    await client.query(
+      'DELETE FROM suppliers WHERE LOWER(name) = ANY($1::text[])', [merge.map(fold)]);
+    await client.query('COMMIT');
+
+    // Outside the transaction: teaching the scanner an alias is worth having
+    // but never worth failing the merge over.
+    for (const old of merge) {
+      await supplierMemory.learn({ supplier: keep, readAs: old }).catch(() => {});
+    }
+
+    res.json({ ok: true, keep, merged: merge, moved });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[materials] merge failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
+}
+
 // Removing a supplier takes away the contact details, nothing else. The orders
 // already sent keep their own copy of where they went, and the products keep
 // the supplier's name — that comes off the product, not from here.
@@ -452,6 +550,50 @@ async function createOrder(req, res) {
   } finally { client.release(); }
 }
 
+// Undoing an order: the wrong method picked, the wrong supplier, the wrong job.
+//
+// The email cannot be unsent. All this does is put our own record straight —
+// the order is marked cancelled and its materials go back to "To order" so
+// they can be ordered properly. Whoever undoes it still has to ring the
+// supplier, and the screen says so before they press it.
+//
+// A material already received is left alone: it is on site, whatever the
+// paperwork says about the order that brought it.
+async function undoOrder(req, res) {
+  const client = await pool.connect();
+  try {
+    const { rows: [order] } = await client.query(
+      'SELECT * FROM material_orders WHERE id = $1 AND job_id = $2',
+      [req.params.orderId, req.params.id]
+    );
+    if (!order) return res.status(404).json({ error: 'That order is not on this job' });
+    if (order.status === 'cancelled') {
+      return res.status(400).json({ error: 'That order has already been undone' });
+    }
+
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE material_orders
+          SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $1, cancelled_reason = $2
+        WHERE id = $3`,
+      [req.user?.id || null, String(req.body?.reason || '').trim() || null, order.id]
+    );
+    const { rowCount: freed } = await client.query(
+      `UPDATE job_materials
+          SET status = 'needed', updated_at = NOW()
+        WHERE job_id = $1 AND status = 'ordered'
+          AND id IN (SELECT material_id FROM material_order_lines WHERE order_id = $2)`,
+      [req.params.id, order.id]
+    );
+    await client.query('COMMIT');
+    res.json({ ok: true, freed, reference: order.reference });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[materials] undo order failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
+}
+
 // What an order will say, before it is sent. The same builder as the email, so
 // the preview cannot drift from what actually goes out.
 async function previewOrder(req, res) {
@@ -477,5 +619,6 @@ async function previewOrder(req, res) {
 
 module.exports = {
   list, regenerate, addItem, updateItem, removeItem,
-  listSuppliers, saveSupplier, removeSupplier, createOrder, previewOrder,
+  listSuppliers, saveSupplier, removeSupplier, mergeSuppliers,
+  createOrder, previewOrder, undoOrder,
 };

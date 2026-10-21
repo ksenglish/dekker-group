@@ -175,6 +175,9 @@ router.post('/:id/materials/order/preview', requireRole('admin', 'office'), jobM
 // Sending goes to a supplier under the company's name, so it is the one step
 // here that is narrower than reading the list.
 router.post('/:id/materials/order', requireRole('admin'), jobMaterials.createOrder);
+// Undoing one. Admin only: the email has already gone, so putting the record
+// straight is a decision about what the job now says happened.
+router.post('/:id/materials/orders/:orderId/undo', requireRole('admin'), jobMaterials.undoOrder);
 
 // The live service report: scope of works, hours clocked, materials, totals.
 // Anyone who can act on the job can read it — everything on it is charge-out,

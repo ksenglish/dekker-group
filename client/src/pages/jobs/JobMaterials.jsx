@@ -36,7 +36,11 @@ const fmtWhen = d => (d ? new Date(d).toLocaleDateString('en-NZ', {
   day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
 }) : '');
 
-function Row({ jobId, item, checked, onToggle, onChanged, canEdit }) {
+// One step back, for a button pressed by mistake. "Received" is the easy one
+// to hit on a phone, and until now there was no way back off it.
+const STEP_BACK = { received: 'ordered', ordered: 'needed', cancelled: 'needed' };
+
+function Row({ jobId, item, checked, onToggle, onChanged, canEdit, canUndo }) {
   const [editing, setEditing] = useState(false);
   const [f, setF] = useState({ description: '', quantity: '', supplier: '', unit: '' });
   const [busy, setBusy] = useState(false);
@@ -97,6 +101,11 @@ function Row({ jobId, item, checked, onToggle, onChanged, canEdit }) {
           {item.status === 'ordered' && (
             <button className={styles.linkBtn} onClick={() => setStatus('received')}>Received</button>
           )}
+          {canUndo && STEP_BACK[item.status] && (
+            <button className={styles.linkBtnQuiet}
+              title={`Put this back to "${STATUS[STEP_BACK[item.status]].label}"`}
+              onClick={() => setStatus(STEP_BACK[item.status])}>↶ Undo</button>
+          )}
           <button className={styles.iconBtn} title="Correct this line"
             onClick={() => {
               setF({ description: item.description, quantity: String(qty(item.quantity)),
@@ -153,6 +162,30 @@ export default function JobMaterials({ jobId, user }) {
       if (!r.added) setError('Nothing new — the list already matches the accepted quote.');
     } catch (e) {
       setError(e.response?.data?.error || 'Could not rebuild the list');
+    }
+  }
+
+  // The wrong method, the wrong supplier, the wrong job. The email is gone and
+  // nothing here can call it back, so the confirmation says so plainly rather
+  // than letting somebody think pressing this undoes the order at the supplier.
+  async function undoOrder(o) {
+    if (!confirm(
+      `Undo ${o.reference} to ${o.supplier}?\n\n`
+      + 'Its materials go back to "To order" so they can be ordered again, and the '
+      + 'order is marked undone here.\n\n'
+      + `The ${o.method === 'collect' ? 'collection' : 'delivery'} email has already been sent — `
+      + 'you still need to tell them it is cancelled.'
+    )) return;
+    setError('');
+    try {
+      const { data: r } = await api.post(`/jobs/${jobId}/materials/orders/${o.id}/undo`);
+      await load();
+      if (!r.freed) {
+        setError(`${o.reference} is marked undone. Nothing went back on the list — `
+          + 'its materials had already been received or taken off.');
+      }
+    } catch (e) {
+      setError(e.response?.data?.error || 'Could not undo that order');
     }
   }
 
@@ -272,7 +305,7 @@ export default function JobMaterials({ jobId, user }) {
               {group.items.map(item => (
                 <Row key={item.id} jobId={jobId} item={item}
                   checked={picked.includes(item.id)} onToggle={toggle}
-                  onChanged={load} canEdit={canEdit} />
+                  onChanged={load} canEdit={canEdit} canUndo={canOrder} />
               ))}
             </div>
           </div>
@@ -292,9 +325,17 @@ export default function JobMaterials({ jobId, user }) {
                   .toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}`}
               </span>
               <span className={styles.orderCount}>{o.line_count} item{o.line_count === 1 ? '' : 's'}</span>
-              <span className={o.status === 'sent' ? styles.orderSent : styles.orderFailed}>
-                {o.status === 'sent' ? `sent ${fmtWhen(o.sent_at)}` : 'did not send'}
+              <span className={
+                o.status === 'sent' ? styles.orderSent
+                  : o.status === 'cancelled' ? styles.orderUndone : styles.orderFailed}>
+                {o.status === 'sent' ? `sent ${fmtWhen(o.sent_at)}`
+                  : o.status === 'cancelled' ? `undone ${fmtWhen(o.cancelled_at)}`
+                  : 'did not send'}
               </span>
+              {canOrder && o.status !== 'cancelled' && (
+                <button className={styles.linkBtnQuiet} onClick={() => undoOrder(o)}
+                  title="Put the record straight — this does not unsend the email">↶ Undo</button>
+              )}
             </div>
           ))}
         </div>
