@@ -1,12 +1,20 @@
 /**
  * Dekker Air — Automated Supplier Invoice Processor
  *
- * Runs every 5 minutes via a time-based trigger.
- * For each Gmail email with a PDF attachment:
- *   1. Extracts text from the PDF using Google Drive OCR
- *   2. Uses Claude AI to find the job number and parse line items
- *   3. Posts the PDF + line items to the Dekker App as job costs
- *   4. Labels the email as processed so it isn't processed again
+ * Runs every 5 minutes via a time-based trigger, working through as many
+ * invoices as fit in the time Apps Script allows and leaving the rest for the
+ * next run. Nothing older than EARLIEST is looked at.
+ *
+ * For each PDF attachment:
+ *   1. Fingerprints the file and asks the app whether it has been seen. The
+ *      same PDF quoted back on every reply in a thread stops here, before any
+ *      OCR or model call is paid for.
+ *   2. Extracts text from the PDF using Google Drive OCR
+ *   3. Uses Claude to find the job number and parse line items
+ *   4. Asks again now the supplier and invoice number are known, which catches
+ *      the same invoice re-sent as a different file
+ *   5. Posts the PDF + line items to the Dekker App as job costs
+ *   6. Labels the thread so the search moves past it
  *
  * SETUP (one-time):
  *   1. Open script.google.com → New project → paste this file
@@ -16,11 +24,32 @@
  *   3. Enable the Drive API: Services → Drive API → Add
  *   4. Run setupTrigger() once manually to create the recurring trigger
  *   5. Authorise the permissions when prompted
+ *
+ * After changing the schedule here, run setupTrigger() again — it clears the
+ * old triggers first, so the new one does not end up running alongside them.
  */
 
 const DEKKER_API = 'https://dekker-group.onrender.com';
 const PROCESSED_LABEL = 'invoice-processed';
 const FAILED_LABEL = 'invoice-failed';
+
+// How often the trigger fires. Used by setupTrigger(), and by the run itself
+// to work out how long it may keep going.
+const RUN_EVERY_MINUTES = 5;
+
+// Nothing older than this is looked at. Invoices before it were brought in by
+// hand or are not wanted, and without a floor every run drags the whole
+// mailbox back through the search.
+const EARLIEST = '2026/09/01';
+
+// Apps Script kills a run at six minutes. Stopping ourselves at four leaves
+// room to finish the invoice in hand and label its thread, so a long OCR never
+// loses work — the next run picks up where this one left off.
+const BUDGET_MS = 4 * 60 * 1000;
+
+// How many threads to pull per search page. The run stops on the clock, not on
+// the count, so this only decides how often it goes back to Gmail for more.
+const PAGE = 10;
 
 // ─── Entry point (called by time trigger) ────────────────────────────────────
 
@@ -40,91 +69,141 @@ function processSupplierInvoices() {
   const processedLabel = GmailApp.getUserLabelByName(PROCESSED_LABEL);
   const failedLabel = GmailApp.getUserLabelByName(FAILED_LABEL);
 
-  // Search for emails with PDF attachments not yet processed
-  const threads = GmailApp.search(
-    `has:attachment filename:pdf -label:${PROCESSED_LABEL} -label:${FAILED_LABEL} after:2026/07/01`,
-    0, 5  // small batch — OCR is slow, keep well under the 6-min Apps Script limit
+  const started = Date.now();
+  const query = `has:attachment filename:pdf -label:${PROCESSED_LABEL} -label:${FAILED_LABEL} after:${EARLIEST}`;
+  const tally = { threads: 0, posted: 0, inbox: 0, duplicates: 0, failed: 0 };
+
+  // Keep going until the clock says stop. The label comes off a thread as it
+  // is finished, so the next search starts where this one gave up and the same
+  // page is never read twice.
+  let outOfTime = false;
+  while (!outOfTime) {
+    const threads = GmailApp.search(query, 0, PAGE);
+    if (threads.length === 0) break;
+
+    for (const thread of threads) {
+      if (Date.now() - started > BUDGET_MS) { outOfTime = true; break; }
+      if (handleThread(thread, apiKey, anthropicKey, tally)) {
+        thread.addLabel(processedLabel);
+      } else {
+        // Nothing in it we could deal with — label it so the search moves on
+        // rather than returning the same thread every five minutes.
+        thread.addLabel(failedLabel);
+      }
+      tally.threads++;
+    }
+  }
+
+  console.log(
+    `Run finished in ${Math.round((Date.now() - started) / 1000)}s — `
+    + `${tally.threads} threads, ${tally.posted} posted to jobs, ${tally.inbox} to the inbox, `
+    + `${tally.duplicates} already seen, ${tally.failed} failed`
+    + (outOfTime ? ' (stopped on time, more to do next run)' : '')
   );
+}
 
-  console.log(`Found ${threads.length} unprocessed threads`);
+// One thread. Returns true when everything in it was dealt with.
+function handleThread(thread, apiKey, anthropicKey, tally) {
+  let handled = false;
 
-  for (const thread of threads) {
-    let threadHandled = false;
+  for (const message of thread.getMessages()) {
+    for (const attachment of message.getAttachments({ includeInlineImages: false })) {
+      if (!attachment.getContentType().includes('pdf')) continue;
 
-    for (const message of thread.getMessages()) {
-      const attachments = message.getAttachments({ includeInlineImages: false });
+      const filename = attachment.getName();
+      const bytes = attachment.getBytes();
+      const fingerprint = sha256(bytes);
 
-      for (const attachment of attachments) {
-        if (!attachment.getContentType().includes('pdf')) continue;
+      // Asked before anything is read. A PDF quoted back on every reply in a
+      // thread is the commonest duplicate there is, and recognising it from
+      // its bytes costs nothing — no OCR pass, no model call, no money.
+      const claim = claimDocument({ fingerprint, source: filename }, apiKey);
+      if (claim && !claim.claimed) {
+        console.log(`Skipping ${filename} — already dealt with (${claim.reason})`);
+        tally.duplicates++;
+        handled = true;
+        continue;
+      }
 
-        const filename = attachment.getName();
-        console.log(`Processing attachment: ${filename} from ${message.getFrom()}`);
+      let parsed = null;
+      let pdfBase64 = null;
 
-        // Declare outside try so catch block can access them for inbox fallback
-        let parsed = null;
-        let pdfBase64 = null;
+      try {
+        const pdfText = extractTextFromPdf(attachment);
+        console.log(`Extracted ${pdfText.length} chars from ${filename}`);
 
+        parsed = parseInvoiceWithClaude(pdfText, anthropicKey);
+        pdfBase64 = Utilities.base64Encode(bytes);
+
+        if (!parsed) {
+          console.warn(`Could not parse ${filename} — sending to Invoice Inbox`);
+          saveToInbox(pdfBase64, null, apiKey);
+          claimDocument({ fingerprint, outcome: 'inbox' }, apiKey);
+          tally.inbox++;
+          handled = true;
+          continue;
+        }
+
+        const { jobNumber, items, supplier, invoiceNumber } = parsed;
+        console.log(`Job: ${jobNumber}, Supplier: ${supplier}, Items: ${items.length}`);
+
+        // Now the invoice has a name and a number, ask again: the same invoice
+        // can arrive as a freshly rendered PDF, which the bytes cannot catch.
+        const named = claimDocument(
+          { fingerprint, supplier: supplier, invoice_number: invoiceNumber, outcome: 'claimed' }, apiKey);
+        if (named && !named.claimed && named.reason === 'same_invoice') {
+          const where = named.duplicate_of || {};
+          console.log(`Skipping ${filename} — ${supplier} ${invoiceNumber} is already in the app`
+            + (where.job_id ? ` on a job` : ''));
+          tally.duplicates++;
+          handled = true;
+          continue;
+        }
+
+        if (!jobNumber) {
+          console.log(`No job number in ${filename} — sending to Invoice Inbox`);
+          saveToInbox(pdfBase64, parsed, apiKey);
+          claimDocument({ fingerprint, outcome: 'inbox' }, apiKey);
+          tally.inbox++;
+          handled = true;
+          continue;
+        }
+
+        const job = findJob(jobNumber, apiKey);
+        if (!job) {
+          console.warn(`Job ${jobNumber} not found — sending to Invoice Inbox`);
+          saveToInbox(pdfBase64, parsed, apiKey);
+          claimDocument({ fingerprint, outcome: 'inbox' }, apiKey);
+          tally.inbox++;
+          handled = true;
+          continue;
+        }
+
+        postCosts(job.id, pdfBase64, items, apiKey);
+        claimDocument({ fingerprint, outcome: 'posted', job_id: job.id }, apiKey);
+        console.log(`✅ Posted ${items.length} cost items to Job #${job.job_number}`);
+        tally.posted++;
+        handled = true;
+
+      } catch (err) {
+        console.error(`Error processing ${filename}: ${err.message}`);
+        tally.failed++;
         try {
-          // 1. Extract text from PDF via Google Drive OCR
-          const pdfText = extractTextFromPdf(attachment);
-          console.log(`Extracted ${pdfText.length} chars from ${filename}`);
-
-          // 2. Use Claude to find job number + parse line items
-          parsed = parseInvoiceWithClaude(pdfText, anthropicKey);
-          if (!parsed) {
-            console.warn(`Claude could not parse ${filename} — sending to Invoice Inbox`);
-            pdfBase64 = Utilities.base64Encode(attachment.getBytes());
-            saveToInbox(pdfBase64, null, apiKey);
-            threadHandled = true;
-            continue;
-          }
-
-          const { jobNumber, items, supplier, invoiceNumber } = parsed;
-          console.log(`Job: ${jobNumber}, Supplier: ${supplier}, Items: ${items.length}`);
-
-          // Convert PDF to base64 for upload
-          pdfBase64 = Utilities.base64Encode(attachment.getBytes());
-
-          if (!jobNumber) {
-            console.log(`No job number found in ${filename} — sending to Invoice Inbox`);
-            saveToInbox(pdfBase64, parsed, apiKey);
-            threadHandled = true;
-            continue;
-          }
-
-          // 3. Look up job in Dekker App
-          const job = findJob(jobNumber, apiKey);
-          if (!job) {
-            console.warn(`Job ${jobNumber} not found in app — sending to Invoice Inbox`);
-            saveToInbox(pdfBase64, parsed, apiKey);
-            threadHandled = true;
-            continue;
-          }
-
-          // 4. Post PDF + line items to app
-          postCosts(job.id, pdfBase64, items, apiKey);
-
-          console.log(`✅ Posted ${items.length} cost items to Job #${job.job_number} (${job.title})`);
-          threadHandled = true;
-
-        } catch (err) {
-          console.error(`Error processing ${filename}: ${err.message}`);
-          // Save to inbox with whatever we managed to parse before the error
-          try {
-            if (!pdfBase64) pdfBase64 = Utilities.base64Encode(attachment.getBytes());
-            saveToInbox(pdfBase64, parsed, apiKey);
-          } catch (e2) {
-            console.error('Could not save to inbox either:', e2.message);
-          }
-          threadHandled = true;
+          if (!pdfBase64) pdfBase64 = Utilities.base64Encode(bytes);
+          saveToInbox(pdfBase64, parsed, apiKey);
+          claimDocument({ fingerprint, outcome: 'inbox' }, apiKey);
+          handled = true;
+        } catch (e2) {
+          console.error('Could not save to inbox either:', e2.message);
+          // The claim goes back, so a failure that might not happen again —
+          // the app restarting, a timeout — does not bury the invoice for good.
+          releaseDocument(fingerprint, apiKey);
         }
       }
     }
-
-    if (threadHandled) {
-      thread.addLabel(processedLabel);
-    }
   }
+
+  return handled;
 }
 
 // ─── PDF text extraction via Google Drive OCR ────────────────────────────────
@@ -218,6 +297,59 @@ ${invoiceText.substring(0, 6000)}`;
 
 // ─── Dekker App API calls ─────────────────────────────────────────────────────
 
+// Asking the app whether this document has been dealt with, and telling it
+// what we learned. Called more than once for the same file on purpose: first
+// with only the fingerprint, before anything expensive happens, then again
+// once the supplier and invoice number are known.
+//
+// A claim that cannot be made — the app down, the network gone — returns null,
+// and the caller carries on. Scanning an invoice twice is a nuisance; refusing
+// to scan anything because the bookkeeping call failed is worse.
+function claimDocument(body, apiKey) {
+  try {
+    const response = UrlFetchApp.fetch(`${DEKKER_API}/api/invoice-inbox/claim`, {
+      method: 'post',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      payload: JSON.stringify(body),
+      muteHttpExceptions: true,
+    });
+    if (response.getResponseCode() !== 200) {
+      console.warn('Claim failed:', response.getContentText());
+      return null;
+    }
+    return JSON.parse(response.getContentText());
+  } catch (err) {
+    console.warn('Claim call failed:', err.message);
+    return null;
+  }
+}
+
+function releaseDocument(fingerprint, apiKey) {
+  try {
+    UrlFetchApp.fetch(`${DEKKER_API}/api/invoice-inbox/release`, {
+      method: 'post',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      payload: JSON.stringify({ fingerprint: fingerprint }),
+      muteHttpExceptions: true,
+    });
+  } catch (err) {
+    console.warn('Release call failed:', err.message);
+  }
+}
+
+// The file's own fingerprint. computeDigest hands back signed bytes, so each
+// one is masked to 0-255 before it is written out as hex — without that, half
+// of them come out negative and the digest is wrong.
+function sha256(bytes) {
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, bytes);
+  let out = '';
+  for (let i = 0; i < digest.length; i++) {
+    const b = (digest[i] + 256) % 256;
+    out += (b < 16 ? '0' : '') + b.toString(16);
+  }
+  return out;
+}
+
 function findJob(jobNumber, apiKey) {
   const response = UrlFetchApp.fetch(
     `${DEKKER_API}/api/jobs/by-number/${encodeURIComponent(jobNumber)}`,
@@ -294,31 +426,28 @@ function ensureLabel(name) {
   }
 }
 
-// Run this ONCE manually to set up the recurring trigger
+// Run this ONCE manually to set up the recurring trigger.
+//
+// Re-run it after changing the schedule: it clears whatever is there first, so
+// it cannot leave the old triggers running alongside the new one.
 function setupTrigger() {
   // Remove any existing triggers for this function
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === 'processSupplierInvoices')
-    .forEach(t => ScriptApp.deleteTrigger(t));
+  const existing = ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'processSupplierInvoices');
+  existing.forEach(t => ScriptApp.deleteTrigger(t));
+  if (existing.length) console.log(`Removed ${existing.length} existing trigger(s)`);
 
-  // Run at 8am daily
   ScriptApp.newTrigger('processSupplierInvoices')
     .timeBased()
-    .everyDays(1)
-    .atHour(8)
+    .everyMinutes(RUN_EVERY_MINUTES)
     .create();
 
-  // Run at 1pm daily
-  ScriptApp.newTrigger('processSupplierInvoices')
-    .timeBased()
-    .everyDays(1)
-    .atHour(13)
-    .create();
-
-  console.log('Triggers created — processSupplierInvoices will run at 8am and 1pm daily');
+  console.log(`Trigger created — processSupplierInvoices runs every ${RUN_EVERY_MINUTES} minutes`);
 }
 
-// Run this ONCE to label all old emails (before 27 Jun 2026) as processed so they are skipped
+// Run this ONCE to label everything before EARLIEST as processed, so the
+// search has less to wade through. The date floor in the query already skips
+// them; this just stops Gmail looking at them at all.
 function labelOldEmailsAsProcessed() {
   ensureLabel(PROCESSED_LABEL);
   const label = GmailApp.getUserLabelByName(PROCESSED_LABEL);
@@ -326,7 +455,7 @@ function labelOldEmailsAsProcessed() {
   let total = 0;
   while (true) {
     const threads = GmailApp.search(
-      `has:attachment filename:pdf -label:${PROCESSED_LABEL} before:2026/07/01`,
+      `has:attachment filename:pdf -label:${PROCESSED_LABEL} before:${EARLIEST}`,
       start, 50
     );
     if (threads.length === 0) break;

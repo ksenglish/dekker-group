@@ -33,6 +33,129 @@ router.get('/', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── What the scanner has already dealt with ──────────────────────────────────
+//
+// The scanner asks before it reads an invoice, and tells us again once it
+// knows what the invoice is. Asking first is the point: reading a PDF costs an
+// OCR pass and a model call, and the commonest duplicate — the same attachment
+// riding along on every reply in a thread — can be recognised from the file's
+// bytes alone, before a cent is spent on it.
+//
+// Claiming is the insert itself, so two runs that overlap cannot both decide
+// they are the one handling an invoice.
+
+// Folded the way the indexes fold it: same supplier, same number, however it
+// was punctuated or capitalised.
+const foldInvoice = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+router.post('/claim', authenticateAutomation, async (req, res) => {
+  const fingerprint = String(req.body?.fingerprint || '').trim();
+  if (!fingerprint) return res.status(400).json({ error: 'A fingerprint is needed to claim a document' });
+
+  const supplier = String(req.body?.supplier || '').trim() || null;
+  const invoiceNumber = String(req.body?.invoice_number || '').trim() || null;
+
+  try {
+    // Already claimed, by an earlier run or an earlier message in the thread.
+    const { rows: [sameFile] } = await pool.query(
+      'SELECT id, supplier, invoice_number, outcome, job_id, created_at FROM scanned_documents WHERE fingerprint = $1',
+      [fingerprint]
+    );
+
+    // The same invoice as a different file: a supplier re-sending it, or a
+    // statement attaching a fresh render of the same thing.
+    let sameInvoice = null;
+    if (supplier && invoiceNumber) {
+      const { rows } = await pool.query(
+        `SELECT id, supplier, invoice_number, outcome, job_id, created_at, 'scanner' AS found_in
+           FROM scanned_documents
+          WHERE fingerprint <> $1
+            AND LOWER(TRIM(supplier)) = LOWER(TRIM($2))
+            AND UPPER(REGEXP_REPLACE(COALESCE(invoice_number,''), '[^A-Za-z0-9]', '', 'g')) = $3
+          UNION ALL
+         SELECT id, supplier, invoice_number, status AS outcome, job_id, created_at, 'app' AS found_in
+           FROM job_cost_scans
+          WHERE LOWER(TRIM(supplier)) = LOWER(TRIM($2))
+            AND UPPER(REGEXP_REPLACE(COALESCE(invoice_number,''), '[^A-Za-z0-9]', '', 'g')) = $3
+          LIMIT 1`,
+        [fingerprint, supplier, foldInvoice(invoiceNumber)]
+      );
+      sameInvoice = rows[0] || null;
+    }
+
+    if (sameFile) {
+      // Our own earlier claim coming back with what it has since learned.
+      await pool.query(
+        `UPDATE scanned_documents
+            SET supplier = COALESCE($2, supplier),
+                invoice_number = COALESCE($3, invoice_number),
+                outcome = COALESCE($4, outcome),
+                job_id = COALESCE($5, job_id),
+                updated_at = NOW()
+          WHERE fingerprint = $1`,
+        [fingerprint, supplier, invoiceNumber,
+         String(req.body?.outcome || '').trim() || null, req.body?.job_id || null]
+      );
+      // A claim with nothing learned yet is a duplicate; one carrying what it
+      // just read is the same run reporting back, and is not.
+      const reporting = Boolean(supplier || invoiceNumber || req.body?.outcome);
+      return res.json({
+        claimed: reporting,
+        reason: reporting ? 'updated' : 'same_file',
+        duplicate_of: reporting ? null : sameFile,
+      });
+    }
+
+    if (sameInvoice) {
+      // Recorded so the next copy is recognised from its bytes alone.
+      await pool.query(
+        `INSERT INTO scanned_documents (fingerprint, supplier, invoice_number, outcome, source)
+         VALUES ($1,$2,$3,'duplicate',$4) ON CONFLICT (fingerprint) DO NOTHING`,
+        [fingerprint, supplier, invoiceNumber, String(req.body?.source || '').slice(0, 300) || null]
+      );
+      return res.json({ claimed: false, reason: 'same_invoice', duplicate_of: sameInvoice });
+    }
+
+    const { rows: [claimed] } = await pool.query(
+      `INSERT INTO scanned_documents (fingerprint, supplier, invoice_number, outcome, job_id, source)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (fingerprint) DO NOTHING
+       RETURNING id`,
+      [fingerprint, supplier, invoiceNumber,
+       String(req.body?.outcome || '').trim() || null, req.body?.job_id || null,
+       String(req.body?.source || '').slice(0, 300) || null]
+    );
+    // Nothing returned means another run inserted it between the two queries.
+    if (!claimed) return res.json({ claimed: false, reason: 'same_file' });
+    res.json({ claimed: true, reason: 'new', id: claimed.id });
+  } catch (err) {
+    console.error('[invoice-inbox] claim failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Giving a claim back, when reading the invoice failed for a reason that might
+// not happen next time. Without this a PDF that broke once would never be
+// looked at again.
+router.post('/release', authenticateAutomation, async (req, res) => {
+  const fingerprint = String(req.body?.fingerprint || '').trim();
+  if (!fingerprint) return res.status(400).json({ error: 'Which document?' });
+  try {
+    // Only a claim that got nowhere is given back. One that reached a job or
+    // the inbox stays claimed, whatever the scanner thinks happened after.
+    const { rowCount } = await pool.query(
+      `DELETE FROM scanned_documents
+        WHERE fingerprint = $1 AND job_id IS NULL
+          AND (outcome IS NULL OR outcome IN ('failed', 'claimed'))`,
+      [fingerprint]
+    );
+    res.json({ released: rowCount > 0 });
+  } catch (err) {
+    console.error('[invoice-inbox] release failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Automation: save an unmatched invoice to the inbox
 router.post('/', authenticateAutomation, async (req, res) => {
   const { document_base64, mime_type, supplier, invoice_number, detected_job_number, parsed_items } = req.body;
