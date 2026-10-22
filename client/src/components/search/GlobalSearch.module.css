@@ -109,3 +109,54 @@
   .hit { grid-template-columns: 1fr auto; row-gap: 2px; }
   .hitSub { grid-column: 1 / -1; white-space: normal; }
 }
+
+/* ── Doing something, rather than finding something ───────────────────────── */
+
+/* An offer, sitting above the results: what the app heard, and what it will do
+   about it if asked. Nothing runs until this is pressed. */
+.action {
+  margin: 6px 10px 10px;
+  border: 1px solid var(--color-primary);
+  border-radius: 10px;
+  background: var(--color-primary-light, #eff6ff);
+  overflow: hidden;
+}
+.actionBtn {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px 14px; border: none; background: none;
+  font-family: inherit; text-align: left; cursor: pointer;
+}
+.actionBtn:hover { background: rgba(255 255 255 / 0.45); }
+.actionIcon { font-size: 18px; flex: none; }
+.actionText {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1;
+  font-size: 14px; font-weight: 600; color: var(--color-text);
+}
+.actionDetail {
+  font-size: 12px; font-weight: 400; color: var(--color-text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.actionVerb {
+  flex: none; font-size: 12px; font-weight: 700;
+  color: var(--color-primary); white-space: nowrap;
+}
+.actionNote { margin: 0; padding: 12px 14px; font-size: 13px; color: var(--color-text); }
+
+/* The day, in order, with the time it starts at. */
+.dayRow {
+  display: grid; grid-template-columns: 48px auto 1fr; gap: 10px;
+  align-items: baseline; width: 100%; text-align: left;
+  padding: 8px 14px; border: none; border-top: 1px solid rgba(255 255 255 / 0.6);
+  background: none; font-family: inherit; cursor: pointer;
+}
+.dayRow:hover { background: rgba(255 255 255 / 0.45); }
+.dayTime {
+  font-size: 12px; font-weight: 700; color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .actionVerb { display: none; }
+  .dayRow { grid-template-columns: 48px 1fr; row-gap: 2px; }
+  .dayRow .hitSub { grid-column: 2 / -1; white-space: normal; }
+}

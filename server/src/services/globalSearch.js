@@ -237,4 +237,38 @@ async function search(rawQuery, user) {
   return { query: q.text, kind: q.kind, groups };
 }
 
-module.exports = { search, parse };
+// What this person has booked in today, earliest first.
+//
+// "My first job" is a question only the diary can answer, and it is the one a
+// field crew asks at 7am. Their own bookings, always — this is not a way to
+// read somebody else's day.
+async function myDay(user, { date } = {}) {
+  const { rows } = await pool.query(
+    `SELECT s.id, s.job_id, s.scheduled_date, s.start_time, s.end_time,
+            j.job_number, j.external_ref, j.status,
+            c.name AS customer_name,
+            COALESCE(cs.address, j.site_address) AS site_address,
+            regexp_replace(regexp_replace(COALESCE(j.description,''), '<[^>]+>', ' ', 'g'), '\\s+', ' ', 'g') AS description
+       FROM schedules s
+       JOIN jobs j ON j.id = s.job_id
+       LEFT JOIN customers c ON c.id = j.customer_id
+       LEFT JOIN customer_sites cs ON cs.id = j.site_id
+      WHERE s.user_id = $1 AND s.scheduled_date = COALESCE($2::date, CURRENT_DATE)
+      ORDER BY s.start_time ASC NULLS LAST, j.job_number`,
+    [user.id, date || null]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    job_id: r.job_id,
+    title: r.external_ref || `JB${String(r.job_number).padStart(5, '0')}`,
+    customer_name: r.customer_name || '',
+    site_address: r.site_address || '',
+    // Trimmed: stripping the HTML leaves the spaces it stood in.
+    description: (r.description || '').trim().slice(0, 80),
+    status: r.status,
+    start_time: r.start_time ? String(r.start_time).slice(0, 5) : null,
+    to: `/jobs/${r.job_id}`,
+  }));
+}
+
+module.exports = { search, parse, myDay };
