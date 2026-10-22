@@ -3,6 +3,7 @@ import { Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-d
 import { useAuth } from '../../context/AuthContext';
 import { useUnsavedChanges } from '../../context/UnsavedChangesContext';
 import api from '../../lib/api';
+import GlobalSearch from '../search/GlobalSearch';
 import Dashboard from '../../pages/Dashboard';
 import CustomerList from '../../pages/customers/CustomerList';
 import CustomerDetail from '../../pages/customers/CustomerDetail';
@@ -84,10 +85,26 @@ export default function AppShell() {
     if (!confirmLeave()) e.preventDefault();
   }
   const isPresenter = location.pathname === '/presenter';
+  const [searchOpen, setSearchOpen] = useState(false);
   const [openLeads, setOpenLeads] = useState(0);
   const [inboxCount, setInboxCount] = useState(0);
   const [dueTodos, setDueTodos] = useState(0);
   const [newTodos, setNewTodos] = useState(0);
+
+  // Ctrl-K anywhere, the way every other tool does it. Not while somebody is
+  // typing into something else — the shortcut is for reaching the search, not
+  // for interrupting a quote being written.
+  useEffect(() => {
+    function onKey(e) {
+      if (!((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) return;
+      const t = e.target;
+      if (t?.isContentEditable || /^(input|textarea|select)$/i.test(t?.tagName || '')) return;
+      e.preventDefault();
+      setSearchOpen(true);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // The two badge counts, gated the same way their sections are so a granted
   // person gets the count and nobody else fetches a 403.
@@ -158,6 +175,12 @@ export default function AppShell() {
           <img src="/favicon.png" alt="Dekker" className={styles.brandMark} />
           <span className={styles.brandName}>Dekker App</span>
         </div>
+
+        <button className={styles.searchBtn} onClick={() => setSearchOpen(true)}>
+          <span className={styles.navIcon}>🔍</span>
+          Search
+          <kbd className={styles.kbd}>Ctrl K</kbd>
+        </button>
 
         <nav className={styles.nav}>
           {/* sales/operations deliberately excluded from officeOnly items — unlike
@@ -299,6 +322,13 @@ export default function AppShell() {
           </NavLink>
         ))}
       </nav>
+
+      {/* On a phone the sidebar is gone, and this is the thing most worth
+          reaching with a thumb: say a name instead of typing a job number. */}
+      <button className={styles.searchFab} onClick={() => setSearchOpen(true)}
+        aria-label="Search, or say what you are looking for">🔍</button>
+
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   );
 }

@@ -114,6 +114,7 @@ app.use('/api/website', websiteRoutes);
 app.use('/api/app-console', appConsoleRoutes);
 app.use('/api/marketing', require('./routes/marketing'));
 app.use('/api/forms', require('./routes/forms'));
+app.use('/api/search', require('./routes/search'));
 
 // Reports memory as well as the database. A health check that only says
 // "the database answered" cannot tell you the instance is about to be killed

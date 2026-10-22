@@ -1,0 +1,111 @@
+/* The search palette: a sheet over whatever you were looking at. */
+
+.overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex; justify-content: center;
+  padding: max(64px, env(safe-area-inset-top, 0px)) 16px 16px;
+}
+
+.palette {
+  background: var(--color-surface, #fff);
+  border-radius: 14px; width: 100%; max-width: 620px;
+  max-height: min(70vh, 640px);
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+}
+
+.inputRow {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; border-bottom: 1px solid var(--color-border);
+}
+.lens { font-size: 15px; opacity: 0.6; flex: none; }
+.input {
+  flex: 1; min-width: 0; border: none; outline: none; background: none;
+  font-size: 16px;  /* 16px or iOS zooms the page when it takes focus */
+  font-family: inherit; color: var(--color-text);
+}
+.input::placeholder { color: var(--color-text-muted); }
+
+.mic, .close {
+  flex: none; border: 1px solid var(--color-border); background: white;
+  border-radius: 8px; cursor: pointer; font-size: 14px;
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+}
+.mic:hover, .close:hover { background: #f8fafc; }
+/* Listening: unmistakable, because an open microphone should never be a
+   surprise. */
+.micOn {
+  background: #fee2e2; border-color: #fca5a5; color: #b91c1c;
+  animation: breathe 1.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+  50%      { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .micOn { animation: none; }
+  .pulse { animation: none; }
+}
+
+.hearing {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 16px; font-size: 12px; color: #b91c1c; background: #fef2f2;
+}
+.pulse {
+  width: 8px; height: 8px; border-radius: 50%; background: #ef4444;
+  animation: breathe 1.4s ease-in-out infinite; flex: none;
+}
+.micError {
+  padding: 8px 16px; font-size: 12px; color: #92400e; background: #fffbeb;
+}
+
+.results { overflow-y: auto; flex: 1; padding: 6px 0; -webkit-overflow-scrolling: touch; }
+.hint { padding: 18px 16px; margin: 0; font-size: 13px; color: var(--color-text-muted); }
+
+.group { padding: 4px 0; }
+.groupLabel {
+  margin: 8px 0 4px; padding: 0 16px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--color-text-muted);
+}
+
+.hit {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline; gap: 8px;
+  width: 100%; text-align: left; border: none; background: none;
+  padding: 9px 16px; cursor: pointer; font-family: inherit;
+  border-left: 3px solid transparent;
+}
+.hitOn { background: var(--color-primary-light, #eff6ff); border-left-color: var(--color-primary); }
+.hitTitle { font-size: 14px; font-weight: 600; color: var(--color-text); white-space: nowrap; }
+.hitSub {
+  font-size: 12px; color: var(--color-text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+
+.badge {
+  font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px;
+  text-transform: capitalize; white-space: nowrap;
+}
+.badgeGrey  { background: #f1f5f9; color: #475569; }
+.badgeBlue  { background: #e0e7ff; color: #3730a3; }
+.badgeGreen { background: #dcfce7; color: #166534; }
+.badgeAmber { background: #fef3c7; color: #92400e; }
+.badgeRed   { background: #fee2e2; color: #b91c1c; }
+
+.foot {
+  padding: 8px 16px; border-top: 1px solid var(--color-border);
+  font-size: 11px; color: var(--color-text-muted);
+}
+
+/* On a phone the palette is the screen, and the keyboard shortcuts line is
+   not worth the room. */
+@media (max-width: 560px) {
+  .overlay { padding: 0; }
+  .palette { max-width: none; max-height: none; height: 100%; border-radius: 0; }
+  .foot { display: none; }
+  .hit { grid-template-columns: 1fr auto; row-gap: 2px; }
+  .hitSub { grid-column: 1 / -1; white-space: normal; }
+}
