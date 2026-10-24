@@ -160,6 +160,20 @@ function handleThread(thread, apiKey, anthropicKey, tally) {
           continue;
         }
 
+        // A statement is a summary of invoices already charged, and a
+        // remittance is a record of paying them. Posting either onto a job
+        // would charge the same materials to it twice, so they go to the
+        // inbox to be filed whatever job number they happen to mention.
+        const summary = parsed.documentType === 'statement' || parsed.documentType === 'remittance';
+        if (summary) {
+          console.log(`${filename} is a ${parsed.documentType} — filing it, not posting it to a job`);
+          saveToInbox(pdfBase64, parsed, apiKey);
+          claimDocument({ fingerprint, outcome: 'inbox' }, apiKey);
+          tally.inbox++;
+          handled = true;
+          continue;
+        }
+
         if (!jobNumber) {
           console.log(`No job number in ${filename} — sending to Invoice Inbox`);
           saveToInbox(pdfBase64, parsed, apiKey);
@@ -239,7 +253,15 @@ Extract the following from this invoice text:
 1. jobNumber: The job reference number. It may appear as "JB00580", "Job #580", "Job: 1234", "Ref: JB1234" or similar. Return just the number including any JB prefix (e.g. "JB580" or "1234").
 2. supplier: The supplier/company name
 3. invoiceNumber: The invoice number/reference
-4. items: Array of line items, each with:
+4. documentType: What kind of document this is. One of exactly:
+   - "invoice" — a charge for goods or services supplied
+   - "statement" — a summary of an account over a period, usually listing several invoices and a balance owing
+   - "credit_note" — a refund or reversal
+   - "remittance" — advice that a payment has been made
+   - "other" — anything else
+   A statement normally says "Statement" at the top, covers a date range, and
+   lists invoice numbers with a closing balance rather than individual products.
+5. items: Array of line items, each with:
    - description: product or service description
    - quantity: numeric quantity (default 1 if not shown)
    - unit_price: unit price in dollars as a decimal number (e.g. 45.99)
@@ -251,6 +273,7 @@ Return ONLY valid JSON in this exact format, no explanation:
   "jobNumber": "JB580",
   "supplier": "Bunnings Warehouse",
   "invoiceNumber": "INV-12345",
+  "documentType": "invoice",
   "items": [
     { "description": "25mm Copper Pipe 3m", "quantity": 2, "unit_price": 18.50 }
   ]
@@ -377,6 +400,9 @@ function saveToInbox(pdfBase64, parsed, apiKey) {
     invoice_number: parsed ? parsed.invoiceNumber : null,
     detected_job_number: parsed ? parsed.jobNumber : null,
     parsed_items: parsed && parsed.items ? parsed.items : [],
+    // What kind of document it is. The app files on this: a statement and an
+    // invoice from the same supplier belong in different folders.
+    document_type: parsed ? parsed.documentType : null,
   };
   const response = UrlFetchApp.fetch(`${DEKKER_API}/api/invoice-inbox`, {
     method: 'post',

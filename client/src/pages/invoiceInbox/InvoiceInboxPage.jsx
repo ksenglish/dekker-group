@@ -208,6 +208,9 @@ export default function InvoiceInboxPage() {
 
   useEffect(() => () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); }, [pdfUrl]);
   const [filing, setFiling] = useState(null);         // scan being filed to a folder
+  // The page's own, not the folder picker's — that one has a `busy` of its own
+  // and reaching for it from here is how the tab stops rendering.
+  const [filingBusy, setFilingBusy] = useState(false);
   const [selected, setSelected] = useState([]);       // ids ticked for bulk delete
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -269,6 +272,41 @@ export default function InvoiceInboxPage() {
     }
   }
 
+  // Taking the app's suggestion. The same route the folder picker uses, so a
+  // document filed this way is filed exactly as one filed by hand.
+  async function fileTo(scan, folderId) {
+    setFilingBusy(true);
+    try {
+      await api.post(`/invoice-inbox/${scan.id}/file`, { folder_id: folderId });
+      load();
+      window.dispatchEvent(new Event('invoice-inbox-updated'));
+    } catch {
+      alert('Could not file that document');
+    } finally { setFilingBusy(false); }
+  }
+
+  // Everything waiting that the app is sure about, put away in one go. The
+  // rest keep their suggestion and stay here.
+  async function fileEverythingObvious() {
+    if (!confirm(
+      'File every document the app is sure about?\n\n'
+      + 'Only the ones where the folders and your own past filing agree are moved. '
+      + 'Anything less certain stays here with its folder suggested.'
+    )) return;
+    setFilingBusy(true);
+    try {
+      const { data } = await api.post('/invoice-inbox/file-waiting', {});
+      load();
+      window.dispatchEvent(new Event('invoice-inbox-updated'));
+      alert(
+        `${data.filed} filed, ${data.suggested} left with a suggestion, `
+        + `${data.stumped} with nothing to go on.`
+      );
+    } catch {
+      alert('Could not file those');
+    } finally { setFilingBusy(false); }
+  }
+
   async function handleDelete(scanId) {
     if (!confirm('Remove this invoice from the inbox? It will not be added to any job.')) return;
     try {
@@ -319,6 +357,11 @@ export default function InvoiceInboxPage() {
             <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
             {allSelected ? 'Deselect all' : `Select all (${scans.length})`}
           </label>
+          {selected.length === 0 && (
+            <button className={styles.btnFile} onClick={fileEverythingObvious} disabled={filingBusy}>
+              📁 File everything obvious
+            </button>
+          )}
           {selected.length > 0 && (
             <div className={styles.toolbarActions}>
               <span className={styles.selectedCount}>{selected.length} selected</span>
@@ -362,6 +405,14 @@ export default function InvoiceInboxPage() {
                     aria-label="Select invoice"
                   />
                   <span className={styles.supplier}>{scan.supplier || 'Unknown supplier'}</span>
+                  {/* A statement is not an invoice and does not belong on a
+                      job — worth saying on the row, since the two look alike
+                      at a glance and only one of them is a cost. */}
+                  {scan.document_type && scan.document_type !== 'invoice' && (
+                    <span className={styles.docType}>
+                      {scan.document_type.replace(/_/g, ' ')}
+                    </span>
+                  )}
                   {scan.invoice_number && (
                     <span className={styles.invNum}>#{scan.invoice_number}</span>
                   )}
@@ -393,6 +444,21 @@ export default function InvoiceInboxPage() {
               {scan.detected_job_number && (
                 <div className={styles.detectedJob}>
                   Detected job number: <strong>{scan.detected_job_number}</strong> — not found in app
+                </div>
+              )}
+
+              {/* The app had a view but was not sure enough to act on it. The
+                  folder is already chosen; filing is one press. */}
+              {scan.suggested_folder_id && (
+                <div className={styles.suggestion}>
+                  <span>
+                    Probably <strong>{scan.suggested_folder_name}</strong>
+                    {scan.filed_because && <em className={styles.because}> — {scan.filed_because}</em>}
+                  </span>
+                  <button className={styles.btnFile} disabled={filingBusy}
+                    onClick={() => fileTo(scan, scan.suggested_folder_id)}>
+                    File it there
+                  </button>
                 </div>
               )}
 

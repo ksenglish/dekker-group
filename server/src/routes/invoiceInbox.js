@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
-const { authenticate, authenticateAutomation } = require('../middleware/auth');
+const { authenticate, authenticateAutomation, requireRole } = require('../middleware/auth');
 const fileStore = require('../services/fileStore');
+const costFiling = require('../services/costFiling');
 
 // Count unmatched (for sidebar badge)
 router.get('/count', authenticate, async (req, res) => {
@@ -22,12 +23,16 @@ router.get('/', authenticate, async (req, res) => {
     // downloading all of them to show a list of suppliers and totals. The
     // client asks for one when someone actually clicks View PDF.
     const { rows } = await pool.query(
-      `SELECT id, supplier, invoice_number, detected_job_number, parsed_items,
-              mime_type, created_at,
-              (document_base64 IS NOT NULL OR storage_key IS NOT NULL) AS has_document
-       FROM job_cost_scans
-       WHERE status = 'unmatched'
-       ORDER BY created_at DESC`
+      `SELECT s.id, s.supplier, s.invoice_number, s.detected_job_number, s.parsed_items,
+              s.mime_type, s.created_at, s.document_type,
+              (s.document_base64 IS NOT NULL OR s.storage_key IS NOT NULL) AS has_document,
+              -- Where the app thinks it goes, for a row that can be filed with
+              -- one press instead of a hunt through the folder tree.
+              s.suggested_folder_id, f.name AS suggested_folder_name, s.filed_because
+       FROM job_cost_scans s
+       LEFT JOIN cost_folders f ON f.id = s.suggested_folder_id
+       WHERE s.status = 'unmatched'
+       ORDER BY s.created_at DESC`
     );
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -159,6 +164,13 @@ router.post('/release', authenticateAutomation, async (req, res) => {
 // Automation: save an unmatched invoice to the inbox
 router.post('/', authenticateAutomation, async (req, res) => {
   const { document_base64, mime_type, supplier, invoice_number, detected_job_number, parsed_items } = req.body;
+  // What kind of document it is, as the scanner read it. A statement and an
+  // invoice from the same supplier live in different folders, so the supplier
+  // name alone cannot file either of them.
+  const documentType = ['invoice', 'statement', 'credit_note', 'remittance', 'other']
+    .includes(String(req.body?.document_type || '').toLowerCase())
+    ? String(req.body.document_type).toLowerCase()
+    : null;
   try {
     // Arrives from the Apps Script as a data URL; the bucket takes it from here.
     const stored = await fileStore.storeDataUrl({
@@ -170,8 +182,8 @@ router.post('/', authenticateAutomation, async (req, res) => {
     const { rows: [row] } = await pool.query(
       `INSERT INTO job_cost_scans
          (document_base64, mime_type, supplier, invoice_number, detected_job_number, parsed_items, status,
-          storage_key, size_bytes)
-       VALUES ($1, $2, $3, $4, $5, $6, 'unmatched', $7, $8)
+          storage_key, size_bytes, document_type)
+       VALUES ($1, $2, $3, $4, $5, $6, 'unmatched', $7, $8, $9)
        RETURNING id, supplier, invoice_number, detected_job_number, created_at`,
       [
         stored ? null : document_base64,
@@ -181,9 +193,22 @@ router.post('/', authenticateAutomation, async (req, res) => {
         detected_job_number || null,
         JSON.stringify(parsed_items || []),
         stored?.key || null, stored?.size || null,
+        documentType,
       ]
     );
-    res.status(201).json(row);
+
+    // Filed on arrival where the folders and the filing already done agree on
+    // where it goes. Anything less certain keeps its suggestion and waits in
+    // PDF Check — the folder is chosen, somebody just says yes.
+    let filing = null;
+    try {
+      filing = await costFiling.fileScan(row.id);
+    } catch (err) {
+      // Never at the cost of the document itself: an invoice in the wrong
+      // place is a nuisance, one that never arrived is a lost cost.
+      console.error('[invoice-inbox] auto-file failed:', err.message);
+    }
+    res.status(201).json({ ...row, filing });
   } catch (err) {
     console.error('Invoice inbox save error:', err);
     res.status(500).json({ error: err.message });
@@ -291,6 +316,43 @@ router.post('/:id/file', authenticate, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: 'Inbox item not found' });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Put away everything waiting that can be, and mark the rest with where it
+// probably goes. Run when this is switched on, or after adding a folder that
+// makes a backlog filable.
+router.post('/file-waiting', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  try {
+    res.json(await costFiling.fileWaiting({ limit: Number(req.body?.limit) || 500 }));
+  } catch (err) {
+    console.error('[invoice-inbox] file-waiting failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Putting one back, when the app filed it somewhere wrong.
+//
+// It returns to PDF Check rather than to another folder: the app has already
+// had its guess, and the point of undoing is for a person to decide. The wrong
+// answer stays recorded as the suggestion, so the next one like it is not
+// filed the same way on the strength of a mistake.
+router.post('/:id/unfile', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE job_cost_scans
+          SET status = 'unmatched', folder_id = NULL, filed_automatically = false,
+              filed_at = NULL, suggested_folder_id = folder_id,
+              filed_because = 'Put back by hand after the app filed it'
+        WHERE id = $1 AND status = 'filed'
+        RETURNING id, supplier, invoice_number, suggested_folder_id`,
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'That document is not filed' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('[invoice-inbox] unfile failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Bulk delete — declared before /:id so "bulk-delete" isn't read as an id

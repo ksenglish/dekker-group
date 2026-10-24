@@ -503,3 +503,21 @@
   margin: 8px 0; padding: 8px 12px; border-radius: 6px; font-size: 13px;
   background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
 }
+
+/* What kind of document it is, when it is not a plain invoice. A statement
+   looks like an invoice at a glance and only one of the two is a cost. */
+.docType {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; padding: 2px 7px; border-radius: 999px;
+  background: #ede9fe; color: #5b21b6; white-space: nowrap;
+}
+
+/* Where the app thinks it goes, when it was not sure enough to act. */
+.suggestion {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  margin: 8px 0 0; padding: 8px 12px;
+  background: #eff6ff; border: 1px solid #bfdbfe;
+  border-radius: var(--radius); font-size: 13px;
+}
+.because { color: var(--color-text-muted); font-style: normal; font-size: 12px; }
