@@ -1684,3 +1684,44 @@
   .billRow > .billNum:nth-of-type(1), .billRow > .billNum:nth-of-type(2) { display: none; }
   .billPricing { grid-area: pricing; }
 }
+
+/* ── Sending a cost line back to stock ───────────────────────────────────── */
+
+/* What went back, said on the line. The quantity shown is what the job is
+   still charged for, so without this the row would quietly disagree with the
+   invoice stapled to it. */
+.returnedNote {
+  display: block; font-style: normal; font-size: 11px;
+  color: var(--color-text-muted); margin-top: 2px;
+}
+
+.returnBtn {
+  margin-left: 8px; border: 1px solid var(--color-border); background: white;
+  border-radius: 6px; cursor: pointer; font-size: 12px; line-height: 1;
+  padding: 3px 7px; color: var(--color-text-muted);
+}
+.returnBtn:hover { background: #f8fafc; color: var(--color-text); }
+
+.returnPanel {
+  background: var(--color-surface, #fff); border-radius: 12px;
+  padding: 20px; width: 100%; max-width: 440px;
+  box-shadow: 0 20px 50px rgb(15 23 42 / 0.3);
+}
+.returnPanel h3 { margin: 0 0 8px; font-size: 16px; }
+.returnFields {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0;
+}
+.returnFields label {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 12px; font-weight: 600; color: var(--color-text);
+}
+.returnFields input, .returnFields select {
+  padding: 8px 10px; font-size: 14px; font-weight: 400; font-family: inherit;
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  width: 100%; box-sizing: border-box;
+}
+.returnActions { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (max-width: 560px) {
+  .returnFields { grid-template-columns: 1fr; }
+}

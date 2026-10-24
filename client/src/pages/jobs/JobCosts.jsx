@@ -22,6 +22,13 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
   const [scanningStock, setScanningStock] = useState(false);
   const [stockLocations, setStockLocations] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
+  // A cost line being sent back to stock: bought for the job, never used on it.
+  const [returning, setReturning] = useState(null);
+  const [returnQty, setReturnQty] = useState('');
+  const [returnTo, setReturnTo] = useState('');
+  const [returnError, setReturnError] = useState('');
+  const [returnNeedsProduct, setReturnNeedsProduct] = useState(false);
+  const [returnBusy, setReturnBusy] = useState(false);
   const fileRef = useRef();
   // Blob URLs have to be revoked by hand or they leak for the life of the tab
   const docUrls = useRef({});
@@ -173,8 +180,81 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
 
   if (loading) return <div className={styles.emptySmall}>Loading…</div>;
 
+  function startReturn(cost) {
+    setReturning(cost);
+    setReturnQty(String(cost.quantity));
+    setReturnTo(stockLocations[0]?.id || '');
+    setReturnError('');
+    setReturnNeedsProduct(false);
+  }
+
+  // Sends it back. The quantity is what was not used on the job, so the job
+  // stops being charged for it and the van or the warehouse is credited.
+  async function sendBack({ createProduct = false } = {}) {
+    setReturnBusy(true); setReturnError('');
+    try {
+      await api.post('/stock/return-from-job', {
+        cost_id: returning.id,
+        to_location_id: returnTo,
+        quantity: parseFloat(returnQty) || 0,
+        create_product: createProduct,
+      });
+      setReturning(null);
+      await load();
+    } catch (err) {
+      setReturnError(err.response?.data?.error || 'Could not send that back');
+      // Not on the price list: offering to add it is better than a dead end,
+      // since during a stock take that is most of what is being found.
+      setReturnNeedsProduct(Boolean(err.response?.data?.needs_product));
+    } finally { setReturnBusy(false); }
+  }
+
   return (
     <div>
+      {returning && (
+        <div className={styles.overlay} onMouseDown={e => {
+          if (e.target === e.currentTarget && !returnBusy) setReturning(null);
+        }}>
+          <div className={styles.returnPanel}>
+            <h3>Send back to stock</h3>
+            <p className={styles.scanHintText}>
+              <strong>{returning.description}</strong> — charged to this job but not used on it.
+              The job stops being charged for what goes back.
+            </p>
+            <div className={styles.returnFields}>
+              <label>
+                How many
+                <input type="number" min="0.01" step="0.01" max={returning.quantity}
+                  value={returnQty} onChange={e => setReturnQty(e.target.value)} />
+                <span className={styles.scanHintText}>of {returning.quantity} on this line</span>
+              </label>
+              <label>
+                Back to
+                <select value={returnTo} onChange={e => setReturnTo(e.target.value)}>
+                  {stockLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </label>
+            </div>
+            {returnError && <div className={styles.scanError}>{returnError}</div>}
+            <div className={styles.returnActions}>
+              <button className={styles.btnSmall} disabled={returnBusy}
+                onClick={() => setReturning(null)}>Cancel</button>
+              {returnNeedsProduct ? (
+                <button className={styles.btnPrimary} disabled={returnBusy}
+                  onClick={() => sendBack({ createProduct: true })}>
+                  Add it to the price list and send it back
+                </button>
+              ) : (
+                <button className={styles.btnPrimary} disabled={returnBusy || !returnTo}
+                  onClick={() => sendBack()}>
+                  {returnBusy ? 'Sending…' : 'Send it back'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Costs grouped under the supplier document each line came off */}
       {costs.length > 0 && (
         <>
@@ -185,6 +265,7 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
             canEdit={canEdit}
             onChanged={load}
             onScanDeleted={onScanDeleted}
+            onReturn={canEdit ? startReturn : null}
             fetchDoc={fetchDoc}
           />
           <div className={styles.costsGrandTotal}>

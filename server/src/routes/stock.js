@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const { authenticate, requireRole } = require('../middleware/auth');
+const productMatch = require('../services/productMatch');
 
 router.use(authenticate);
 
@@ -118,7 +119,7 @@ router.put('/locations/:id', requireRole('admin', 'office'), async (req, res) =>
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id, p.name, p.category, p.unit, p.unit_price, p.cost_price,
+      `SELECT p.id, p.name, p.category, p.unit, p.unit_price, p.cost_price, p.stock_kind,
               COALESCE((
                 SELECT json_agg(json_build_object('location_id', s.location_id, 'quantity', s.quantity))
                 FROM stock_levels s WHERE s.product_id = p.id AND s.quantity <> 0
@@ -143,7 +144,7 @@ router.get('/', async (req, res) => {
 router.get('/locations/:id/stock', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id, p.name, p.category, p.unit, p.cost_price,
+      `SELECT p.id, p.name, p.category, p.unit, p.cost_price, p.stock_kind,
               s.quantity,
               (s.quantity * p.cost_price) AS value_cents
        FROM stock_levels s
@@ -165,9 +166,18 @@ router.get('/locations/:id/stock', async (req, res) => {
 router.get('/valuation', requireRole('admin'), async (req, res) => {
   try {
     const { rows } = await pool.query(
+      // Materials and tools are both held here and both worth money, but they
+      // are not one number: "the van holds $900 of stock" and "the van holds
+      // $4,200 of tools" answer different questions, and a total that mixes
+      // them answers neither.
       `SELECT l.id, l.name, l.type,
               COALESCE(SUM(s.quantity * p.cost_price), 0)::bigint AS value_cents,
               COALESCE(SUM(s.quantity), 0) AS unit_count,
+              COALESCE(SUM(s.quantity * p.cost_price)
+                FILTER (WHERE p.stock_kind = 'tool'), 0)::bigint AS tool_value_cents,
+              COALESCE(SUM(s.quantity) FILTER (WHERE p.stock_kind = 'tool'), 0) AS tool_count,
+              COALESCE(SUM(s.quantity * p.cost_price)
+                FILTER (WHERE p.stock_kind <> 'tool'), 0)::bigint AS material_value_cents,
               COUNT(DISTINCT p.id) FILTER (WHERE COALESCE(p.cost_price, 0) = 0) AS missing_cost_count
        FROM stock_locations l
        LEFT JOIN stock_levels s ON s.location_id = l.id AND s.quantity <> 0
@@ -176,8 +186,13 @@ router.get('/valuation', requireRole('admin'), async (req, res) => {
        GROUP BY l.id, l.name, l.type
        ORDER BY (l.type = 'warehouse') DESC, l.name`
     );
-    const total = rows.reduce((sum, r) => sum + Number(r.value_cents || 0), 0);
-    res.json({ locations: rows, total_value_cents: total });
+    const sum = (field) => rows.reduce((t, r) => t + Number(r[field] || 0), 0);
+    res.json({
+      locations: rows,
+      total_value_cents: sum('value_cents'),
+      total_tool_value_cents: sum('tool_value_cents'),
+      total_material_value_cents: sum('material_value_cents'),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -314,6 +329,137 @@ router.post('/transfer', async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
+  } finally { client.release(); }
+});
+
+// Material charged to a job that never went on it, put back where it is.
+//
+// The job was charged for what the invoice said, which is what was bought, not
+// what was fitted. The leftovers are in a van or back at the warehouse and in
+// nobody's count. This is the one movement that changes what a job cost, so it
+// is careful about three things:
+//
+//   it cannot return more than the line was charged for, however many times it
+//     is pressed;
+//   the cost comes off the job only for what went back, so a partly used line
+//     still costs the job what it used;
+//   and a line already invoiced to the customer is refused, because the money
+//     has been asked for and taking the cost off now would not unask it.
+//
+// The line's own quantity comes down by what went back, and what went back is
+// recorded beside it. Seven different places add up a job's costs, and taking
+// the return off the quantity means every one of them is right without being
+// touched — the alternative was teaching each of them to subtract, which is
+// how one of them ends up still charging for timber that is in the van.
+// Together the two columns still say what the invoice said.
+router.post('/return-from-job', async (req, res) => {
+  const { cost_id, to_location_id, quantity, create_product } = req.body || {};
+  if (!cost_id || !to_location_id) {
+    return res.status(400).json({ error: 'cost_id and to_location_id are required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Locked, so two people returning the same line cannot each be told there
+    // was enough left.
+    const { rows: [cost] } = await client.query(
+      `SELECT c.id, c.job_id, c.description, c.sku, c.quantity, c.unit_price,
+              c.returned_quantity, c.billed_at, s.supplier
+         FROM job_costs c
+         LEFT JOIN job_cost_scans s ON s.id = c.scan_id
+        WHERE c.id = $1
+        FOR UPDATE OF c`,
+      [cost_id]
+    );
+    if (!cost) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'That cost line no longer exists' });
+    }
+    if (cost.billed_at) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'That line has already been invoiced to the customer. Credit the invoice first.',
+      });
+    }
+
+    // What the job is still being charged for, which is all that can go back.
+    const already = Number(cost.returned_quantity) || 0;
+    const left = Number(cost.quantity);
+    const qty = quantity === undefined ? left : Number(quantity);
+    if (!(qty > 0)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Quantity must be greater than zero' });
+    }
+    if (qty > left + 1e-9) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: already > 0
+          ? `Only ${left} of that line is still charged to the job — ${already} has already gone back.`
+          : `That line is only for ${cost.quantity}.`,
+      });
+    }
+
+    const { rows: [location] } = await client.query(
+      'SELECT id, name FROM stock_locations WHERE id = $1 AND is_active', [to_location_id]);
+    if (!location) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'That stock location does not exist' });
+    }
+
+    // Which product this line is. A cost line is text off an invoice, so it is
+    // matched the way the price list matches an invoice: the supplier's code
+    // first, then the name.
+    let { product } = await productMatch.matchProduct(
+      { sku: cost.sku, name: cost.description, supplier: cost.supplier }, client);
+
+    if (!product && create_product) {
+      // Putting something in stock that is not on the price list yet. Its cost
+      // is what this invoice charged, which is the best figure there is.
+      const { rows: [made] } = await client.query(
+        `INSERT INTO products (name, sku, supplier, unit, cost_price, unit_price, is_active)
+         VALUES ($1,$2,$3,'each',$4,$4,true) RETURNING *`,
+        [cost.description, productMatch.usableSku(cost.sku) ? cost.sku : null,
+         cost.supplier || null, cost.unit_price]
+      );
+      product = made;
+    }
+    if (!product) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `"${cost.description}" is not on the price list, so there is nowhere to put it. `
+          + 'Add it to the price list, or send it back with "add to the price list" ticked.',
+        needs_product: true,
+        description: cost.description,
+      });
+    }
+
+    await moveStock(client, {
+      productId: product.id, fromId: null, toId: to_location_id,
+      quantity: qty, reason: 'returned_from_job', jobId: cost.job_id, userId: req.user.id,
+    });
+
+    await client.query(
+      `UPDATE job_costs
+          SET quantity = quantity - $1::numeric,
+              returned_quantity = returned_quantity + $1::numeric
+        WHERE id = $2`,
+      [qty, cost_id]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({
+      returned: qty,
+      remaining: left - qty,
+      product: { id: product.id, name: product.name },
+      location: location.name,
+      value_cents: Math.round(qty * Number(cost.unit_price)),
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[stock] return from job failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
   } finally { client.release(); }
 });
 

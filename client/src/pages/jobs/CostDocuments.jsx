@@ -26,7 +26,7 @@ function sumEx(items) { return items.reduce((s, c) => s + lineTotalEx(c), 0); }
 
 // ── One document and its lines ────────────────────────────────────────────────
 
-function DocumentCard({ jobId, scan, items, canEdit, onChanged, onScanDeleted, fetchDoc }) {
+function DocumentCard({ jobId, scan, items, canEdit, onChanged, onScanDeleted, fetchDoc, onReturn }) {
   const [showDoc, setShowDoc] = useState(false);
   const [docUrl, setDocUrl] = useState(null);
   const [docError, setDocError] = useState('');
@@ -245,14 +245,31 @@ function DocumentCard({ jobId, scan, items, canEdit, onChanged, onScanDeleted, f
           </div>
           {items.map(c => {
             const ex = c.unit_price / 100;
+            const sentBack = Number(c.returned_quantity) || 0;
             return (
               <div key={c.id} className={`${styles.costsRow} ${ex < 0 ? styles.costsRowCredit : ''}`}>
-                <span>{c.description}</span>
+                <span>
+                  {c.description}
+                  {/* What the invoice charged for is still what the invoice
+                      charged for — the row should say where the rest went
+                      rather than quietly showing a smaller number. */}
+                  {sentBack > 0 && (
+                    <em className={styles.returnedNote}>
+                      {sentBack} of {sentBack + Number(c.quantity)} returned to stock
+                    </em>
+                  )}
+                </span>
                 <span>{c.quantity}</span>
                 <span>{money(ex)}</span>
                 <span className={styles.gstCell}>{money(ex * GST_RATE)}</span>
                 <span>{money(ex * (1 + GST_RATE))}</span>
-                <span className={styles.costsTotalCell}>{money(ex * (1 + GST_RATE) * c.quantity)}</span>
+                <span className={styles.costsTotalCell}>
+                  {money(ex * (1 + GST_RATE) * c.quantity)}
+                  {canEdit && Number(c.quantity) > 0 && !c.billed_at && onReturn && (
+                    <button className={styles.returnBtn} title="Send what wasn't used back to stock"
+                      onClick={() => onReturn(c)}>↩</button>
+                  )}
+                </span>
               </div>
             );
           })}
@@ -273,7 +290,7 @@ function DocumentCard({ jobId, scan, items, canEdit, onChanged, onScanDeleted, f
 
 // ── The list of them ──────────────────────────────────────────────────────────
 
-export default function CostDocuments({ jobId, costs, scans, canEdit, onChanged, onScanDeleted, fetchDoc }) {
+export default function CostDocuments({ jobId, costs, scans, canEdit, onChanged, onScanDeleted, fetchDoc, onReturn }) {
   const byScan = new Map();
   for (const c of costs) {
     const key = c.scan_id || '__loose';
@@ -297,7 +314,7 @@ export default function CostDocuments({ jobId, costs, scans, canEdit, onChanged,
   return (
     <div className={styles.costDocs}>
       {groups.map(g => (
-        <DocumentCard key={g.key} jobId={jobId} scan={g.scan} items={g.items} canEdit={canEdit}
+        <DocumentCard key={g.key} jobId={jobId} scan={g.scan} items={g.items} canEdit={canEdit} onReturn={onReturn}
           onChanged={onChanged} onScanDeleted={onScanDeleted} fetchDoc={fetchDoc} />
       ))}
     </div>

@@ -269,6 +269,10 @@ async function create(req, res) {
 async function update(req, res) {
   const { name, description, quote_description, category, subcategory_1, subcategory_2, subcategory_3, subcategory_4,
     unit, unit_price, is_active, supplier, cost_price, media_base64, brochure_base64, sku } = req.body;
+  // A tool is counted and valued in the same places as stock but apart from it.
+  // Left alone when the form does not mention it, so an older client saving a
+  // product cannot quietly turn a drill back into a consumable.
+  const stockKind = ['material', 'tool'].includes(req.body?.stock_kind) ? req.body.stock_kind : null;
   // Undefined means the form never mentioned components, so whatever the kit
   // already is stays as it is. An empty list means "not a kit any more".
   const kit = cleanComponents(req.body.components);
@@ -301,7 +305,7 @@ async function update(req, res) {
        media_base64=$14, brochure_base64=$15, media_key=$16, brochure_key=$17,
        -- Typed in the form, so an empty box genuinely clears it, unlike an
        -- import where a missing column means "said nothing".
-       sku=$19, updated_at=NOW()
+       sku=$19, stock_kind=COALESCE($20, stock_kind), updated_at=NOW()
        WHERE id=$18 RETURNING *`,
       [name, description || null, quote_description || null, category || null,
        subcategory_1 || null, subcategory_2 || null, subcategory_3 || null, subcategory_4 || null,
@@ -309,7 +313,7 @@ async function update(req, res) {
        prices ? prices.unit_price : Math.round((unit_price || 0) * 100), is_active !== false,
        supplier || null, prices ? prices.cost_price : Math.round((cost_price || 0) * 100),
        media.inline, brochure.inline, media.key, brochure.key, req.params.id,
-       sku && String(sku).trim() ? String(sku).trim() : null]
+       sku && String(sku).trim() ? String(sku).trim() : null, stockKind]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
     if (kit) {
