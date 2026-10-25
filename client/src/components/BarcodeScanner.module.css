@@ -167,3 +167,12 @@
   font-size: 12px;
   line-height: 1.45;
 }
+
+.ignoredCode {
+  margin-top: 4px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  word-break: break-all;
+}
+.ignoredHelp { margin-top: 6px; opacity: 0.85; }

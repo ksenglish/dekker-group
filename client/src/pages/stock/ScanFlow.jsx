@@ -56,14 +56,26 @@ export default function ScanFlow({ mode, locations, jobId, jobLabel, onClose, on
 
   // Fetched each time the panel opens, so a barcode added five minutes ago on
   // somebody else's phone is recognised on this one.
+  //
+  // Only ever a shortcut. A failure here leaves it null, which means "no list"
+  // rather than "nothing is known" — the difference matters, because an empty
+  // set quietly refuses every barcode in the business and looks exactly like a
+  // camera that cannot read.
   useEffect(() => {
     let live = true;
     api.get('/stock/barcodes')
-      .then(r => { if (live) setKnown(new Set((r.data || []).map(b => b.code))); })
-      // An empty set is the safe failure: nothing is recognised, the manual
-      // box still works, and nothing wrong gets recorded.
-      .catch(() => { if (live) setKnown(new Set()); });
+      .then(r => { if (live) setKnown(new Set((r.data || []).map(b => String(b.code).trim()))); })
+      .catch(() => { if (live) setKnown(null); });
     return () => { live = false; };
+  }, []);
+
+  // The server has the last word on any code the list does not cover. A
+  // phantom costs one 404; a real barcode scans whatever state the list is in.
+  const verify = useCallback(async code => {
+    try {
+      const { data } = await api.get('/stock/lookup', { params: { code } });
+      return data?.code || code;
+    } catch { return null; }
   }, []);
 
   const handleScan = useCallback(async code => {
@@ -155,10 +167,11 @@ export default function ScanFlow({ mode, locations, jobId, jobLabel, onClose, on
         <BarcodeScanner
           title={title}
           hint={done.length ? `${hint} ${counted} counted so far.` : hint}
-          // Only codes we already hold. An unrecognised read here is a misread
-          // far more often than it is a new product, and acting on one files
-          // the wrong barcode against a product for good.
-          known={known || new Set()}
+          // The list is the quick way through; the server settles anything it
+          // does not cover. An unrecognised read is still never offered as a
+          // new product here — that is the Add New Barcode screen's job.
+          known={known}
+          verify={verify}
           onScan={handleScan}
           onClose={onClose}
         />

@@ -23,12 +23,18 @@ const area = box => (box ? (box.width || 0) * (box.height || 0) : 0);
 // that's what the team is on, and it means no scanning library in the bundle.
 // Anywhere it's missing (notably iOS Safari) the box below still takes a code
 // typed or entered with a bluetooth scanner gun, so this never dead-ends.
-// `known` is the set of barcodes the app already holds. Given one, the camera
-// only reports codes in it — anything else is a misread and is passed over in
-// silence, which is what a supermarket scanner does and what makes this
-// reliable. Left out (the Add New Barcode flow), anything readable is
-// reported, because an unrecognised code is the whole point there.
-export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint, known = null }) {
+// `known` is the set of barcodes the app already holds, used as a fast filter
+// so a misread costs nothing. It is not the authority: a code it does not
+// contain is checked with the server before being dismissed, because the set
+// can be stale, half-loaded or missing entirely, and a barcode that really is
+// ours must scan whatever happened to that list.
+//
+// `verify` is that check — given a code, it returns the code to use, or null.
+// Without it the set is all there is; with it, the set is only an optimisation
+// and the worst a bad list can do is cost one request per unrecognised code.
+export default function BarcodeScanner({
+  onScan, onClose, title = 'Scan', hint, known = null, verify = null,
+}) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const detectorRef = useRef(null);
@@ -40,16 +46,21 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint, 
   const [manual, setManual] = useState('');
   const [error, setError] = useState('');
   const [cameraOn, setCameraOn] = useState(false);
-  // How many reads have been passed over for not matching anything we hold.
-  // Shown so a scanner that is working but silent does not look broken.
+  // How many reads have been passed over, and the last one of them. The count
+  // alone was useless: it could not tell a camera inventing numbers from a
+  // real barcode nobody had registered, which is the first thing you want to
+  // know when a packet will not scan.
   const [ignored, setIgnored] = useState(0);
+  const [lastIgnored, setLastIgnored] = useState(null);
+  // Codes the server has already said it does not know. A phantom repeats
+  // frame after frame and must not be asked about every time.
+  const rejectedRef = useRef(new Set());
   const supported = detectorSupported();
 
-  // The code as we hold it, or null when we do not hold it at all. A product
-  // labelled 12-digit must be found by a phone reporting 13, so both ways of
-  // writing the same barcode are tried.
-  const recognise = useCallback(code => {
-    if (!known) return code;
+  // The code as we hold it, or null. A product labelled 12-digit must be found
+  // by a phone reporting 13, so both ways of writing it are tried.
+  const inKnown = useCallback(code => {
+    if (!known) return null;
     for (const v of barcodeVariants(code)) if (known.has(v)) return v;
     return null;
   }, [known]);
@@ -115,11 +126,25 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint, 
             agreeRef.current.seen += 1;
             if (agreeRef.current.seen >= AGREE) {
               agreeRef.current = { code: null, seen: 0 };
-              const held = recognise(best.rawValue);
-              if (held) emit(held);
-              // Not one of ours. Almost certainly a misread, so the camera
-              // simply keeps looking rather than offering to file it.
-              else setIgnored(n => n + 1);
+              const raw = best.rawValue;
+              const held = inKnown(raw);
+              if (held) {
+                emit(held);
+              } else if (verify && !rejectedRef.current.has(raw)) {
+                // Not in the list we loaded — which proves nothing, since the
+                // list may be stale or may never have arrived. Ask.
+                const confirmed = await verify(raw);
+                if (confirmed) {
+                  emit(confirmed);
+                } else {
+                  rejectedRef.current.add(raw);
+                  setIgnored(n => n + 1);
+                  setLastIgnored(raw);
+                }
+              } else if (!verify) {
+                setIgnored(n => n + 1);
+                setLastIgnored(raw);
+              }
             }
           } else {
             agreeRef.current = { code: best.rawValue, seen: 1 };
@@ -136,7 +161,7 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint, 
       );
       setCameraOn(false);
     }
-  }, [supported, emit, recognise]);
+  }, [supported, emit, inKnown, verify]);
 
   useEffect(() => {
     if (supported) startCamera();
@@ -172,13 +197,27 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint, 
           )}
         </div>
 
-        {/* A scanner that is working but says nothing looks broken. This says
-            it is reading, and that what it read was not one of ours. */}
-        {known && ignored > 0 && (
+        {/* A scanner that is working but says nothing looks broken — and a
+            count on its own cannot tell a camera inventing numbers from a real
+            barcode nobody registered. So it shows the number. If that matches
+            what is printed under the bars, the packet needs adding; if it does
+            not, the camera is misreading and it is worth moving the phone. */}
+        {ignored > 0 && (
           <div className={styles.ignored}>
-            {ignored === 1 ? 'A code was read but ' : `${ignored} codes were read but `}
-            {ignored === 1 ? 'is not' : 'are not'} one of ours — still looking.
-            {ignored >= 3 && ' If the packet really is new, an admin can add it under Stock.'}
+            <div>
+              {ignored === 1 ? 'Read a code that is not one of ours'
+                : `Read ${ignored} codes that are not ours`} — still looking.
+            </div>
+            {lastIgnored && (
+              <div className={styles.ignoredCode}>
+                last read: <strong>{lastIgnored}</strong>
+              </div>
+            )}
+            <div className={styles.ignoredHelp}>
+              If that matches the number under the bars, the packet is not on the
+              price list yet — an admin can add it from Stock. If it does not, it
+              is a misread: move the phone a little and hold still.
+            </div>
           </div>
         )}
 
