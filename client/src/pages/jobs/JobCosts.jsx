@@ -19,6 +19,7 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
   const [scanError, setScanError] = useState('');
   const [adding, setAdding] = useState(false);
   const [lightbox, setLightbox] = useState(null);
+  // false, or the mode the stock panel was opened in: 'take' or 'put'.
   const [scanningStock, setScanningStock] = useState(false);
   const [stockLocations, setStockLocations] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -82,16 +83,21 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
 
   // Locations are only needed once someone actually scans, so they're fetched
   // on demand rather than on every visit to the Costs tab.
-  async function openStockScan() {
+  // `mode` is 'take' (off a van or the warehouse, onto this job) or 'put'
+  // (back into one). Held in the same state as the panel, so what opened it is
+  // what it does.
+  async function openStockScan(mode) {
     try {
       const { data } = await api.get('/stock/locations');
-      const vans = data.filter(l => l.type === 'van');
-      if (vans.length === 0) {
-        alert('No vans have been set up yet. Add one under Reports → Stock first.');
+      // The warehouse is always there, so this only fails when nothing is —
+      // and unlike before, a business with no vans can still count its
+      // warehouse rather than being turned away.
+      if (data.length === 0) {
+        alert('No stock locations have been set up yet. Add one under Reports → Stock first.');
         return;
       }
       setStockLocations(data);
-      setScanningStock(true);
+      setScanningStock(mode);
     } catch {
       alert('Could not load stock locations');
     }
@@ -304,18 +310,29 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
         </div>
       )}
 
-      {/* Stock fitted on site — comes off the van and lands here as a cost */}
+      {/* Van and warehouse stock. Taking something off a van puts it on this
+          job as a cost; putting something back is a plain stock movement, which
+          is what a stock take spends most of its time doing. Either can be
+          worked by camera or by searching the price list — most of what sits
+          loose in a van has no barcode to read. */}
       {!readonly && !scanResults && (
         <div className={styles.costsScanner}>
-          <div className={styles.costsScannerTitle}>Stock used on this job</div>
-          <button className={styles.btnScan} onClick={openStockScan}>📦 Scan from van</button>
-          <span className={styles.scanHintText}>Takes it off the van and adds it here</span>
+          <div className={styles.costsScannerTitle}>Van &amp; warehouse stock</div>
+          <button className={styles.btnScan} onClick={() => openStockScan('take')}>
+            ➖ Remove Product
+          </button>
+          <button className={styles.btnScan} onClick={() => openStockScan('put')}>
+            ➕ Add Product
+          </button>
+          <span className={styles.scanHintText}>
+            Remove takes it off a van or the warehouse and onto this job · Add puts it back
+          </span>
         </div>
       )}
 
       {scanningStock && (
         <ScanFlow
-          mode="use"
+          mode={scanningStock}
           jobId={jobId}
           locations={stockLocations}
           onClose={() => { setScanningStock(false); load(); }}
