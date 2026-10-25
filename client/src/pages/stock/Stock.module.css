@@ -278,3 +278,16 @@
   .headerActions { width: 100%; }
   .headerActions button { flex: 1; }
 }
+
+/* What the thing actually is, next to the code it is filed under. Held to a
+   readable width so one long description cannot push the counts off screen. */
+.description {
+  font-size: 13px; color: var(--color-text-muted); line-height: 1.4;
+  max-width: 320px; min-width: 140px;
+}
+
+/* On a phone the table already scrolls sideways; an insisted-on minimum width
+   here only makes it scroll further. */
+@media (max-width: 560px) {
+  .description { min-width: 0; max-width: 180px; font-size: 12px; }
+}

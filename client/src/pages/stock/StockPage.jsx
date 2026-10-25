@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import { htmlToText } from '../../lib/richText';
 import ScanFlow from './ScanFlow';
 import LabelSheet from './LabelSheet';
 import styles from './Stock.module.css';
@@ -65,6 +66,9 @@ export default function StockPage() {
     if (!q) return rows;
     return rows.filter(r =>
       r.name.toLowerCase().includes(q) ||
+      // Searchable too — somebody looking for "concrete" should find the row
+      // whose name is a supplier code they have never seen.
+      htmlToText(r.description || '').toLowerCase().includes(q) ||
       (r.category || '').toLowerCase().includes(q) ||
       (r.barcodes || []).some(b => b.code.toLowerCase().includes(q))
     );
@@ -149,6 +153,7 @@ export default function StockPage() {
                 <thead>
                   <tr>
                     <th>Product</th>
+                    <th>Description</th>
                     {warehouse && <th className={styles.num}>{warehouse.name}</th>}
                     {vans.map(v => <th key={v.id} className={styles.num}>{v.name}</th>)}
                     <th className={styles.num}>Total</th>
@@ -167,6 +172,11 @@ export default function StockPage() {
                               <span key={b.code} className={styles.code}>{b.code}</span>
                             ))}
                         </div>
+                      </td>
+                      {/* Flattened: a product description can be rich text,
+                          and a table row is no place for its markup. */}
+                      <td className={styles.description}>
+                        {htmlToText(row.description || '') || <span className={styles.muted}>—</span>}
                       </td>
                       {warehouse && (
                         <td className={styles.num}>

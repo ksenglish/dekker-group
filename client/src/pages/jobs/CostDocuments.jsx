@@ -265,7 +265,9 @@ function DocumentCard({ jobId, scan, items, canEdit, onChanged, onScanDeleted, f
                 <span>{money(ex * (1 + GST_RATE))}</span>
                 <span className={styles.costsTotalCell}>
                   {money(ex * (1 + GST_RATE) * c.quantity)}
-                  {canEdit && Number(c.quantity) > 0 && !c.billed_at && onReturn && (
+                  {/* Not on a credit note: that line is money coming back, not
+                      material sitting somewhere waiting to be put away. */}
+                  {canEdit && Number(c.quantity) > 0 && ex >= 0 && !c.billed_at && onReturn && (
                     <button className={styles.returnBtn} title="Send what wasn't used back to stock"
                       onClick={() => onReturn(c)}>↩</button>
                   )}

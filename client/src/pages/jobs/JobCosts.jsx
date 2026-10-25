@@ -19,8 +19,11 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
   const [scanError, setScanError] = useState('');
   const [adding, setAdding] = useState(false);
   const [lightbox, setLightbox] = useState(null);
-  // false, or the mode the stock panel was opened in: 'take' or 'put'.
+  // false, or the mode the stock panel was opened in — only 'take' now, but
+  // ScanFlow still takes a mode and the older ones are used elsewhere.
   const [scanningStock, setScanningStock] = useState(false);
+  // Choosing which of the job's lines to send back to stock.
+  const [removing, setRemoving] = useState(false);
   const [stockLocations, setStockLocations] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   // A cost line being sent back to stock: bought for the job, never used on it.
@@ -186,6 +189,24 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
 
   if (loading) return <div className={styles.emptySmall}>Loading…</div>;
 
+  // Removing needs somewhere to put it, and the locations may not have been
+  // fetched yet if nobody has pressed Add this visit.
+  async function openRemove() {
+    try {
+      if (stockLocations.length === 0) {
+        const { data } = await api.get('/stock/locations');
+        if (data.length === 0) {
+          alert('No stock locations have been set up yet. Add one under Reports → Stock first.');
+          return;
+        }
+        setStockLocations(data);
+      }
+      setRemoving(true);
+    } catch {
+      alert('Could not load the stock locations');
+    }
+  }
+
   function startReturn(cost) {
     setReturning(cost);
     setReturnQty(String(cost.quantity));
@@ -310,22 +331,22 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
         </div>
       )}
 
-      {/* Van and warehouse stock. Taking something off a van puts it on this
-          job as a cost; putting something back is a plain stock movement, which
-          is what a stock take spends most of its time doing. Either can be
-          worked by camera or by searching the price list — most of what sits
-          loose in a van has no barcode to read. */}
+      {/* Both buttons are about this job's lines, which is what somebody
+          standing on the Costs tab is looking at. Adding one brings it off a
+          van or the warehouse; removing one sends it back there. Either can be
+          worked by camera or by searching, since most of what sits loose in a
+          van has no barcode to read. */}
       {!readonly && !scanResults && (
         <div className={styles.costsScanner}>
           <div className={styles.costsScannerTitle}>Van &amp; warehouse stock</div>
           <button className={styles.btnScan} onClick={() => openStockScan('take')}>
-            ➖ Remove Product
-          </button>
-          <button className={styles.btnScan} onClick={() => openStockScan('put')}>
             ➕ Add Product
           </button>
+          <button className={styles.btnScan} onClick={openRemove}>
+            ➖ Remove Product
+          </button>
           <span className={styles.scanHintText}>
-            Remove takes it off a van or the warehouse and onto this job · Add puts it back
+            Add brings it off a van or the warehouse onto this job · Remove sends it back
           </span>
         </div>
       )}
@@ -337,6 +358,17 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
           locations={stockLocations}
           onClose={() => { setScanningStock(false); load(); }}
           onUsed={() => load()}
+        />
+      )}
+
+      {removing && (
+        <ReturnPicker
+          // A credit note line is money coming back, not material we hold —
+          // there is nothing to put in a van, so it is not offered.
+          costs={costs.filter(c => Number(c.quantity) > 0 && !c.billed_at && Number(c.unit_price) >= 0)}
+          locations={stockLocations}
+          onPick={cost => { setRemoving(false); startReturn(cost); }}
+          onClose={() => setRemoving(false)}
         />
       )}
 
@@ -492,6 +524,66 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
           <div className={styles.lightboxHint}>Click outside to close</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Which of the job's lines is going back.
+//
+// Only what is actually on the job, which is the whole point of removing from
+// here rather than from the price list: you cannot send back something the job
+// never had. Lines already invoiced to the customer are left out — the money
+// has been asked for, and the row would only be refused.
+function ReturnPicker({ costs, locations, onPick, onClose }) {
+  const [search, setSearch] = useState('');
+  const term = search.trim().toLowerCase();
+  const matches = term
+    ? costs.filter(c => String(c.description || '').toLowerCase().includes(term)
+        || String(c.sku || '').toLowerCase().includes(term))
+    : costs;
+
+  return (
+    <div className={styles.overlay} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={styles.returnPanel}>
+        <h3>Remove a product from this job</h3>
+        <p className={styles.scanHintText}>
+          Pick what was not used. It comes off the job&rsquo;s costs and goes back to
+          {locations.length === 1 ? ` the ${locations[0].name}` : ' a van or the warehouse'}.
+        </p>
+
+        {costs.length > 3 && (
+          <input
+            className={styles.returnSearch}
+            placeholder="Search this job's lines…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            autoFocus
+          />
+        )}
+
+        <div className={styles.returnList}>
+          {matches.map(c => (
+            <button key={c.id} className={styles.returnLine} onClick={() => onPick(c)}>
+              <span className={styles.returnLineName}>
+                {c.description}
+                {c.sku && <em className={styles.returnLineSku}>{c.sku}</em>}
+              </span>
+              <span className={styles.returnLineQty}>{c.quantity}</span>
+            </button>
+          ))}
+          {matches.length === 0 && (
+            <div className={styles.scanHintText}>
+              {costs.length === 0
+                ? 'Nothing on this job can be sent back — its lines are either already invoiced or already returned.'
+                : 'Nothing on this job matches that.'}
+            </div>
+          )}
+        </div>
+
+        <div className={styles.returnActions}>
+          <button className={styles.btnSmall} onClick={onClose}>Cancel</button>
+        </div>
+      </div>
     </div>
   );
 }

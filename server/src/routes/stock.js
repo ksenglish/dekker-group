@@ -119,7 +119,11 @@ router.put('/locations/:id', requireRole('admin', 'office'), async (req, res) =>
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
+      // The description as well as the name: a stock list of DCT4276 and
+      // SV04L+ is unreadable to anyone who did not order them, and the name is
+      // often just the supplier's code.
       `SELECT p.id, p.name, p.category, p.unit, p.unit_price, p.cost_price, p.stock_kind,
+              p.description,
               COALESCE((
                 SELECT json_agg(json_build_object('location_id', s.location_id, 'quantity', s.quantity))
                 FROM stock_levels s WHERE s.product_id = p.id AND s.quantity <> 0
