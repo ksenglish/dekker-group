@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { isAdmin } from '../../lib/permissions';
 import BarcodeScanner from '../../components/BarcodeScanner';
 import styles from './Stock.module.css';
 
@@ -44,11 +45,26 @@ export default function ScanFlow({ mode, locations, jobId, jobLabel, onClose, on
 
   const [pending, setPending] = useState(null);   // resolved product awaiting confirm
   const [unknown, setUnknown] = useState(null);   // code with no product yet
+  // Every barcode we hold, so the camera can ignore everything else. Null
+  // until it arrives — the camera waits rather than scanning unfiltered.
+  const [known, setKnown] = useState(null);
   const [done, setDone] = useState([]);           // running tally
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => { if (myVan && !vanId) setVanId(myVan.id); }, [myVan, vanId]);
+
+  // Fetched each time the panel opens, so a barcode added five minutes ago on
+  // somebody else's phone is recognised on this one.
+  useEffect(() => {
+    let live = true;
+    api.get('/stock/barcodes')
+      .then(r => { if (live) setKnown(new Set((r.data || []).map(b => b.code))); })
+      // An empty set is the safe failure: nothing is recognised, the manual
+      // box still works, and nothing wrong gets recorded.
+      .catch(() => { if (live) setKnown(new Set()); });
+    return () => { live = false; };
+  }, []);
 
   const handleScan = useCallback(async code => {
     setError('');
@@ -139,6 +155,10 @@ export default function ScanFlow({ mode, locations, jobId, jobLabel, onClose, on
         <BarcodeScanner
           title={title}
           hint={done.length ? `${hint} ${counted} counted so far.` : hint}
+          // Only codes we already hold. An unrecognised read here is a misread
+          // far more often than it is a new product, and acting on one files
+          // the wrong barcode against a product for good.
+          known={known || new Set()}
           onScan={handleScan}
           onClose={onClose}
         />
@@ -228,13 +248,27 @@ export default function ScanFlow({ mode, locations, jobId, jobLabel, onClose, on
               </div>
             )}
 
-            {unknown && (
+            {/* Only reachable by typing a code now, since the camera reports
+                nothing it does not recognise. Filing a barcode against a
+                product is permanent and wrong far more often than it is new,
+                so it stays with the people who set the price list up. */}
+            {unknown && (isAdmin(user?.role) ? (
               <AssignBarcode
                 code={unknown}
                 onCancel={() => setUnknown(null)}
                 onAssigned={product => { setUnknown(null); setPending({ ...product, code: unknown }); setQuantity(1); }}
               />
-            )}
+            ) : (
+              <div className={styles.assignBox}>
+                <div className={styles.assignTitle}>Not one of ours</div>
+                <div className={styles.confirmCode}>{unknown}</div>
+                <p className={styles.assignHelp}>
+                  Nothing on the price list has this barcode. Check it against the packet —
+                  if it really is new, an admin can add it from Reports → Stock.
+                </p>
+                <button className={styles.btnSecondary} onClick={() => setUnknown(null)}>Back</button>
+              </div>
+            ))}
 
             {done.length > 0 && (
               <div className={styles.tally}>

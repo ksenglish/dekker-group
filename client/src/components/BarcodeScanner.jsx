@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { SCAN_FORMATS, looksReal } from '../lib/barcode';
+import { SCAN_FORMATS, looksReal, barcodeVariants } from '../lib/barcode';
 import styles from './BarcodeScanner.module.css';
 
 const FORMATS = SCAN_FORMATS;
@@ -23,7 +23,12 @@ const area = box => (box ? (box.width || 0) * (box.height || 0) : 0);
 // that's what the team is on, and it means no scanning library in the bundle.
 // Anywhere it's missing (notably iOS Safari) the box below still takes a code
 // typed or entered with a bluetooth scanner gun, so this never dead-ends.
-export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint }) {
+// `known` is the set of barcodes the app already holds. Given one, the camera
+// only reports codes in it — anything else is a misread and is passed over in
+// silence, which is what a supermarket scanner does and what makes this
+// reliable. Left out (the Add New Barcode flow), anything readable is
+// reported, because an unrecognised code is the whole point there.
+export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint, known = null }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const detectorRef = useRef(null);
@@ -35,7 +40,19 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint }
   const [manual, setManual] = useState('');
   const [error, setError] = useState('');
   const [cameraOn, setCameraOn] = useState(false);
+  // How many reads have been passed over for not matching anything we hold.
+  // Shown so a scanner that is working but silent does not look broken.
+  const [ignored, setIgnored] = useState(0);
   const supported = detectorSupported();
+
+  // The code as we hold it, or null when we do not hold it at all. A product
+  // labelled 12-digit must be found by a phone reporting 13, so both ways of
+  // writing the same barcode are tried.
+  const recognise = useCallback(code => {
+    if (!known) return code;
+    for (const v of barcodeVariants(code)) if (known.has(v)) return v;
+    return null;
+  }, [known]);
 
   // Debounced so one barcode held in frame doesn't fire dozens of times.
   const emit = useCallback(code => {
@@ -98,7 +115,11 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint }
             agreeRef.current.seen += 1;
             if (agreeRef.current.seen >= AGREE) {
               agreeRef.current = { code: null, seen: 0 };
-              emit(best.rawValue);
+              const held = recognise(best.rawValue);
+              if (held) emit(held);
+              // Not one of ours. Almost certainly a misread, so the camera
+              // simply keeps looking rather than offering to file it.
+              else setIgnored(n => n + 1);
             }
           } else {
             agreeRef.current = { code: best.rawValue, seen: 1 };
@@ -115,7 +136,7 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint }
       );
       setCameraOn(false);
     }
-  }, [supported, emit]);
+  }, [supported, emit, recognise]);
 
   useEffect(() => {
     if (supported) startCamera();
@@ -150,6 +171,16 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint }
             </div>
           )}
         </div>
+
+        {/* A scanner that is working but says nothing looks broken. This says
+            it is reading, and that what it read was not one of ours. */}
+        {known && ignored > 0 && (
+          <div className={styles.ignored}>
+            {ignored === 1 ? 'A code was read but ' : `${ignored} codes were read but `}
+            {ignored === 1 ? 'is not' : 'are not'} one of ours — still looking.
+            {ignored >= 3 && ' If the packet really is new, an admin can add it under Stock.'}
+          </div>
+        )}
 
         {error && <div className={styles.error}>{error}</div>}
 

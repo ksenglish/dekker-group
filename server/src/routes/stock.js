@@ -240,6 +240,32 @@ function codeVariants(code) {
   return [...new Set(out.filter(Boolean))];
 }
 
+// Every barcode we know, for the scanner to hold while it is open.
+//
+// This is what makes scanning reliable. A phone reading bars off a creased
+// bag in daylight produces wrong answers that are internally consistent —
+// right length, right check digit, nothing to tell them apart from a real
+// one. What a misread never does is match a code we already hold: there are a
+// few hundred of those and ten trillion thirteen-digit numbers.
+//
+// So the scanner keeps looking until it sees one it recognises, the way a
+// supermarket till does, and the wrong reads go by unnoticed. Small enough to
+// send in one go and re-fetch whenever the scanner opens.
+router.get('/barcodes', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT b.code, b.product_id, p.name, p.unit
+         FROM product_barcodes b JOIN products p ON p.id = b.product_id
+        WHERE p.is_active
+        ORDER BY b.code`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[stock] barcodes failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.get('/lookup', async (req, res) => {
   const code = (req.query.code || '').trim();
   if (!code) return res.status(400).json({ error: 'code required' });

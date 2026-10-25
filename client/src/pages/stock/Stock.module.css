@@ -291,3 +291,17 @@
 @media (max-width: 560px) {
   .description { min-width: 0; max-width: 180px; font-size: 12px; }
 }
+
+/* The digits, put in front of somebody to check against the packet before a
+   barcode is saved for good. Big on purpose: this read is the only thing
+   between a misread and permanently wrong data. */
+.checkCode { padding: 16px 20px 4px; }
+.checkCodeLabel {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--color-text-muted); margin-bottom: 4px;
+}
+.checkCodeValue {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 26px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--color-text); margin-bottom: 8px; word-break: break-all;
+}

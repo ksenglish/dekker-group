@@ -6,6 +6,7 @@ import { isAdmin } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
 import { htmlToText } from '../../lib/richText';
 import ScanFlow from './ScanFlow';
+import AddBarcodeFlow from './AddBarcodeFlow';
 import LabelSheet from './LabelSheet';
 import styles from './Stock.module.css';
 
@@ -38,6 +39,8 @@ export default function StockPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [scanMode, setScanMode] = useState(null); // 'receive' | 'transfer'
+  // Teaching the app a barcode it has never seen. Admin only.
+  const [addingBarcode, setAddingBarcode] = useState(false);
   const [labelsFor, setLabelsFor] = useState(null);
 
   const load = useCallback(() => {
@@ -104,6 +107,14 @@ export default function StockPage() {
           </p>
         </div>
         <div className={styles.headerActions}>
+          {/* The one place an unrecognised barcode is the point. Admin only:
+              everywhere else the camera ignores codes we do not hold, because
+              a barcode filed against the wrong product stays wrong. */}
+          {admin && (
+            <button className={styles.btnSecondary} onClick={() => setAddingBarcode(true)}>
+              + Add New Barcode
+            </button>
+          )}
           <button className={styles.btnSecondary} onClick={() => setScanMode('receive')}>
             Receive into warehouse
           </button>
@@ -260,6 +271,13 @@ export default function StockPage() {
           mode={scanMode}
           locations={locations}
           onClose={() => { setScanMode(null); load(); }}
+        />
+      )}
+
+      {addingBarcode && (
+        <AddBarcodeFlow
+          onClose={() => setAddingBarcode(false)}
+          onSaved={() => load()}
         />
       )}
 
