@@ -223,24 +223,70 @@ router.get('/movements', async (req, res) => {
 
 // Resolve a scanned code. A 404 here is the normal "we haven't seen this box
 // before" case, which the scanner turns into an offer to assign it.
+// A UPC-A and the EAN-13 with a zero in front of it are the same barcode, and
+// which one comes back depends on the phone that read it. A 14-digit carton
+// code is the same product in an outer box. All of them have to find the
+// product, or the same item reads as a different one depending on who is
+// holding it — and ends up on the price list twice.
+function codeVariants(code) {
+  const s = String(code || '').trim();
+  const out = [s];
+  if (/^\d+$/.test(s)) {
+    if (s.length === 12) out.push(`0${s}`);
+    if ((s.length === 13 || s.length === 14) && s.startsWith('0')) out.push(s.replace(/^0+/, '').padStart(12, '0'));
+    if (s.length === 13 && s.startsWith('0')) out.push(s.slice(1));
+    if (s.length === 14 && s.startsWith('0')) out.push(s.slice(1));
+  }
+  return [...new Set(out.filter(Boolean))];
+}
+
 router.get('/lookup', async (req, res) => {
   const code = (req.query.code || '').trim();
   if (!code) return res.status(400).json({ error: 'code required' });
   try {
+    const tried = codeVariants(code);
     const { rows } = await pool.query(
       `SELECT p.id, p.name, p.unit, p.unit_price, p.cost_price, b.code, b.source
        FROM product_barcodes b JOIN products p ON p.id = b.product_id
-       WHERE b.code = $1`,
-      [code]
+       WHERE b.code = ANY($1::text[])
+       -- The code exactly as scanned wins over the same thing written the
+       -- other way round.
+       ORDER BY (b.code = $2) DESC
+       LIMIT 1`,
+      [tried, code]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Unknown barcode', code });
     res.json(rows[0]);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// A barcode saved against the wrong product is permanent: every scan of that
+// box afterwards finds the wrong thing, and nobody thinks to doubt it. So an
+// all-digit code claiming to be a retail barcode has to be a length one
+// actually is, and has to pass its check digit — which catches most of what a
+// camera invents. Our own labels are DEK###### and go through untouched.
+function retailCodeProblem(code) {
+  const s = String(code || '').trim();
+  if (!/^\d+$/.test(s)) return null;
+  if (![8, 12, 13, 14].includes(s.length)) {
+    return `${s} is ${s.length} digits — a product barcode is 8, 12, 13 or 14. `
+      + 'That usually means the camera only read part of it. Try scanning again.';
+  }
+  const want = Number(s[s.length - 1]);
+  let sum = 0;
+  for (let i = s.length - 2, w = 3; i >= 0; i--, w = w === 3 ? 1 : 3) sum += Number(s[i]) * w;
+  if ((10 - (sum % 10)) % 10 !== want) {
+    return `${s} is not a valid barcode — its check digit does not match, so it was `
+      + 'misread. Try scanning again.';
+  }
+  return null;
+}
+
 router.post('/barcodes', async (req, res) => {
   const { product_id, code, source = 'supplier' } = req.body;
   if (!product_id || !code?.trim()) return res.status(400).json({ error: 'product_id and code are required' });
+  const problem = source !== 'internal' ? retailCodeProblem(code) : null;
+  if (problem) return res.status(400).json({ error: problem });
   try {
     const { rows } = await pool.query(
       `INSERT INTO product_barcodes (product_id, code, source, created_by)

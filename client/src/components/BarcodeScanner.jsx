@@ -1,11 +1,21 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { SCAN_FORMATS, looksReal } from '../lib/barcode';
 import styles from './BarcodeScanner.module.css';
 
-// Formats worth looking for: maker barcodes off a box are usually EAN/UPC, our
-// own printed labels are Code 128.
-const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'codabar'];
+const FORMATS = SCAN_FORMATS;
+
+// How many frames in a row have to agree before a code is accepted.
+//
+// One frame used to be enough, which is why a bad read went straight through
+// to "we haven't seen this one before" and offered to file it against a
+// product. A misread comes from one bad moment — a glare, a crease in the
+// bag, the camera moving — and almost never repeats with the same wrong
+// answer, so asking twice costs a fraction of a second and removes most of it.
+const AGREE = 2;
 
 const detectorSupported = () => typeof window !== 'undefined' && 'BarcodeDetector' in window;
+
+const area = box => (box ? (box.width || 0) * (box.height || 0) : 0);
 
 // Camera scanner with a typed-entry fallback.
 //
@@ -19,6 +29,8 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint }
   const detectorRef = useRef(null);
   const rafRef = useRef(null);
   const lastScanRef = useRef({ code: null, at: 0 });
+  // The code the last frames agreed on, and how many of them did.
+  const agreeRef = useRef({ code: null, seen: 0 });
 
   const [manual, setManual] = useState('');
   const [error, setError] = useState('');
@@ -48,8 +60,17 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint }
     if (!supported) { setError('This device cannot scan with the camera — type the code instead.'); return; }
     try {
       detectorRef.current = detectorRef.current || new window.BarcodeDetector({ formats: FORMATS });
+      // Asked for rather than taken as it comes. The default is often 640×480,
+      // which is not much to read thin bars off a creased bag with, and the
+      // focus is what decides whether the bars are distinct at all. All three
+      // are hints: a camera that cannot do them gives what it has.
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          focusMode: 'continuous',
+        },
       });
       streamRef.current = stream;
       if (videoRef.current) {
@@ -62,7 +83,26 @@ export default function BarcodeScanner({ onScan, onClose, title = 'Scan', hint }
         if (!streamRef.current || !videoRef.current) return;
         try {
           const found = await detectorRef.current.detect(videoRef.current);
-          if (found?.length) emit(found[0].rawValue);
+          // Several barcodes in shot — a shelf, or the next box along. The
+          // biggest is the one being held up to the camera.
+          const best = (found || [])
+            .filter(b => looksReal(b.rawValue, b.format))
+            .sort((a, b) => area(b.boundingBox) - area(a.boundingBox))[0];
+
+          if (!best) {
+            // Nothing believable this frame. Agreement has to be consecutive,
+            // so a gap resets it rather than letting two reads minutes apart
+            // count as confirmation of each other.
+            agreeRef.current = { code: null, seen: 0 };
+          } else if (agreeRef.current.code === best.rawValue) {
+            agreeRef.current.seen += 1;
+            if (agreeRef.current.seen >= AGREE) {
+              agreeRef.current = { code: null, seen: 0 };
+              emit(best.rawValue);
+            }
+          } else {
+            agreeRef.current = { code: best.rawValue, seen: 1 };
+          }
         } catch { /* a dropped frame is not worth surfacing */ }
         rafRef.current = requestAnimationFrame(tick);
       };
