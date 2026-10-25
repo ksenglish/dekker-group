@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { SCAN_FORMATS, looksReal, barcodeVariants } from '../lib/barcode';
+import { SCAN_FORMATS, looksReal, decideScan } from '../lib/barcode';
 import styles from './BarcodeScanner.module.css';
 
 const FORMATS = SCAN_FORMATS;
@@ -57,13 +57,10 @@ export default function BarcodeScanner({
   const rejectedRef = useRef(new Set());
   const supported = detectorSupported();
 
-  // The code as we hold it, or null. A product labelled 12-digit must be found
-  // by a phone reporting 13, so both ways of writing it are tried.
-  const inKnown = useCallback(code => {
-    if (!known) return null;
-    for (const v of barcodeVariants(code)) if (known.has(v)) return v;
-    return null;
-  }, [known]);
+  const decide = useCallback(
+    code => decideScan(code, { known, verify: Boolean(verify) }),
+    [known, verify]
+  );
 
   // Debounced so one barcode held in frame doesn't fire dozens of times.
   const emit = useCallback(code => {
@@ -127,21 +124,24 @@ export default function BarcodeScanner({
             if (agreeRef.current.seen >= AGREE) {
               agreeRef.current = { code: null, seen: 0 };
               const raw = best.rawValue;
-              const held = inKnown(raw);
-              if (held) {
-                emit(held);
-              } else if (verify && !rejectedRef.current.has(raw)) {
-                // Not in the list we loaded — which proves nothing, since the
-                // list may be stale or may never have arrived. Ask.
-                const confirmed = await verify(raw);
-                if (confirmed) {
-                  emit(confirmed);
-                } else {
-                  rejectedRef.current.add(raw);
-                  setIgnored(n => n + 1);
-                  setLastIgnored(raw);
+              const { action, code } = decide(raw);
+
+              if (action === 'emit') {
+                emit(code);
+              } else if (action === 'verify') {
+                // Asked once per code. A phantom repeats frame after frame and
+                // must not become a request per frame.
+                if (!rejectedRef.current.has(raw)) {
+                  const confirmed = await verify(raw);
+                  if (confirmed) {
+                    emit(confirmed);
+                  } else {
+                    rejectedRef.current.add(raw);
+                    setIgnored(n => n + 1);
+                    setLastIgnored(raw);
+                  }
                 }
-              } else if (!verify) {
+              } else {
                 setIgnored(n => n + 1);
                 setLastIgnored(raw);
               }
@@ -161,7 +161,7 @@ export default function BarcodeScanner({
       );
       setCameraOn(false);
     }
-  }, [supported, emit, inKnown, verify]);
+  }, [supported, emit, decide, verify]);
 
   useEffect(() => {
     if (supported) startCamera();

@@ -57,6 +57,41 @@ export function looksReal(code, format) {
   return checkDigitOk(s);
 }
 
+// What to do with a code the camera just read.
+//
+// Pulled out of the scanner and made to stand on its own because getting it
+// wrong is silent and expensive, and it has been got wrong twice: once by
+// treating a list that failed to load as proof that nothing exists, and once
+// by leaving the Add New Barcode screen — which has no list and no server to
+// ask, because an unknown code is the point there — falling through to
+// "ignore" and never scanning anything at all.
+//
+//   known    the barcodes we hold, or null when there is no list
+//   verify   whether the server can be asked about a code the list misses
+//
+// Returns { action, code } where action is:
+//   'emit'    hand it over
+//   'verify'  ask the server before deciding
+//   'ignore'  a misread, keep looking
+export function decideScan(raw, { known = null, verify = false } = {}) {
+  const code = String(raw || '').trim();
+  if (!code) return { action: 'ignore', code };
+
+  // Nothing to check it against and nobody to ask: every reader is wanted,
+  // which is what the Add New Barcode screen needs.
+  if (!known && !verify) return { action: 'emit', code };
+
+  if (known) {
+    for (const v of barcodeVariants(code)) if (known.has(v)) return { action: 'emit', code: v };
+  }
+
+  // Not on the list — which settles nothing when the list may be stale, absent
+  // or filtered. The server knows.
+  if (verify) return { action: 'verify', code };
+
+  return { action: 'ignore', code };
+}
+
 // The same product's barcode written the other way round.
 //
 // A UPC-A and the EAN-13 with a zero in front of it are one barcode, and which
