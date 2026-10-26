@@ -13,9 +13,52 @@ const FORMATS = SCAN_FORMATS;
 // answer, so asking twice costs a fraction of a second and removes most of it.
 const AGREE = 2;
 
-const detectorSupported = () => typeof window !== 'undefined' && 'BarcodeDetector' in window;
+// Chrome on Android has a BarcodeDetector built in. Safari does not, and has
+// never shipped one — which meant every iPhone and iPad in the business got
+// "camera scanning is not available on this device" and had to type the number
+// off the box.
+//
+// So where the browser has no detector of its own, one is loaded: the same API,
+// implemented over ZXing compiled to WebAssembly. Fetched only when the camera
+// is actually opened, because it is most of a megabyte and no use to anyone
+// who never scans anything.
+let detectorClass = typeof window !== 'undefined' ? window.BarcodeDetector : undefined;
+let loading = null;
+
+async function getDetectorClass() {
+  if (detectorClass) return detectorClass;
+  if (!loading) {
+    loading = (async () => {
+      const [{ BarcodeDetector, setZXingModuleOverrides }, { default: wasmUrl }] = await Promise.all([
+        import('barcode-detector/ponyfill'),
+        import('zxing-wasm/reader/zxing_reader.wasm?url'),
+      ]);
+      // Served from our own domain. Left alone it fetches the WebAssembly from
+      // a public CDN at the moment somebody points a phone at a box — which is
+      // a stranger's server in the middle of a stocktake, and nothing at all
+      // in a van with no signal. Ours is cached with the rest of the app.
+      setZXingModuleOverrides({ locateFile: (p, prefix) => (p.endsWith('.wasm') ? wasmUrl : prefix + p) });
+      detectorClass = BarcodeDetector;
+      return detectorClass;
+    })().catch(err => { loading = null; throw err; });
+  }
+  return loading;
+}
+
+// Camera scanning is possible on anything that can open a camera at all: if
+// the browser has no detector we bring one. Only a device with no camera API
+// — or a page not on HTTPS — is genuinely out.
+const detectorSupported = () => typeof window !== 'undefined'
+  && typeof navigator !== 'undefined'
+  && Boolean(navigator.mediaDevices?.getUserMedia);
 
 const area = box => (box ? (box.width || 0) * (box.height || 0) : 0);
+
+// Where to send somebody whose camera is blocked. iPadOS reports itself as a
+// Mac, so the touch check is what catches an iPad.
+const isIOS = typeof navigator !== 'undefined'
+  && (/iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1));
 
 // Camera scanner with a typed-entry fallback.
 //
@@ -84,7 +127,10 @@ export default function BarcodeScanner({
     setError('');
     if (!supported) { setError('This device cannot scan with the camera — type the code instead.'); return; }
     try {
-      detectorRef.current = detectorRef.current || new window.BarcodeDetector({ formats: FORMATS });
+      if (!detectorRef.current) {
+        const Detector = await getDetectorClass();
+        detectorRef.current = new Detector({ formats: FORMATS });
+      }
       // Asked for rather than taken as it comes. The default is often 640×480,
       // which is not much to read thin bars off a creased bag with, and the
       // focus is what decides whether the bars are distinct at all. All three
@@ -94,7 +140,11 @@ export default function BarcodeScanner({
           facingMode: 'environment',
           width: { ideal: 1920 },
           height: { ideal: 1080 },
-          focusMode: 'continuous',
+          // In `advanced`, where a browser that does not know it passes over
+          // it. Sitting alongside the others it is a constraint Safari has
+          // never heard of, and the one thing worse than a camera that will
+          // not focus is a camera that will not open.
+          advanced: [{ focusMode: 'continuous' }],
         },
       });
       streamRef.current = stream;
@@ -156,7 +206,18 @@ export default function BarcodeScanner({
     } catch (err) {
       setError(
         err?.name === 'NotAllowedError'
-          ? 'Camera access was blocked. Allow it in your browser settings, or type the code below.'
+          ? (isIOS
+            ? 'Camera access was blocked. Allow it in Settings → Safari → Camera, '
+              + 'then reload — or type the code below.'
+            : 'Camera access was blocked. Allow it in your browser settings, '
+              + 'or type the code below.')
+          : err?.name === 'NotFoundError'
+          ? 'No camera on this device — type the code below instead.'
+          // The scanner itself is fetched the first time the camera opens, so
+          // a dead connection at that moment looks like a broken camera.
+          : /import|fetch|network|module/i.test(err?.message || '')
+          ? 'Could not load the scanner — check the connection and try again, '
+            + 'or type the code below.'
           : 'Could not start the camera — type the code below instead.'
       );
       setCameraOn(false);
