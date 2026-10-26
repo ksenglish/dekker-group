@@ -22,10 +22,23 @@ export default function AddBarcodeFlow({ onClose, onSaved }) {
   const [error, setError] = useState('');
   // Making one from scratch, for something not on the price list at all.
   const [making, setMaking] = useState(null);
+  // The product this code already belongs to, when it turns out we hold it.
+  const [belongsTo, setBelongsTo] = useState(null);
 
   async function take(scanned) {
     setCode(scanned);
     setError('');
+    setBelongsTo(null);
+
+    // Already ours, almost certainly. This screen exists for codes we do not
+    // hold, and offering to file a held one against a second product — or to
+    // make a second product for it — is how the price list ends up with the
+    // same latch on it twice.
+    try {
+      const { data } = await api.get('/stock/lookup', { params: { code: scanned } });
+      if (data?.id) { setBelongsTo(data); return; }
+    } catch { /* unknown, which is what this screen is for */ }
+
     if (products) return;
     try {
       const { data } = await api.get('/products', { params: { limit: 500 } });
@@ -49,6 +62,21 @@ export default function AddBarcodeFlow({ onClose, onSaved }) {
     e.preventDefault();
     if (!making.name.trim()) { setError('Give the product a name'); return; }
     setBusy(true); setError('');
+
+    // Asked again, immediately before writing. Somebody else may have claimed
+    // this code since it was scanned, and the alternative is finding out after
+    // the product exists.
+    try {
+      const { data } = await api.get('/stock/lookup', { params: { code } });
+      if (data?.id) {
+        setBelongsTo(data);
+        setMaking(null);
+        setBusy(false);
+        return;
+      }
+    } catch { /* still unknown, carry on */ }
+
+    let created = null;
     try {
       const { data: product } = await api.post('/products', {
         name: making.name.trim(),
@@ -60,10 +88,26 @@ export default function AddBarcodeFlow({ onClose, onSaved }) {
         // list. Left at cost here rather than invented.
         unit_price: parseFloat(making.cost) || 0,
       });
+      created = product;
       await api.post('/stock/barcodes', { product_id: product.id, code, source: 'supplier' });
       onSaved?.(code, product);
       onClose();
     } catch (err) {
+      // The product is written before the barcode, so a barcode that will not
+      // save leaves one behind. Taking it back out again is the difference
+      // between a failed attempt and a duplicate on the price list for ever.
+      if (created) {
+        try {
+          await api.delete(`/products/${created.id}`);
+        } catch {
+          setError(
+            `${err.response?.data?.error || 'Could not save the barcode'} — and "${created.name}" `
+            + 'was added to the price list before that failed. Remove it there.'
+          );
+          setBusy(false);
+          return;
+        }
+      }
       setError(err.response?.data?.error || 'Could not add that product');
       setBusy(false);
     }
@@ -102,14 +146,32 @@ export default function AddBarcodeFlow({ onClose, onSaved }) {
             wrong often enough to matter, and a barcode saved against the wrong
             product stays wrong.
           </p>
-          <button className={styles.btnSecondary} onClick={() => { setCode(null); setMaking(null); }}>
+          <button className={styles.btnSecondary}
+            onClick={() => { setCode(null); setMaking(null); setBelongsTo(null); setError(''); }}>
             That is not it — scan again
           </button>
         </div>
 
         {error && <div className={styles.scanError}>{error}</div>}
 
-        {making ? (
+        {belongsTo ? (
+          // Nothing to do here. Saying which product it is, is the useful
+          // answer — it is usually what somebody wanted to know.
+          <div className={styles.assignBox}>
+            <div className={styles.assignTitle}>Already on the price list</div>
+            <p className={styles.assignHelp}>
+              This barcode belongs to <strong>{belongsTo.name}</strong>. Nothing needs adding —
+              it will scan on the Stock and Costs screens as it is.
+            </p>
+            <div className={styles.confirmButtons}>
+              <button className={styles.btnPrimary}
+                onClick={() => { setCode(null); setBelongsTo(null); }}>
+                Scan another
+              </button>
+              <button className={styles.btnSecondary} onClick={onClose}>Done</button>
+            </div>
+          </div>
+        ) : making ? (
           <form className={styles.assignBox} onSubmit={createAndAssign}>
             <div className={styles.assignTitle}>New price list product</div>
             <input className={styles.input} placeholder="Name" autoFocus
