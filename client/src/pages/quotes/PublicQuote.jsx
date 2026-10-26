@@ -78,7 +78,18 @@ export default function PublicQuote() {
       .then(r => setQuote(r.data))
       // Neither state knows the theme yet, so both stay neutral rather than
       // calling it a quote in front of a customer who was sent an estimate.
-      .catch(() => setError('This link is no longer valid — it may have expired.'))
+      //
+      // Only a 404 means the link itself is no good. Everything else is our
+      // end having a problem, and telling somebody their link has expired
+      // sends them to delete it and ask for another — which fixes nothing and
+      // hides the fault. One of these turned out to be a server error that
+      // nobody could see because the page insisted it was an expired link.
+      .catch(err => setError(
+        err?.response?.status === 404
+          ? 'This link is no longer valid — it may have expired.'
+          : 'Sorry — this could not be loaded just now. Please try again in a moment, '
+            + 'or get in touch with us and we will send it across.'
+      ))
       .finally(() => setLoading(false));
   }, [token, isPreview, recipientId]);
 

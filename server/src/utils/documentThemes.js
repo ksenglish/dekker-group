@@ -33,9 +33,33 @@ function themeRowToJson(row) {
   };
 }
 
+// What a document falls back to when there is nothing else — no theme on it,
+// its theme deleted, and none marked default.
+//
+// Blank rather than invented: an empty company name prints nothing, where a
+// made-up one would print the wrong business on a customer's quote. The point
+// is that every caller gets an object, because they all read fields straight
+// off it — `docTheme.paymentTerms` on a null brought down the whole public
+// quote page, and the page told the customer their link had expired.
+const BARE_THEME = {
+  id: null, name: 'Default', documentType: 'Quote',
+  emailTemplateId: null, companyName: '', gstNumber: '', contactDetails: '',
+  paymentTerms: '', termsAndConditions: '', quoteDescription: '',
+  brandColour: '#1e40af', logoBase64: null, logoSize: null, logoPosition: null,
+  contactPosition: null, transparentHeader: false,
+  footerLine1: '', footerLine2: '', isDefault: false, archived: false,
+};
+
 async function getDefaultTheme() {
   const { rows } = await pool.query('SELECT * FROM document_themes WHERE is_default=true LIMIT 1');
-  return themeRowToJson(rows[0]);
+  // Any theme at all beats none: a business with themes but none ticked
+  // default should still print on one of its own rather than on nothing.
+  if (!rows[0]) {
+    const { rows: any } = await pool.query(
+      'SELECT * FROM document_themes WHERE archived IS NOT TRUE ORDER BY created_at LIMIT 1');
+    return themeRowToJson(any[0]) || { ...BARE_THEME };
+  }
+  return themeRowToJson(rows[0]) || { ...BARE_THEME };
 }
 
 // Used everywhere a quote/invoice needs its own branding rather than the

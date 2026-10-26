@@ -811,11 +811,33 @@ async function enrichItemsForPublic(items, token) {
 
   const map = {};
   for (const row of rows) {
+    // Per product, and forgiving. A picture or a brochure that cannot be read
+    // — the object missing from the bucket, a timeout reaching it — used to
+    // throw out of here and take the whole page with it, so the customer saw
+    // "this link is no longer valid" for a quote that was perfectly valid.
+    // A quote with one missing thumbnail is still a quote worth reading.
+    let media = null;
+    try {
+      media = await fileStore.readDataUrl({ key: row.media_key, inline: row.media_base64 });
+    } catch (err) {
+      console.error(`[quote] product ${row.id} image unreadable: ${err.message}`);
+    }
+
+    let mime = null;
+    if (row.has_brochure) {
+      try {
+        mime = await brochureMime(row);
+      } catch (err) {
+        console.error(`[quote] product ${row.id} brochure type unreadable: ${err.message}`);
+        mime = 'application/pdf';
+      }
+    }
+
     map[row.id] = {
-      media_base64: await fileStore.readDataUrl({ key: row.media_key, inline: row.media_base64 }),
+      media_base64: media,
       brochure_url: row.has_brochure ? `/api/quotes/public/${token}/brochures/${row.id}` : null,
       brochure_hash: row.has_brochure ? await brochureHash(row) : null,
-      brochure_mime: row.has_brochure ? await brochureMime(row) : null,
+      brochure_mime: mime,
     };
   }
 
@@ -1183,7 +1205,13 @@ async function publicGet(req, res) {
         logoSize: docTheme.logoSize, logoPosition: docTheme.logoPosition, contactPosition: docTheme.contactPosition,
         gstNumber: docTheme.gstNumber || '' },
     });
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) {
+    // Logged, because this is the page a customer sees and it reports every
+    // failure as an expired link. Without the reason in the logs there is
+    // nothing to go on but the customer saying the link does not work.
+    console.error('[quote] public view failed for token', req.params.token, '-', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
 }
 
 // Public: accept quote by token (no auth)
