@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Products.module.css';
@@ -468,7 +469,16 @@ export default function ProductList() {
     }
   }
 
-  const [view, setView] = useState('Browse');
+  // Which tab is showing lives in the address, like the folder the browser is
+  // in, so Back walks the same trail the user walked: out of Manage, back into
+  // Browse where they left it, then up a folder at a time.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get('tab') === 'Manage' ? 'Manage' : 'Browse';
+  const setView = v => {
+    const params = new URLSearchParams(searchParams);
+    if (v === 'Manage') params.set('tab', 'Manage'); else params.delete('tab');
+    setSearchParams(params);
+  };
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [loading, setLoading] = useState(true);
@@ -582,7 +592,7 @@ export default function ProductList() {
         </div>
       </div>
 
-      {view === 'Browse' && <PriceListBrowser />}
+      {view === 'Browse' && <PriceListBrowser inUrl />}
 
       {view === 'Manage' && <>
       {selected.size > 0 && (

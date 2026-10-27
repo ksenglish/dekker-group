@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
 import ProductImage from './ProductImage';
 import { loadAuthedFile } from './authedFile';
@@ -272,11 +273,40 @@ function ProductDetail({ product, onClose, onPick, picking }) {
   );
 }
 
-export default function PriceListBrowser({ onPick, onClose, title = 'Price List' }) {
+// `inUrl` puts the folder you are looking at into the address bar, so the
+// browser's own Back button steps up a level instead of leaving the price list
+// altogether — which is what it did, after four taps into a category.
+//
+// Only the Price List page asks for it. The same component is also the picker
+// inside a quote, where it is a panel over the quote's own page: writing to
+// the URL there would rewrite the quote's address and make Back mean something
+// else entirely.
+export default function PriceListBrowser({ onPick, onClose, title = 'Price List', inUrl = false }) {
   const [products, setProducts] = useState(null);
-  const [path, setPath] = useState([]); // [category, subcategory_1, subcategory_2]
+  const navigate = useNavigate();
+  const [localPath, setLocalPath] = useState([]); // [category, subcategory_1, …]
+  const [localOpen, setLocalOpen] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // One folder name per `c`, repeated — rather than one joined string, because
+  // a category is free text and nothing stops it containing whatever separator
+  // we picked.
+  const urlPath = useMemo(() => searchParams.getAll('c'), [searchParams]);
+  const path = inUrl ? urlPath : localPath;
+
+  const setPath = next => {
+    if (!inUrl) { setLocalPath(next); return; }
+    const params = new URLSearchParams(searchParams);
+    params.delete('c');
+    next.forEach(c => params.append('c', c));
+    // A product sheet belongs to the folder it was opened from, not to the
+    // one being moved to.
+    params.delete('p');
+    // Pushed, not replaced: each step down is a step Back can undo.
+    setSearchParams(params);
+  };
+
   const [search, setSearch] = useState('');
-  const [open, setOpen] = useState(null);
   const [picking, setPicking] = useState(false);
   const [toast, setToast] = useState(null);
   const [page, setPage] = useState(1);
@@ -284,6 +314,43 @@ export default function PriceListBrowser({ onPick, onClose, title = 'Price List'
   useEffect(() => {
     api.get('/products').then(r => setProducts(r.data)).catch(() => setProducts([]));
   }, []);
+
+  // The open product is in the address too, so Back closes the sheet rather
+  // than jumping out of the price list — on a phone the sheet covers the
+  // screen, and closing it is exactly what Back is reached for.
+  //
+  // Held as an id and looked up, so a reload or a shared link opens the same
+  // product rather than a blank sheet.
+  const openId = inUrl ? searchParams.get('p') : null;
+  const open = inUrl
+    ? (openId ? (products || []).find(p => String(p.id) === openId) || null : null)
+    : localOpen;
+
+  // Whether opening the sheet is a step this page took, as opposed to the
+  // address somebody was handed with a product already in it.
+  const pushedOpenRef = useRef(false);
+
+  const setOpen = next => {
+    if (!inUrl) { setLocalOpen(next); return; }
+    const params = new URLSearchParams(searchParams);
+    if (next) {
+      params.set('p', String(next.id));
+      pushedOpenRef.current = true;
+      setSearchParams(params);
+      return;
+    }
+    // Closing with the ✕ undoes the step that opened it, rather than adding
+    // another one — otherwise Back from a closed sheet re-opens it.
+    if (pushedOpenRef.current) {
+      pushedOpenRef.current = false;
+      navigate(-1);
+      return;
+    }
+    // Opened straight from a link: there is nothing behind it to go back to,
+    // so take the product out of the address without leaving a step either.
+    params.delete('p');
+    setSearchParams(params, { replace: true });
+  };
 
   const searching = search.trim().length > 1;
 
