@@ -1753,3 +1753,46 @@
   flex: none; font-size: 14px; font-weight: 700;
   font-variant-numeric: tabular-nums; color: var(--color-text);
 }
+
+/* ── Tools on a job ─────────────────────────────────────────────────────────
+   Deliberately plainer than the Costs table: this is a list of whereabouts,
+   not money, and the only figure on it is there so somebody can see what is
+   sitting on a site over the weekend. */
+.toolsHead {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; padding: 4px 0 16px;
+}
+.toolsTitle { font-size: 15px; font-weight: 700; color: var(--color-text); }
+.toolsHint { font-size: 13px; color: var(--color-text-muted); max-width: 48ch; margin-top: 3px; }
+
+.toolsTable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.toolsTable th {
+  text-align: left; font-size: 11.5px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--color-text-muted); font-weight: 600;
+  padding: 8px 10px; border-bottom: 1px solid var(--color-border);
+}
+.toolsTable td { padding: 10px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
+.toolsTable tfoot td { font-weight: 700; border-bottom: none; }
+.toolsNum { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.toolsMuted { color: var(--color-text-muted); }
+.toolsActions {
+  text-align: right; white-space: nowrap;
+  display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+}
+
+/* On a phone the table is read a row at a time rather than scrolled sideways. */
+@media (max-width: 640px) {
+  .toolsTable, .toolsTable tbody, .toolsTable tr, .toolsTable td { display: block; width: 100%; }
+  .toolsTable thead, .toolsTable tfoot { display: none; }
+  .toolsTable tr { padding: 10px 0; border-bottom: 1px solid var(--color-border); }
+  .toolsTable td { border: none; padding: 2px 0; }
+  .toolsName { font-weight: 600; padding-bottom: 4px; }
+  /* Stacked, a bare "1" above a bare "4 days" says nothing, so each cell
+     carries the heading the table row would have given it. */
+  .toolsTable td[data-label]::before {
+    content: attr(data-label) ': ';
+    color: var(--color-text-muted); font-weight: 500;
+  }
+  .toolsNum { text-align: left; }
+  .toolsActions { justify-content: flex-start; padding-top: 8px; }
+}

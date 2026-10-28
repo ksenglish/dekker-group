@@ -116,6 +116,10 @@ router.put('/locations/:id', requireRole('admin', 'office'), async (req, res) =>
 // Every product that is either stocked somewhere or has a barcode, with its
 // quantity at each location. Products never stocked and never barcoded are left
 // out so the report is about stock rather than the whole price list.
+//
+// Materials only. Tools live in the same places and move the same way, but a
+// van's stock figure is not improved by having its drills in it — they are on
+// the Tools tab, which also shows the ones that are out on a job.
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -134,7 +138,7 @@ router.get('/', async (req, res) => {
               ), '[]'::json) AS barcodes,
               COALESCE((SELECT SUM(s.quantity) FROM stock_levels s WHERE s.product_id = p.id), 0) AS total_quantity
        FROM products p
-       WHERE p.is_active
+       WHERE p.is_active AND p.stock_kind <> 'tool'
          AND (EXISTS (SELECT 1 FROM stock_levels s WHERE s.product_id = p.id AND s.quantity <> 0)
               OR EXISTS (SELECT 1 FROM product_barcodes b WHERE b.product_id = p.id))
        ORDER BY p.category NULLS LAST, p.name`
@@ -198,6 +202,174 @@ router.get('/valuation', requireRole('admin'), async (req, res) => {
       total_material_value_cents: sum('material_value_cents'),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Tools ────────────────────────────────────────────────────────────────────
+
+// What is out on jobs right now: what went to each job, less what came back.
+//
+// There is no "tools on a job" table and deliberately so. Every movement
+// already records the job it went to, and a second place to write it down is
+// a second place for it to disagree with the movement history it has to match.
+const OUT_ON_JOBS = `
+  SELECT m.product_id, m.job_id,
+         SUM(CASE WHEN m.reason = 'used_on_job' THEN m.quantity ELSE -m.quantity END) AS quantity
+    FROM stock_movements m
+   WHERE m.job_id IS NOT NULL
+     AND m.reason IN ('used_on_job', 'returned_from_job')
+   GROUP BY m.product_id, m.job_id
+  HAVING SUM(CASE WHEN m.reason = 'used_on_job' THEN m.quantity ELSE -m.quantity END) > 0`;
+
+// The tool register: every tool, where each one is, and what it is worth.
+//
+// Unlike the stock report this does not hide tools that are nowhere — a tool
+// showing zero everywhere is one nobody has counted yet, which is exactly what
+// a stocktake needs to see rather than a row that silently is not there.
+router.get('/tools', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.name, p.description, p.category, p.unit, p.cost_price,
+              COALESCE((
+                SELECT json_agg(json_build_object('location_id', s.location_id, 'quantity', s.quantity))
+                  FROM stock_levels s WHERE s.product_id = p.id AND s.quantity <> 0
+              ), '[]'::json) AS levels,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                         'job_id', o.job_id, 'quantity', o.quantity,
+                         'job_number', j.job_number, 'external_ref', j.external_ref))
+                  FROM (${OUT_ON_JOBS}) o
+                  JOIN jobs j ON j.id = o.job_id
+                 WHERE o.product_id = p.id
+              ), '[]'::json) AS on_jobs,
+              COALESCE((SELECT SUM(s.quantity) FROM stock_levels s WHERE s.product_id = p.id), 0)
+                AS held_quantity,
+              COALESCE((SELECT SUM(o.quantity) FROM (${OUT_ON_JOBS}) o WHERE o.product_id = p.id), 0)
+                AS out_quantity,
+              COALESCE((
+                SELECT json_agg(json_build_object('code', b.code) ORDER BY b.created_at)
+                  FROM product_barcodes b WHERE b.product_id = p.id
+              ), '[]'::json) AS barcodes
+         FROM products p
+        WHERE p.is_active AND p.stock_kind = 'tool'
+        ORDER BY p.category NULLS LAST, p.name`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[stock] tool register failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// The tools signed out to one job — what the Tools tab on a job shows, and
+// what somebody reads out at the end of the day before driving away.
+router.get('/jobs/:jobId/tools', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT o.product_id AS id, p.name, p.unit, p.cost_price, o.quantity,
+              (o.quantity * p.cost_price)::bigint AS value_cents,
+              (SELECT MAX(m.created_at) FROM stock_movements m
+                WHERE m.product_id = o.product_id AND m.job_id = o.job_id
+                  AND m.reason = 'used_on_job') AS out_since,
+              (SELECT l.name FROM stock_movements m
+                 JOIN stock_locations l ON l.id = m.from_location_id
+                WHERE m.product_id = o.product_id AND m.job_id = o.job_id
+                  AND m.reason = 'used_on_job'
+                ORDER BY m.created_at DESC LIMIT 1) AS came_from,
+              (SELECT m.from_location_id FROM stock_movements m
+                WHERE m.product_id = o.product_id AND m.job_id = o.job_id
+                  AND m.reason = 'used_on_job'
+                ORDER BY m.created_at DESC LIMIT 1) AS came_from_id
+         FROM (${OUT_ON_JOBS}) o
+         JOIN products p ON p.id = o.product_id
+        WHERE o.job_id = $1 AND p.stock_kind = 'tool'
+        ORDER BY p.name`,
+      [req.params.jobId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[stock] job tools failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// A tool coming back off a job. The opposite movement to the one that sent it,
+// which is all that is needed because that pair is what "out on a job" counts.
+//
+// Materials come back through /return-from-job instead: those have a cost line
+// on the job to unwind, and a tool never had one.
+router.post('/return-tool', async (req, res) => {
+  const { product_id, job_id, to_location_id, quantity } = req.body || {};
+  if (!product_id || !job_id || !to_location_id) {
+    return res.status(400).json({ error: 'product_id, job_id and to_location_id are required' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: [product] } = await client.query(
+      'SELECT id, name, stock_kind, cost_price FROM products WHERE id = $1', [product_id]);
+    if (!product) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    if (product.stock_kind !== 'tool') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `${product.name} is a material, not a tool. Send it back from the job's Costs tab, `
+          + 'so the job stops being charged for it.',
+      });
+    }
+
+    const { rows: [location] } = await client.query(
+      'SELECT id, name FROM stock_locations WHERE id = $1 AND is_active', [to_location_id]);
+    if (!location) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'That stock location does not exist' });
+    }
+
+    // How many of it are actually out there. Read inside the transaction so two
+    // people booking the same drill back in cannot both be told it was there.
+    const { rows: [out] } = await client.query(
+      `SELECT COALESCE(SUM(CASE WHEN reason = 'used_on_job' THEN quantity ELSE -quantity END), 0) AS qty
+         FROM stock_movements
+        WHERE product_id = $1 AND job_id = $2
+          AND reason IN ('used_on_job', 'returned_from_job')`,
+      [product_id, job_id]
+    );
+    const outQty = Number(out.qty) || 0;
+    const qty = quantity === undefined ? outQty : Number(quantity);
+    if (!(qty > 0)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Quantity must be greater than zero' });
+    }
+    if (qty > outQty + 1e-9) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: outQty === 0
+          ? `${product.name} is not signed out to this job.`
+          : `Only ${outQty} of ${product.name} is out on this job.`,
+      });
+    }
+
+    await moveStock(client, {
+      productId: product_id, fromId: null, toId: to_location_id,
+      quantity: qty, reason: 'returned_from_job', jobId: job_id, userId: req.user.id,
+    });
+
+    await client.query('COMMIT');
+    res.status(201).json({
+      returned: qty,
+      remaining: outQty - qty,
+      product: { id: product.id, name: product.name },
+      location: location.name,
+      value_cents: Math.round(qty * Number(product.cost_price || 0)),
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[stock] tool return failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
 });
 
 router.get('/movements', async (req, res) => {
@@ -557,7 +729,7 @@ router.post('/use', async (req, res) => {
   try {
     await client.query('BEGIN');
     const { rows: [product] } = await client.query(
-      'SELECT id, name, unit_price, cost_price FROM products WHERE id = $1', [product_id]
+      'SELECT id, name, unit_price, cost_price, stock_kind FROM products WHERE id = $1', [product_id]
     );
     if (!product) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Product not found' }); }
 
@@ -568,6 +740,20 @@ router.post('/use', async (req, res) => {
       productId: product_id, fromId: from_location_id, toId: null,
       quantity: qty, reason: 'used_on_job', jobId: job_id, userId: req.user.id,
     });
+
+    // A tool is not consumed by the job and must not be charged to it. Sending
+    // the laser level out with the crew is a change of whereabouts, not a cost
+    // — booking it as one would put four hundred dollars of margin on the job
+    // every time it left the van, and take it off again when it came back.
+    //
+    // The movement above is the whole record: the Tools tab reads it to say
+    // what is out and where, and returning it writes the opposite movement.
+    if (product.stock_kind === 'tool') {
+      await client.query('COMMIT');
+      return res.status(201).json({
+        message: 'Signed out to the job', tool: true, cost: null, product,
+      });
+    }
 
     const unitPrice = product.cost_price || product.unit_price || 0;
     const { rows: [cost] } = await client.query(

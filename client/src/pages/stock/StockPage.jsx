@@ -127,6 +127,7 @@ export default function StockPage() {
       <div className={styles.tabs}>
         {[
           ['levels', 'Stock levels'],
+          ['tools', 'Tools'],
           ['vans', 'Vans'],
           ['movements', 'Recent movements'],
           ...(admin ? [['value', 'Value']] : []),
@@ -260,6 +261,8 @@ export default function StockPage() {
             </table>
           </div>
         )
+      ) : tab === 'tools' ? (
+        <ToolsTab warehouse={warehouse} vans={vans} canSeeValue={admin} />
       ) : tab === 'value' ? (
         <ValueTab />
       ) : (
@@ -283,6 +286,153 @@ export default function StockPage() {
 
       {labelsFor && <LabelSheet rows={labelsFor} onClose={() => { setLabelsFor(null); load(); }} />}
     </div>
+  );
+}
+
+// The tool register: every tool, where it is, and what it is worth.
+//
+// Tools are not stock in the sense the other tab means it — they are not used
+// up and never reach a job's costs — so they are counted here instead, in the
+// same places, with a column for the ones that are out on a job. A tool that
+// reads zero everywhere still appears: that is one nobody has counted yet, and
+// hiding it is how it stays uncounted.
+function ToolsTab({ warehouse, vans, canSeeValue }) {
+  const [rows, setRows] = useState(null);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    api.get('/stock/tools').then(r => setRows(r.data)).catch(() => setRows([]));
+  }, []);
+
+  const visible = useMemo(() => {
+    if (!rows) return [];
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(r =>
+      r.name.toLowerCase().includes(q) ||
+      (r.category || '').toLowerCase().includes(q) ||
+      htmlToText(r.description || '').toLowerCase().includes(q) ||
+      (r.barcodes || []).some(b => b.code.toLowerCase().includes(q))
+    );
+  }, [rows, search]);
+
+  if (!rows) return <div className={styles.loading}>Loading…</div>;
+
+  const qtyAt = (row, locationId) =>
+    Number((row.levels || []).find(l => l.location_id === locationId)?.quantity || 0);
+
+  // Valued at cost, the same as stock — what we paid is what the tool is worth
+  // on the books, and there is no sell price on a drill we are not selling.
+  const valueOf = row =>
+    (Number(row.held_quantity || 0) + Number(row.out_quantity || 0)) * Number(row.cost_price || 0);
+
+  const totalValue = visible.reduce((t, r) => t + valueOf(r), 0);
+  const valueAt = locationId => visible.reduce(
+    (t, r) => t + qtyAt(r, locationId) * Number(r.cost_price || 0), 0);
+  const outValue = visible.reduce(
+    (t, r) => t + Number(r.out_quantity || 0) * Number(r.cost_price || 0), 0);
+  const uncosted = visible.filter(r => !Number(r.cost_price)).length;
+
+  if (rows.length === 0) {
+    return (
+      <div className={styles.empty}>
+        Nothing is marked as a tool yet. Open a product on the Price List and set
+        its Stock type to <strong>Tool</strong>, and it will be counted here instead
+        of in stock.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {canSeeValue && (
+        <div className={styles.valueTotal}>
+          <div className={styles.valueTotalLabel}>Total tools on hand, at cost</div>
+          <div className={styles.valueTotalFigure}>{fmtMoney(totalValue)}</div>
+        </div>
+      )}
+
+      <input
+        className={styles.search}
+        placeholder="Search tools by name, category or barcode…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
+
+      {visible.length === 0 ? (
+        <div className={styles.empty}>No tools match that search.</div>
+      ) : (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Tool</th>
+                {warehouse && <th className={styles.num}>{warehouse.name}</th>}
+                {vans.map(v => <th key={v.id} className={styles.num}>{v.name}</th>)}
+                <th className={styles.num}>On jobs</th>
+                <th className={styles.num}>Total</th>
+                {canSeeValue && <th className={styles.num}>Value at cost</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(row => (
+                <tr key={row.id}>
+                  <td>
+                    <div className={styles.productName}>{row.name}</div>
+                    <div className={styles.productMeta}>
+                      {row.category && <span>{row.category}</span>}
+                      {(row.on_jobs || []).map(j => (
+                        <Link key={j.job_id} to={`/jobs/${j.job_id}`} className={styles.code}>
+                          {j.job_number || j.external_ref || 'job'}
+                          {Number(j.quantity) !== 1 ? ` ×${fmtQty(j.quantity)}` : ''}
+                        </Link>
+                      ))}
+                    </div>
+                  </td>
+                  {warehouse && (
+                    <td className={styles.num}><QtyCell value={qtyAt(row, warehouse.id)} /></td>
+                  )}
+                  {vans.map(v => (
+                    <td key={v.id} className={styles.num}><QtyCell value={qtyAt(row, v.id)} /></td>
+                  ))}
+                  <td className={styles.num}><QtyCell value={Number(row.out_quantity || 0)} /></td>
+                  <td className={`${styles.num} ${styles.total}`}>
+                    {fmtQty(Number(row.held_quantity || 0) + Number(row.out_quantity || 0))}
+                  </td>
+                  {canSeeValue && (
+                    <td className={`${styles.num} ${styles.total}`}>{fmtMoney(valueOf(row))}</td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+            {canSeeValue && (
+              <tfoot>
+                <tr>
+                  <td className={styles.total}>Value at cost</td>
+                  {warehouse && <td className={`${styles.num} ${styles.total}`}>{fmtMoney(valueAt(warehouse.id))}</td>}
+                  {vans.map(v => (
+                    <td key={v.id} className={`${styles.num} ${styles.total}`}>{fmtMoney(valueAt(v.id))}</td>
+                  ))}
+                  <td className={`${styles.num} ${styles.total}`}>{fmtMoney(outValue)}</td>
+                  <td />
+                  <td className={`${styles.num} ${styles.total}`}>{fmtMoney(totalValue)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      )}
+
+      <div className={styles.footNote}>
+        Tools move the same way stock does — scan them onto a van, or onto a job
+        from the job&apos;s Tools tab — but they are never charged to the job.
+        {uncosted > 0 && (
+          <> {uncosted} tool{uncosted === 1 ? ' has' : 's have'} no cost price on the
+            Price List, so {uncosted === 1 ? 'it counts' : 'they count'} as nothing in
+            the figures above.</>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -317,6 +467,11 @@ function ValueTab() {
             <tr>
               <th>Location</th>
               <th className={styles.num}>Units</th>
+              {/* Split, because they are two questions. "The van holds $900 of
+                  materials" and "the van holds $4,200 of tools" are both worth
+                  knowing, and a single figure answers neither. */}
+              <th className={styles.num}>Materials</th>
+              <th className={styles.num}>Tools</th>
               <th className={styles.num}>Value at cost</th>
             </tr>
           </thead>
@@ -328,10 +483,21 @@ function ValueTab() {
                   {l.type === 'warehouse' && <span className={styles.chip} style={{ marginLeft: 8 }}>Warehouse</span>}
                 </td>
                 <td className={styles.num}>{fmtQty(l.unit_count)}</td>
+                <td className={styles.num}>{fmtMoney(l.material_value_cents)}</td>
+                <td className={styles.num}>{fmtMoney(l.tool_value_cents)}</td>
                 <td className={`${styles.num} ${styles.total}`}>{fmtMoney(l.value_cents)}</td>
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr>
+              <td className={styles.total}>All locations</td>
+              <td />
+              <td className={`${styles.num} ${styles.total}`}>{fmtMoney(data.total_material_value_cents)}</td>
+              <td className={`${styles.num} ${styles.total}`}>{fmtMoney(data.total_tool_value_cents)}</td>
+              <td className={`${styles.num} ${styles.total}`}>{fmtMoney(data.total_value_cents)}</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
 

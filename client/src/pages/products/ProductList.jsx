@@ -37,6 +37,9 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
     // back on save is read as "unchanged" rather than as a new upload.
     media_base64:    product?.media_url    || product?.media_base64    || '',
     brochure_base64: product?.brochure_url || product?.brochure_base64 || '',
+    // material | tool. A tool is held and moved like stock but never charged
+    // to a job — it goes out with the crew and comes back.
+    stock_kind: product?.stock_kind === 'tool' ? 'tool' : 'material',
     is_active: product?.is_active !== false,
   });
   const [saving, setSaving] = useState(false);
@@ -216,6 +219,26 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
               <select value={form.unit} onChange={e => set('unit', e.target.value)}>
                 {PRODUCT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
+            </div>
+            {/* What this is, for stock purposes. A material is bought, used up
+                and charged to the job; a tool is owned, moves between the
+                warehouse, the vans and jobs, and is never charged to anything.
+                Two columns of the same question, so it reads as a choice
+                rather than a checkbox somebody has to decode. */}
+            <div className={styles.formGroup}>
+              <label>Stock type</label>
+              <div className={styles.gstToggle}>
+                {[['material', 'Material'], ['tool', 'Tool']].map(([value, label]) => (
+                  <button key={value} type="button"
+                    className={`${styles.gstBtn} ${form.stock_kind === value ? styles.gstBtnOn : ''}`}
+                    onClick={() => set('stock_kind', value)}>{label}</button>
+                ))}
+              </div>
+              <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                {form.stock_kind === 'tool'
+                  ? 'Counted and valued apart from stock, on the Tools tab. Goes out to a job and comes back — never charged to it.'
+                  : 'Normal stock: used up on a job and charged to it.'}
+              </span>
             </div>
             {isAdmin && (
               <div className={styles.formGroup} style={{ gridColumn: '1/-1' }}>
@@ -665,7 +688,13 @@ export default function ProductList() {
                       }
                     </div>
                     <div>
-                      <div className={styles.productName}>{p.name} {!p.is_active && <span className={styles.inactiveBadge}>Inactive</span>}</div>
+                      <div className={styles.productName}>
+                        {p.name}{' '}
+                        {/* A tool is priced and listed like anything else, so
+                            without this the only way to tell is to open it. */}
+                        {p.stock_kind === 'tool' && <span className={styles.toolBadge}>Tool</span>}
+                        {!p.is_active && <span className={styles.inactiveBadge}>Inactive</span>}
+                      </div>
                       {p.description && <div className={styles.productDesc}>{p.description}</div>}
                     </div>
                     {!isSales && <div className={styles.supplierCol}>{p.supplier || <span className={styles.muted}>—</span>}</div>}

@@ -40,6 +40,7 @@ async function list(req, res) {
       `SELECT id, name, description, quote_description, category,
               subcategory_1, subcategory_2, subcategory_3, subcategory_4,
               unit, unit_price, cost_price, supplier, is_active, created_at, updated_at,
+              stock_kind,
               (media_key IS NOT NULL OR media_base64 IS NOT NULL)       AS has_image,
               (brochure_key IS NOT NULL OR brochure_base64 IS NOT NULL) AS has_brochure
        FROM products p WHERE ${conditions.join(' AND ')}
@@ -229,6 +230,10 @@ async function create(req, res) {
   const { name, description, quote_description, category, subcategory_1, subcategory_2, subcategory_3, subcategory_4,
     unit, unit_price, supplier, cost_price, media_base64, brochure_base64, sku } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  // Material unless the form says otherwise. Anything typed in that is neither
+  // reads as a material, because the wrong half of the stock figure is worse
+  // than a drill filed as a consumable.
+  const stockKind = req.body?.stock_kind === 'tool' ? 'tool' : 'material';
   const kit = cleanComponents(req.body.components);
   try {
     // A kit is priced from its parts, so whatever was typed in the price boxes
@@ -247,15 +252,15 @@ async function create(req, res) {
       `INSERT INTO products (name, description, quote_description, category,
          subcategory_1, subcategory_2, subcategory_3, subcategory_4,
          unit, unit_price, supplier, cost_price,
-         media_base64, brochure_base64, media_key, brochure_key, sku)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+         media_base64, brochure_base64, media_key, brochure_key, sku, stock_kind)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
       [name, description || null, quote_description || null, category || null,
        subcategory_1 || null, subcategory_2 || null, subcategory_3 || null, subcategory_4 || null,
        unit || 'each',
        prices ? prices.unit_price : Math.round((unit_price || 0) * 100), supplier || null,
        prices ? prices.cost_price : Math.round((cost_price || 0) * 100),
        media.inline, brochure.inline, media.key, brochure.key,
-       sku && String(sku).trim() ? String(sku).trim() : null]
+       sku && String(sku).trim() ? String(sku).trim() : null, stockKind]
     );
     if (kit && kit.length) {
       const client = await pool.connect();
@@ -442,6 +447,14 @@ async function upsertProduct(fields) {
 
   const supplied = value => value !== null && value !== undefined && value !== '';
 
+  // A price list can say which rows are tools. Read generously — "tool",
+  // "Tools", "TOOL" — because this is a column someone types by hand, and
+  // anything that is not a tool is a material, which is the safe way round.
+  const kindWord = String(fields.stock_kind || '').trim().toLowerCase();
+  const stockKind = /^tools?$/.test(kindWord) ? 'tool'
+    : /^(material|materials|consumable|consumables)$/.test(kindWord) ? 'material'
+    : null;
+
   // A price list ZIP is where most images and brochures actually arrive, so
   // this is the path that matters most for keeping them out of the database.
   // Converted to WebP on the way in, and stored under a key derived from the
@@ -465,8 +478,8 @@ async function upsertProduct(fields) {
       `INSERT INTO products (name, description, quote_description, category,
          subcategory_1, subcategory_2, subcategory_3, subcategory_4,
          unit, unit_price, cost_price, supplier,
-         media_base64, brochure_base64, media_key, brochure_key, sku)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+         media_base64, brochure_base64, media_key, brochure_key, sku, stock_kind)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
       [
         name,
         supplied(fields.description) ? fields.description : null,
@@ -482,6 +495,7 @@ async function upsertProduct(fields) {
         supplied(fields.supplier) ? fields.supplier : null,
         mediaInline, brochureInline, media?.key || null, brochure?.key || null,
         supplied(fields.sku) ? String(fields.sku).trim() : null,
+        stockKind || 'material',
       ]
     );
     return 'imported';
@@ -510,6 +524,7 @@ async function upsertProduct(fields) {
        media_key         = COALESCE($15, media_key),
        brochure_key      = COALESCE($16, brochure_key),
        sku               = COALESCE(NULLIF(TRIM(COALESCE(sku, '')), ''), $17),
+       stock_kind        = COALESCE($18, stock_kind),
        updated_at        = NOW()
      WHERE id = $1`,
     [
@@ -527,6 +542,7 @@ async function upsertProduct(fields) {
       supplied(fields.supplier) ? fields.supplier : null,
       mediaInline, brochureInline, media?.key || null, brochure?.key || null,
       supplied(fields.sku) ? String(fields.sku).trim() : null,
+      stockKind,
     ]
   );
   // Only after the row points at the new file — the keys were read before the
@@ -565,6 +581,9 @@ async function importCsv(req, res) {
     subcategory_2: firstOf('sub category 2', 'subcategory 2', 'sub_category_2', 'subcategory2'),
     subcategory_3: firstOf('sub category 3', 'subcategory 3', 'sub_category_3', 'subcategory3'),
     subcategory_4: firstOf('sub category 4', 'subcategory 4', 'sub_category_4', 'subcategory4'),
+    // 'tool' here keeps the row out of the materials figure and puts it on the
+    // Tools tab. Anything else, or nothing at all, is a material.
+    stock_kind: firstOf('type', 'stock kind', 'stock_kind', 'kind'),
     unit: headers.indexOf('unit'),
     unit_price: headers.indexOf('unit_price'), cost_price: headers.indexOf('cost_price'),
     supplier: headers.indexOf('supplier') };
@@ -589,6 +608,7 @@ async function importCsv(req, res) {
         subcategory_4: at('subcategory_4'),
         unit: at('unit'),
         sku: at('sku'),
+        stock_kind: at('stock_kind'),
         unit_price: parsePrice(at('unit_price')),
         cost_price: parsePrice(at('cost_price')),
         supplier: at('supplier'),
@@ -688,6 +708,8 @@ async function importZip(req, res) {
           subcategory_3: getAny('sub category 3', 'subcategory 3', 'sub_category_3', 'subcategory3'),
           subcategory_4: getAny('sub category 4', 'subcategory 4', 'sub_category_4', 'subcategory4'),
           unit: get('unit'),
+          // The same column the plain CSV import reads, spelled the same ways.
+          stock_kind: getAny('type', 'stock kind', 'stock_kind', 'kind'),
           sku: getAny('sku', 'code', 'product code', 'item code', 'item', 'part no', 'part number'),
           unit_price: parsePrice(get('unit_price')),
           cost_price: parsePrice(get('cost_price')),

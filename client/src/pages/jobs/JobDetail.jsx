@@ -20,11 +20,13 @@ import AssignModal from '../schedule/AssignModal';
 import JobFormsTab from './JobFormsTab';
 import JobServiceReport from './JobServiceReport';
 import JobMaterials from './JobMaterials';
+import JobTools from './JobTools';
 import styles from './Jobs.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
 const TAB_LABELS = {
   materials: 'Materials',
+  tools: 'Tools',
   service_report: 'Service Report',
   photos: 'Pre-Install Forms',
   forms: 'Post Install Forms',
@@ -1574,7 +1576,7 @@ export default function JobDetail() {
 
           {/* Tabs */}
           <div className={styles.tabs}>
-            {['details', 'photos', 'forms', 'notes', 'timesheets', 'schedule', 'line_items', 'costs', 'materials', 'service_report', 'quotes', 'invoices'].map(t => (
+            {['details', 'photos', 'forms', 'notes', 'timesheets', 'schedule', 'line_items', 'costs', 'materials', 'tools', 'service_report', 'quotes', 'invoices'].map(t => (
               <button key={t} className={`${styles.tab} ${activeTab === t ? styles.tabActive : ''}`} onClick={() => setActiveTab(t)}>
                 {TAB_LABELS[t] || t.charAt(0).toUpperCase() + t.slice(1)}
                 {t === 'notes' && job.notes?.length > 0 && <span className={styles.tabCount}>{job.notes.length}</span>}
@@ -1730,6 +1732,12 @@ export default function JobDetail() {
           {activeTab === 'materials' && (
             <div className={styles.card}>
               <JobMaterials jobId={id} user={user} />
+            </div>
+          )}
+
+          {activeTab === 'tools' && (
+            <div className={styles.card}>
+              <JobTools jobId={id} jobLabel={formatJobNumber(job) || 'this job'} />
             </div>
           )}
 

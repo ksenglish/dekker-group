@@ -93,6 +93,7 @@ export default function ScanFlow({ mode, locations, jobId, jobLabel, onClose, on
   async function confirm() {
     if (!pending) return;
     setBusy(true); setError('');
+    let wasTool = false;
     try {
       const qty = Number(quantity) || 1;
       if (mode === 'receive') {
@@ -117,8 +118,12 @@ export default function ScanFlow({ mode, locations, jobId, jobLabel, onClose, on
           product_id: pending.id, from_location_id: vanId, job_id: jobId, quantity: qty,
         });
         onUsed?.(data);
+        // A tool is signed out to the job rather than charged to it, and the
+        // tally says so — otherwise somebody scanning a drill onto a job has
+        // no way of telling it did not just cost the job four hundred dollars.
+        wasTool = Boolean(data?.tool);
       }
-      setDone(d => [{ name: pending.name, qty, at: Date.now() }, ...d]);
+      setDone(d => [{ name: pending.name, qty, at: Date.now(), tool: wasTool }, ...d]);
       setPending(null);
       resume();
     } catch (err) {
@@ -287,7 +292,9 @@ export default function ScanFlow({ mode, locations, jobId, jobLabel, onClose, on
               <div className={styles.tally}>
                 <div className={styles.tallyTitle}>Counted this session</div>
                 {done.map((d, i) => (
-                  <div key={i} className={styles.tallyRow}><span>{d.name}</span><strong>{d.qty}</strong></div>
+                  <div key={i} className={styles.tallyRow}>
+                    <span>{d.name}{d.tool ? ' — tool, not charged' : ''}</span><strong>{d.qty}</strong>
+                  </div>
                 ))}
               </div>
             )}
