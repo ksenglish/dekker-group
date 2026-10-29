@@ -171,7 +171,7 @@ async function suggest({ supplier, documentType }, client = pool) {
 // the place to change it.
 async function fileScan(scanId, client = pool) {
   const { rows: [scan] } = await client.query(
-    `SELECT id, supplier, document_type, status, folder_id, parsed_items
+    `SELECT id, supplier, document_type, status, folder_id, parsed_items, cost_kind
        FROM job_cost_scans WHERE id = $1`,
     [scanId]
   );

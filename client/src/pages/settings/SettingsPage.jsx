@@ -10,6 +10,7 @@ import { compressImage } from '../../lib/image';
 import FormsTab from './FormsTab';
 import ProposalTemplatesTab from './ProposalTemplatesTab';
 import SuppliersTab from './SuppliersTab';
+import SubcontractorsTab from './SubcontractorsTab';
 import styles from './Settings.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 import RichTextEditor from '../../components/RichTextEditor';
@@ -21,7 +22,7 @@ const TABS = ['My Account', 'Security', 'Document Themes', 'Email', 'Email Templ
 const ADMIN_TABS = ['Proposals'];
 // Supplier contacts are what an order is sent with, so anyone who can place
 // an order can keep them — the routes behind it allow the same people.
-const OFFICE_TABS = ['Suppliers'];
+const OFFICE_TABS = ['Suppliers', 'Sub-Contractors'];
 
 // ── Sortable job status row (drag to reorder) ─────────────────────────────────
 function SortableStatusRow({ s, onLabelChange, onColorChange, onDelete }) {
@@ -185,6 +186,7 @@ export default function SettingsPage() {
           {activeTab === 'Proposals' && isAdmin(user?.role) && <ProposalTemplatesTab />}
 
           {activeTab === 'Suppliers' && canEditCustomer(user?.role) && <SuppliersTab />}
+          {activeTab === 'Sub-Contractors' && canEditCustomer(user?.role) && <SubcontractorsTab />}
 
           {activeTab === 'Website Pricing' && <WebsitePricingTab />}
 

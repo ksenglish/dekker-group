@@ -83,11 +83,18 @@ async function isToolFolder(folderId, client = pool) {
 // Never throws at the caller. This runs alongside posting costs to a job, and
 // a price list that could not be added to is not a reason to lose the costs.
 async function intake({
-  lines = [], supplier = null, documentType = 'invoice',
+  lines = [], supplier = null, documentType = 'invoice', costKind = 'material',
   stockKind = 'material', markup = DEFAULT_MARKUP, client = pool,
 } = {}) {
   const out = { created: [], matched: 0, skipped: 0 };
   if (documentType === 'credit_note') {
+    out.skipped = lines.length;
+    return out;
+  }
+  // A sub-contractor's lines are labour on one job — "install 3 x downlights,
+  // 4 hrs" — not a thing anybody can buy again. They are a cost and nothing
+  // else, and the price list filling up with them would make it useless.
+  if (costKind === 'subcontractor') {
     out.skipped = lines.length;
     return out;
   }
@@ -155,6 +162,7 @@ async function intakeFromScan(scan, { client = pool, stockKind = null } = {}) {
     })),
     supplier: scan.supplier,
     documentType: scan.document_type,
+    costKind: scan.cost_kind,
     stockKind: kind,
     client,
   });

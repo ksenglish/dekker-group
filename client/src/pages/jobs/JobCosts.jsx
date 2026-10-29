@@ -179,7 +179,13 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
     } finally { setAdding(false); }
   }
 
-  const totalExGst = costs.reduce((s, i) => s + (i.unit_price / 100) * i.quantity, 0);
+  // What the job cost, split the way the money was actually spent: other
+  // people's labour on one side, what we bought on the other. One figure for
+  // both hides the question anybody is asking when they open this tab.
+  const sumOf = rows => rows.reduce((s, i) => s + (i.unit_price / 100) * i.quantity, 0);
+  const subbieCosts = costs.filter(c => c.cost_kind === 'subcontractor');
+  const materialCosts = costs.filter(c => c.cost_kind !== 'subcontractor');
+  const totalExGst = sumOf(costs);
   const totalIncGst = totalExGst * (1 + GST_RATE);
 
   const scanPreviewExGst = scanResults
@@ -285,16 +291,41 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
       {/* Costs grouped under the supplier document each line came off */}
       {costs.length > 0 && (
         <>
-          <CostDocuments
-            jobId={jobId}
-            costs={costs}
-            scans={scans}
-            canEdit={canEdit}
-            onChanged={load}
-            onScanDeleted={onScanDeleted}
-            onReturn={canEdit ? startReturn : null}
-            fetchDoc={fetchDoc}
-          />
+          {/* Two headings, each adding up only its own. Shown whenever there
+              is anything under either — a job with no sub-contractor on it
+              gets the plain Materials list it always had, not an empty
+              heading telling it so. */}
+          {[
+            ['subcontractor', 'Sub-Contractor Costs', subbieCosts,
+              'Work done by somebody else on this job. Their lines never go on the price list.'],
+            ['material', 'Materials', materialCosts,
+              'What was bought for this job — invoices, receipts, and stock off a van.'],
+          ].filter(([, , rows]) => rows.length > 0).map(([key, heading, rows, blurb]) => (
+            <div key={key} className={styles.costsSection}>
+              <div className={styles.costsSectionHead}>
+                <h4 className={styles.costsSectionTitle}>{heading}</h4>
+                <span className={styles.costsSectionHint}>{blurb}</span>
+              </div>
+              <CostDocuments
+                jobId={jobId}
+                costs={rows}
+                scans={scans}
+                canEdit={canEdit}
+                onChanged={load}
+                onScanDeleted={onScanDeleted}
+                onReturn={canEdit ? startReturn : null}
+                fetchDoc={fetchDoc}
+              />
+              <div className={styles.costsSectionTotal}>
+                <span>{heading}</span>
+                <span className={styles.costsTotalExGst}>${sumOf(rows).toFixed(2)} ex-GST</span>
+                <span className={styles.costsTotalIncGst}>
+                  ${(sumOf(rows) * (1 + GST_RATE)).toFixed(2)} inc-GST
+                </span>
+              </div>
+            </div>
+          ))}
+
           <div className={styles.costsGrandTotal}>
             <span>Total costs on this job</span>
             <span className={styles.costsTotalExGst}>${totalExGst.toFixed(2)} ex-GST</span>

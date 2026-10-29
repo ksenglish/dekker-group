@@ -5,6 +5,7 @@ const { authenticate, authenticateAutomation, requireRole } = require('../middle
 const fileStore = require('../services/fileStore');
 const costFiling = require('../services/costFiling');
 const priceListIntake = require('../services/priceListIntake');
+const subcontractors = require('../services/subcontractors');
 
 // Count unmatched (for sidebar badge)
 router.get('/count', authenticate, async (req, res) => {
@@ -183,8 +184,8 @@ router.post('/', authenticateAutomation, async (req, res) => {
     const { rows: [row] } = await pool.query(
       `INSERT INTO job_cost_scans
          (document_base64, mime_type, supplier, invoice_number, detected_job_number, parsed_items, status,
-          storage_key, size_bytes, document_type)
-       VALUES ($1, $2, $3, $4, $5, $6, 'unmatched', $7, $8, $9)
+          storage_key, size_bytes, document_type, cost_kind)
+       VALUES ($1, $2, $3, $4, $5, $6, 'unmatched', $7, $8, $9, $10)
        RETURNING id, supplier, invoice_number, detected_job_number, created_at`,
       [
         stored ? null : document_base64,
@@ -195,6 +196,9 @@ router.post('/', authenticateAutomation, async (req, res) => {
         JSON.stringify(parsed_items || []),
         stored?.key || null, stored?.size || null,
         documentType,
+        // A sub-contractor's invoice is a different kind of cost and must not
+        // reach the price list, so it is labelled the moment it arrives.
+        await subcontractors.kindFor({ supplier }),
       ]
     );
 
@@ -281,9 +285,9 @@ router.post('/:id/link', authenticate, async (req, res) => {
     for (let i = 0; i < costItems.length; i++) {
       const { description, sku, quantity, unit_price } = costItems[i];
       await client.query(
-        `INSERT INTO job_costs (job_id, scan_id, description, sku, quantity, unit_price, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [job_id, scan.id, description, sku || null, quantity || 1, Math.round((unit_price || 0) * 100), i]
+        `INSERT INTO job_costs (job_id, scan_id, description, sku, quantity, unit_price, sort_order, cost_kind)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [job_id, scan.id, description, sku || null, quantity || 1, Math.round((unit_price || 0) * 100), i, scan.cost_kind]
       );
     }
 
@@ -299,6 +303,7 @@ router.post('/:id/link', authenticate, async (req, res) => {
       })),
       supplier: scan.supplier,
       documentType: scan.document_type,
+      costKind: scan.cost_kind,
     });
 
     res.json({ message: 'Linked successfully', items_posted: costItems.length, price_list: added });
@@ -324,7 +329,7 @@ router.post('/:id/file', authenticate, async (req, res) => {
       `UPDATE job_cost_scans
        SET folder_id = $1, status = 'filed'
        WHERE id = $2 AND status = 'unmatched'
-       RETURNING id, supplier, invoice_number, folder_id, document_type, parsed_items`,
+       RETURNING id, supplier, invoice_number, folder_id, document_type, parsed_items, cost_kind`,
       [folder_id, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Inbox item not found' });

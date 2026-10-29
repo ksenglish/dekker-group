@@ -9,6 +9,7 @@ const { htmlToText } = require('../utils/sanitizeHtml');
 const fileStore = require('../services/fileStore');
 const supplierMemory = require('../services/supplierMemory');
 const priceListIntake = require('../services/priceListIntake');
+const subcontractors = require('../services/subcontractors');
 
 // Automation endpoint — accepts X-API-Key or user JWT
 router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
@@ -41,6 +42,9 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
           supplier_gst_number, supplier_read_as } = req.body;
   if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items required' });
   try {
+    // Whose invoice this is decides both where the costs appear and whether
+    // its lines may reach the price list, so it is settled once, up front.
+    const costKind = await subcontractors.kindFor({ supplier, gstNumber: supplier_gst_number });
     let scanId = null;
     if (document_base64) {
       const stored = await fileStore.storeDataUrl({
@@ -49,8 +53,8 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
       const { rows: [scan] } = await pool.query(
         `INSERT INTO job_cost_scans (job_id, document_base64, mime_type, gst_treatment, status,
                                      storage_key, size_bytes, supplier, invoice_number, invoice_date,
-                                     document_type, supplier_gst_number)
-         VALUES ($1,$2,$3,$4,'matched',$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+                                     document_type, supplier_gst_number, cost_kind)
+         VALUES ($1,$2,$3,$4,'matched',$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
         [req.params.id, stored ? null : document_base64, mime_type || 'image/jpeg',
          gst_treatment || 'exclusive', stored?.key || null, stored?.size || null,
          supplier?.trim() || null, invoice_number?.trim() || null,
@@ -58,7 +62,7 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
          // the upload date is already recorded separately.
          /^\d{4}-\d{2}-\d{2}$/.test(String(invoice_date || '')) ? invoice_date : null,
          document_type === 'credit_note' ? 'credit_note' : 'invoice',
-         supplier_gst_number?.trim() || null]
+         supplier_gst_number?.trim() || null, costKind]
       );
       scanId = scan.id;
       // Whatever name was confirmed on the review screen is the right one for
@@ -72,9 +76,9 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
     for (let i = 0; i < items.length; i++) {
       const { description, sku, quantity, unit_price } = items[i];
       const { rows: [row] } = await pool.query(
-        `INSERT INTO job_costs (job_id, scan_id, description, sku, quantity, unit_price, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [req.params.id, scanId, description, sku || null, quantity || 1, Math.round((unit_price || 0) * 100), i]
+        `INSERT INTO job_costs (job_id, scan_id, description, sku, quantity, unit_price, sort_order, cost_kind)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        [req.params.id, scanId, description, sku || null, quantity || 1, Math.round((unit_price || 0) * 100), i, costKind]
       );
       inserted.push(row);
     }
@@ -88,6 +92,7 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
       })),
       supplier,
       documentType: document_type === 'credit_note' ? 'credit_note' : 'invoice',
+      costKind,
     });
     res.status(201).json({ items: inserted, scan_id: scanId, price_list: added });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -636,7 +641,7 @@ router.post('/:id/cost-scans/:scanId/costs', requireRole('admin'), async (req, r
   if (!Number.isFinite(price)) return res.status(400).json({ error: 'Unit price must be a number' });
   try {
     const { rows: [scan] } = await pool.query(
-      'SELECT id, supplier, document_type FROM job_cost_scans WHERE id=$1 AND job_id=$2',
+      'SELECT id, supplier, document_type, cost_kind FROM job_cost_scans WHERE id=$1 AND job_id=$2',
       [req.params.scanId, req.params.id]
     );
     if (!scan) return res.status(404).json({ error: 'Document not found on this job' });
@@ -644,9 +649,9 @@ router.post('/:id/cost-scans/:scanId/costs', requireRole('admin'), async (req, r
       'SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM job_costs WHERE scan_id=$1', [req.params.scanId]
     );
     const { rows: [row] } = await pool.query(
-      `INSERT INTO job_costs (job_id, scan_id, description, sku, quantity, unit_price, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [req.params.id, req.params.scanId, String(description).trim(), req.body.sku || null, qty, Math.round(price * 100), next.n]
+      `INSERT INTO job_costs (job_id, scan_id, description, sku, quantity, unit_price, sort_order, cost_kind)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [req.params.id, req.params.scanId, String(description).trim(), req.body.sku || null, qty, Math.round(price * 100), next.n, scan.cost_kind]
     );
     // A line the scan missed and somebody typed in is still something we
     // bought, so it reaches the price list by the same route as the rest.
@@ -654,6 +659,7 @@ router.post('/:id/cost-scans/:scanId/costs', requireRole('admin'), async (req, r
       lines: [{ description: String(description).trim(), sku: req.body.sku, cost_cents: Math.round(price * 100) }],
       supplier: scan.supplier,
       documentType: scan.document_type,
+      costKind: scan.cost_kind,
     });
     res.status(201).json(row);
   } catch (err) { res.status(500).json({ error: err.message }); }

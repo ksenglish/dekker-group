@@ -1796,3 +1796,25 @@
   .toolsNum { text-align: left; }
   .toolsActions { justify-content: flex-start; padding-top: 8px; }
 }
+
+/* ── Costs, split by what kind of spend it is ───────────────────────────────
+   The section totals are quieter than the grand total on purpose: they are
+   two parts of one answer, and three loud green boxes would read as three
+   separate figures to reconcile. */
+.costsSection { margin-bottom: 18px; }
+.costsSectionHead {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 0 2px 8px;
+}
+.costsSectionTitle {
+  margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 0.03em;
+  text-transform: uppercase; color: var(--color-text);
+}
+.costsSectionHint { font-size: 12.5px; color: var(--color-text-muted); }
+.costsSectionTotal {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 9px 14px; margin-top: 8px;
+  background: #f8fafc; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 13px; font-weight: 600;
+}
+.costsSectionTotal > span:first-child { flex: 1; color: var(--color-text-muted); }
