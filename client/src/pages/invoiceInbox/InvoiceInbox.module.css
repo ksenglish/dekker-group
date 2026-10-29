@@ -521,3 +521,17 @@
   border-radius: var(--radius); font-size: 13px;
 }
 .because { color: var(--color-text-muted); font-style: normal; font-size: 12px; }
+
+/* What reached the price list. Not an error and not a success banner — a
+   statement of what just happened somewhere the person is not looking. */
+.priceListNote {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 14px; padding: 10px 14px;
+  border: 1px solid #bae6fd; background: #f0f9ff; color: #075985;
+  border-radius: 8px; font-size: 13.5px;
+}
+.priceListNoteClose {
+  margin-left: auto; border: none; background: none; cursor: pointer;
+  color: #075985; font-size: 14px; line-height: 1; padding: 2px 4px;
+}
+.priceListNoteClose:hover { opacity: 0.7; }

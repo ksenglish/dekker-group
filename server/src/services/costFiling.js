@@ -15,6 +15,7 @@
 // worth trusting. Everything else is offered as a suggestion and waits, which
 // is still most of the work — the folder is chosen, somebody just says yes.
 const pool = require('../db/pool');
+const priceListIntake = require('./priceListIntake');
 
 // Supplier names are matched the way the rest of the app matches them: case,
 // spacing and punctuation are not a different supplier.
@@ -170,7 +171,7 @@ async function suggest({ supplier, documentType }, client = pool) {
 // the place to change it.
 async function fileScan(scanId, client = pool) {
   const { rows: [scan] } = await client.query(
-    `SELECT id, supplier, document_type, status, folder_id
+    `SELECT id, supplier, document_type, status, folder_id, parsed_items
        FROM job_cost_scans WHERE id = $1`,
     [scanId]
   );
@@ -195,7 +196,14 @@ async function fileScan(scanId, client = pool) {
       WHERE id = $3 AND status = 'unmatched'`,
     [pick.folderId, pick.why, scanId]
   );
-  return { filed: true, folderId: pick.folderId, why: pick.why };
+
+  // Filed by the app rather than by hand, but it bought the same things, so it
+  // reaches the price list the same way — tools included, when the folder it
+  // landed in is the Tools one.
+  const added = await priceListIntake.intakeFromScan(
+    { ...scan, folder_id: pick.folderId }, { client });
+
+  return { filed: true, folderId: pick.folderId, why: pick.why, priceList: added };
 }
 
 // Every document still waiting, put away or labelled with where it should go.
@@ -209,12 +217,15 @@ async function fileWaiting({ limit = 500 } = {}) {
       LIMIT $1`,
     [limit]
   );
-  const out = { looked: rows.length, filed: 0, suggested: 0, stumped: 0 };
+  const out = { looked: rows.length, filed: 0, suggested: 0, stumped: 0, products_added: 0 };
   for (const r of rows) {
     const result = await fileScan(r.id);
     if (result.filed) out.filed++;
     else if (result.reason === 'suggested') out.suggested++;
     else out.stumped++;
+    // Said out loud, because putting a backlog away can put a few hundred rows
+    // on the price list and that should not be a surprise.
+    out.products_added += result.priceList?.created.length || 0;
   }
   return out;
 }

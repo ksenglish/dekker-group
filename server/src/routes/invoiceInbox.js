@@ -4,6 +4,7 @@ const pool = require('../db/pool');
 const { authenticate, authenticateAutomation, requireRole } = require('../middleware/auth');
 const fileStore = require('../services/fileStore');
 const costFiling = require('../services/costFiling');
+const priceListIntake = require('../services/priceListIntake');
 
 // Count unmatched (for sidebar badge)
 router.get('/count', authenticate, async (req, res) => {
@@ -287,7 +288,20 @@ router.post('/:id/link', authenticate, async (req, res) => {
     }
 
     await client.query('COMMIT');
-    res.json({ message: 'Linked successfully', items_posted: costItems.length });
+
+    // Onto the price list, after the costs are safely committed. A document
+    // linked to a job is buying materials for it — tools arrive by being filed
+    // in the Tools folder instead.
+    const added = await priceListIntake.intake({
+      lines: costItems.map(i => ({
+        description: i.description, sku: i.sku,
+        cost_cents: Math.round(Number(i.unit_price || 0) * 100),
+      })),
+      supplier: scan.supplier,
+      documentType: scan.document_type,
+    });
+
+    res.json({ message: 'Linked successfully', items_posted: costItems.length, price_list: added });
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
@@ -310,11 +324,18 @@ router.post('/:id/file', authenticate, async (req, res) => {
       `UPDATE job_cost_scans
        SET folder_id = $1, status = 'filed'
        WHERE id = $2 AND status = 'unmatched'
-       RETURNING id, supplier, invoice_number, folder_id`,
+       RETURNING id, supplier, invoice_number, folder_id, document_type, parsed_items`,
       [folder_id, req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Inbox item not found' });
-    res.json(rows[0]);
+
+    // What was bought goes onto the price list — and where the folder is Tools,
+    // it goes on as tools. That is the whole way a tool gets onto the price
+    // list without anybody typing it in: buy it, file the invoice under Tools.
+    const added = await priceListIntake.intakeFromScan(rows[0]);
+
+    const { parsed_items, document_type, ...filed } = rows[0];
+    res.json({ ...filed, price_list: added });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

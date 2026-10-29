@@ -53,8 +53,8 @@ function FolderPicker({ scan, onClose, onFiled }) {
   async function file(folder) {
     setBusy(true); setError('');
     try {
-      await api.post(`/invoice-inbox/${scan.id}/file`, { folder_id: folder.id });
-      onFiled();
+      const { data } = await api.post(`/invoice-inbox/${scan.id}/file`, { folder_id: folder.id });
+      onFiled(data?.price_list);
     } catch (err) {
       setError(err.response?.data?.error || 'Could not file that document');
       setBusy(false);
@@ -211,6 +211,10 @@ export default function InvoiceInboxPage() {
   // The page's own, not the folder picker's — that one has a `busy` of its own
   // and reaching for it from here is how the tab stops rendering.
   const [filingBusy, setFilingBusy] = useState(false);
+  // What reached the price list, said out loud. Filing a document now adds
+  // anything on it we have never bought before, and a write nobody sees is a
+  // write nobody trusts.
+  const [added, setAdded] = useState(null);
   const [selected, setSelected] = useState([]);       // ids ticked for bulk delete
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -256,11 +260,20 @@ export default function InvoiceInboxPage() {
     finally { setJobSearching(false); }
   }
 
+  // Only worth saying when something actually happened; most documents are
+  // repeat buys and add nothing.
+  function noteAdded(result) {
+    const made = result?.created || [];
+    if (!made.length) return;
+    setAdded({ created: made.length, tools: made.every(m => m.stock_kind === 'tool') });
+  }
+
   async function handleLink(scanId) {
     if (!selectedJob) { setLinkError('Please select a job first'); return; }
     setLinkError('');
     try {
-      await api.post(`/invoice-inbox/${scanId}/link`, { job_id: selectedJob.id });
+      const { data } = await api.post(`/invoice-inbox/${scanId}/link`, { job_id: selectedJob.id });
+      noteAdded(data?.price_list);
       setLinking(null);
       setSelectedJob(null);
       setJobSearch('');
@@ -277,7 +290,8 @@ export default function InvoiceInboxPage() {
   async function fileTo(scan, folderId) {
     setFilingBusy(true);
     try {
-      await api.post(`/invoice-inbox/${scan.id}/file`, { folder_id: folderId });
+      const { data } = await api.post(`/invoice-inbox/${scan.id}/file`, { folder_id: folderId });
+      noteAdded(data?.price_list);
       load();
       window.dispatchEvent(new Event('invoice-inbox-updated'));
     } catch {
@@ -343,7 +357,8 @@ export default function InvoiceInboxPage() {
         <FolderPicker
           scan={filing}
           onClose={() => setFiling(null)}
-          onFiled={() => {
+          onFiled={result => {
+            noteAdded(result);
             setFiling(null);
             load();
             window.dispatchEvent(new Event('invoice-inbox-updated'));
@@ -374,6 +389,14 @@ export default function InvoiceInboxPage() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {added && (
+        <div className={styles.priceListNote}>
+          {added.created} new product{added.created === 1 ? '' : 's'} added to the Price List
+          under Supplier Purchases{added.tools ? ', as tools' : ''}.
+          <button className={styles.priceListNoteClose} onClick={() => setAdded(null)}>✕</button>
         </div>
       )}
 

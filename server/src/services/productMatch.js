@@ -40,7 +40,16 @@ function usableSku(sku) {
 
 // The product this refers to, or null. `client` so a caller inside a
 // transaction sees its own uncommitted rows.
-async function matchProduct({ sku, name, supplier }, client = pool) {
+//
+// `alsoDescription` widens the name test to the description column, in both
+// directions: an invoice line reading "Insulated flexible duct 300mm x 6m"
+// finds the product called DCT4276 that describes itself that way, and vice
+// versa. Opt-in rather than always on, because the callers differ in what
+// they are holding. A line off an invoice is prose and the description is the
+// best thing it has to go on; a row in a supplier's CSV has a real name, and
+// letting that match somebody else's description column is how two different
+// products quietly become one.
+async function matchProduct({ sku, name, supplier, alsoDescription = false }, client = pool) {
   const code = usableSku(sku);
 
   if (code && norm(supplier)) {
@@ -60,6 +69,18 @@ async function matchProduct({ sku, name, supplier }, client = pool) {
       [norm(name)]
     );
     if (rows[0]) return { product: rows[0], matchedOn: 'name' };
+  }
+
+  // Tried after the name, never instead of it, so a description match can only
+  // ever find something the name test missed.
+  if (alsoDescription && norm(name)) {
+    const { rows } = await client.query(
+      `SELECT * FROM products
+        WHERE LOWER(TRIM(COALESCE(description, ''))) = $1
+        ORDER BY created_at LIMIT 1`,
+      [norm(name)]
+    );
+    if (rows[0]) return { product: rows[0], matchedOn: 'description' };
   }
 
   return { product: null, matchedOn: null };

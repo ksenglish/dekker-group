@@ -8,6 +8,7 @@ const { normaliseImageDataUrl, normaliseFilename } = require('../utils/normalise
 const { htmlToText } = require('../utils/sanitizeHtml');
 const fileStore = require('../services/fileStore');
 const supplierMemory = require('../services/supplierMemory');
+const priceListIntake = require('../services/priceListIntake');
 
 // Automation endpoint — accepts X-API-Key or user JWT
 router.get('/by-number/:number', authenticateAutomation, async (req, res) => {
@@ -77,7 +78,18 @@ router.post('/:id/costs', authenticateAutomation, async (req, res) => {
       );
       inserted.push(row);
     }
-    res.status(201).json({ items: inserted, scan_id: scanId });
+    // Anything on this invoice the price list has never heard of goes onto it,
+    // so the next person to quote the same bracket has a price to look up.
+    // After the costs are written, and never allowed to undo them.
+    const added = await priceListIntake.intake({
+      lines: items.map(i => ({
+        description: i.description, sku: i.sku,
+        cost_cents: Math.round(Number(i.unit_price || 0) * 100),
+      })),
+      supplier,
+      documentType: document_type === 'credit_note' ? 'credit_note' : 'invoice',
+    });
+    res.status(201).json({ items: inserted, scan_id: scanId, price_list: added });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -624,7 +636,8 @@ router.post('/:id/cost-scans/:scanId/costs', requireRole('admin'), async (req, r
   if (!Number.isFinite(price)) return res.status(400).json({ error: 'Unit price must be a number' });
   try {
     const { rows: [scan] } = await pool.query(
-      'SELECT id FROM job_cost_scans WHERE id=$1 AND job_id=$2', [req.params.scanId, req.params.id]
+      'SELECT id, supplier, document_type FROM job_cost_scans WHERE id=$1 AND job_id=$2',
+      [req.params.scanId, req.params.id]
     );
     if (!scan) return res.status(404).json({ error: 'Document not found on this job' });
     const { rows: [next] } = await pool.query(
@@ -635,6 +648,13 @@ router.post('/:id/cost-scans/:scanId/costs', requireRole('admin'), async (req, r
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [req.params.id, req.params.scanId, String(description).trim(), req.body.sku || null, qty, Math.round(price * 100), next.n]
     );
+    // A line the scan missed and somebody typed in is still something we
+    // bought, so it reaches the price list by the same route as the rest.
+    await priceListIntake.intake({
+      lines: [{ description: String(description).trim(), sku: req.body.sku, cost_cents: Math.round(price * 100) }],
+      supplier: scan.supplier,
+      documentType: scan.document_type,
+    });
     res.status(201).json(row);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
