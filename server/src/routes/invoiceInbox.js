@@ -344,6 +344,76 @@ router.post('/:id/file', authenticate, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Into the Hub instead: a document we are keeping rather than a cost.
+//
+// A price list, a manual, an insurance certificate — they arrive in the same
+// inbox as the invoices and are not costs at all. Filing one into an
+// operating-cost folder was the only option and put it in a report it has no
+// business being in.
+//
+// Nothing is charged, nothing reaches the price list, and the bytes are not
+// copied into the database: the scan's own file is read out of the bucket and
+// written back under the Hub's own prefix, so the two own their copies
+// separately and deleting either leaves the other alone.
+router.post('/:id/file-to-hub', authenticate, async (req, res) => {
+  const { folder_id } = req.body || {};
+  if (!folder_id) return res.status(400).json({ error: 'folder_id required' });
+  try {
+    const { rows: [folder] } = await pool.query(
+      'SELECT id, name FROM hub_folders WHERE id = $1', [folder_id]);
+    if (!folder) return res.status(404).json({ error: 'That Hub folder no longer exists' });
+
+    const { rows: [scan] } = await pool.query(
+      `SELECT id, supplier, invoice_number, mime_type, storage_key, document_base64, created_at
+         FROM job_cost_scans WHERE id = $1 AND status = 'unmatched'`,
+      [req.params.id]
+    );
+    if (!scan) return res.status(404).json({ error: 'Inbox item not found' });
+
+    // Named for what it is rather than for the row it came from, because the
+    // Hub lists it by filename and "scan" tells nobody anything.
+    const stamp = new Date(scan.created_at).toISOString().slice(0, 10);
+    const filename = `${[scan.supplier, scan.invoice_number].filter(Boolean).join(' ') || `Document ${stamp}`}.pdf`
+      .replace(/[\\/:*?"<>|]/g, '-');
+
+    let dataUrl;
+    try {
+      dataUrl = await fileStore.readDataUrl({ key: scan.storage_key, inline: scan.document_base64 });
+    } catch {
+      return res.status(404).json({ error: 'That document is no longer stored.' });
+    }
+    if (!dataUrl) return res.status(404).json({ error: 'That document has no file on it.' });
+
+    const stored = await fileStore.storeDataUrl({
+      prefix: `hub/${folder.id}`, filename, dataUrl,
+    });
+    const b64 = String(dataUrl).replace(/^data:[^;]+;base64,/, '');
+
+    const { rows: [doc] } = await pool.query(
+      `INSERT INTO hub_documents (folder_id, filename, mime_type, size_bytes,
+                                  data_base64, storage_key, source_scan_id, uploaded_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id, folder_id, filename, size_bytes, created_at`,
+      [folder.id, filename, scan.mime_type || 'application/pdf',
+       stored?.size || Math.round((b64.length * 3) / 4),
+       stored ? null : dataUrl, stored?.key || null, scan.id, req.user.id]
+    );
+
+    await pool.query(
+      `UPDATE job_cost_scans
+          SET hub_folder_id = $1, status = 'filed', filed_at = NOW(),
+              filed_because = $2, suggested_folder_id = NULL
+        WHERE id = $3`,
+      [folder.id, `Filed to the Hub: ${folder.name}`, scan.id]
+    );
+
+    res.status(201).json({ document: doc, folder: { id: folder.id, name: folder.name } });
+  } catch (err) {
+    console.error('[invoice-inbox] file to hub failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Put away everything waiting that can be, and mark the rest with where it
 // probably goes. Run when this is switched on, or after adding a folder that
 // makes a backlog filable.
@@ -365,8 +435,13 @@ router.post('/file-waiting', authenticate, requireRole('admin', 'office'), async
 router.post('/:id/unfile', authenticate, requireRole('admin', 'office'), async (req, res) => {
   try {
     const { rows } = await pool.query(
+      // The Hub link is cleared too, so a document put back is waiting in PDF
+      // Check rather than in two places at once. The copy already in the Hub
+      // stays: somebody filed it there on purpose, and a second thought about
+      // this row is not a reason to delete it.
       `UPDATE job_cost_scans
-          SET status = 'unmatched', folder_id = NULL, filed_automatically = false,
+          SET status = 'unmatched', folder_id = NULL, hub_folder_id = NULL,
+              filed_automatically = false,
               filed_at = NULL, suggested_folder_id = folder_id,
               filed_because = 'Put back by hand after the app filed it'
         WHERE id = $1 AND status = 'filed'

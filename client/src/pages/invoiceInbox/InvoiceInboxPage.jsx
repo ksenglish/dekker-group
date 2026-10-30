@@ -28,14 +28,41 @@ function FolderPicker({ scan, onClose, onFiled }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Two places a document can go, and they mean different things.
+  //
+  // An operating-cost folder is for a cost: it keeps the line items and shows
+  // up in the costs report. A Hub folder is for a document we are keeping —
+  // a price list, a manual, an insurance certificate — which arrives in the
+  // same inbox and is not a cost at all. Putting one of those under operating
+  // costs was the only option before, and it put it in a report it has no
+  // business being in.
+  const [dest, setDest] = useState('costs');   // 'costs' | 'hub'
+  const [hubFolders, setHubFolders] = useState([]);
+
   const loadFolders = useCallback(() => {
-    api.get('/costs/folders')
-      .then(r => setFolders(r.data))
+    Promise.all([
+      api.get('/costs/folders'),
+      api.get('/hub/folders').catch(() => ({ data: [] })),
+    ])
+      .then(([costs, hub]) => { setFolders(costs.data); setHubFolders(hub.data); })
       .catch(() => setError('Could not load folders'))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { loadFolders(); }, [loadFolders]);
+
+  const list = dest === 'hub' ? hubFolders : folders;
+
+  async function fileToHub(folder) {
+    setBusy(true); setError('');
+    try {
+      const { data } = await api.post(`/invoice-inbox/${scan.id}/file-to-hub`, { folder_id: folder.id });
+      onFiled({ hub: data });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not file that document');
+      setBusy(false);
+    }
+  }
 
   async function createFolder(e) {
     e.preventDefault();
@@ -69,29 +96,47 @@ function FolderPicker({ scan, onClose, onFiled }) {
           <button className={styles.pickerClose} onClick={onClose}>✕</button>
         </div>
 
+        <div className={styles.pickerDest}>
+          {[['costs', 'Operating costs'], ['hub', 'Dekker Hub']].map(([key, label]) => (
+            <button key={key} type="button"
+              className={`${styles.pickerDestBtn} ${dest === key ? styles.pickerDestOn : ''}`}
+              onClick={() => { setDest(key); setError(''); setCreating(false); }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
         <p className={styles.pickerHint}>
-          Files <strong>{scan.supplier || 'this PDF'}</strong> under operating costs,
-          with its line items. It will leave PDF Check.
+          {dest === 'hub' ? (
+            <>Keeps <strong>{scan.supplier || 'this PDF'}</strong> in the Hub as a document.
+              Nothing is charged to a job and nothing goes on the price list.
+              It will leave PDF Check.</>
+          ) : (
+            <>Files <strong>{scan.supplier || 'this PDF'}</strong> under operating costs,
+              with its line items. It will leave PDF Check.</>
+          )}
         </p>
 
         {error && <div className={styles.linkError}>{error}</div>}
 
         {loading ? (
           <div className={styles.pickerEmpty}>Loading…</div>
-        ) : folders.length === 0 && !creating ? (
+        ) : list.length === 0 && !creating ? (
           <div className={styles.pickerEmpty}>
             No folders yet.{' '}
-            {user?.role === 'admin'
+            {dest === 'hub'
+              ? 'An admin can add one on the Dekker Hub.'
+              : user?.role === 'admin'
               ? 'Create one below.'
               : 'An admin needs to create one under Reports → Costs first.'}
           </div>
         ) : (
           <div className={styles.pickerList}>
-            {flattenFolders(folders).map(f => (
+            {flattenFolders(list).map(f => (
               <button
                 key={f.id}
                 className={styles.pickerItem}
-                onClick={() => file(f)}
+                onClick={() => (dest === 'hub' ? fileToHub(f) : file(f))}
                 disabled={busy}
                 style={{ paddingLeft: 12 + f.depth * 16 }}
               >
@@ -102,7 +147,7 @@ function FolderPicker({ scan, onClose, onFiled }) {
           </div>
         )}
 
-        {user?.role === 'admin' && (
+        {dest === 'costs' && user?.role === 'admin' && (
           creating ? (
             <form className={styles.pickerNew} onSubmit={createFolder}>
               <input
@@ -263,6 +308,12 @@ export default function InvoiceInboxPage() {
   // Only worth saying when something actually happened; most documents are
   // repeat buys and add nothing.
   function noteAdded(result) {
+    // Filing to the Hub answers with the document it made rather than with
+    // price-list rows, because it deliberately makes none.
+    if (result?.hub) {
+      setAdded({ hub: result.hub.folder?.name || 'the Hub' });
+      return;
+    }
     const made = result?.created || [];
     if (!made.length) return;
     setAdded({ created: made.length, tools: made.every(m => m.stock_kind === 'tool') });
@@ -394,8 +445,10 @@ export default function InvoiceInboxPage() {
 
       {added && (
         <div className={styles.priceListNote}>
-          {added.created} new product{added.created === 1 ? '' : 's'} added to the Price List
-          under Supplier Purchases{added.tools ? ', as tools' : ''}.
+          {added.hub
+            ? `Saved to the Hub, under ${added.hub}.`
+            : `${added.created} new product${added.created === 1 ? '' : 's'} added to the Price List`
+              + ` under Supplier Purchases${added.tools ? ', as tools' : ''}.`}
           <button className={styles.priceListNoteClose} onClick={() => setAdded(null)}>✕</button>
         </div>
       )}

@@ -154,3 +154,46 @@
   .docRow, .fbRow { grid-template-columns: 1fr; gap: 4px; }
   .fbActions { justify-content: flex-start; margin-top: 6px; }
 }
+
+/* ── Folders you can manage ─────────────────────────────────────────────────
+   The card is no longer a single button: it holds the folder, a rename and a
+   delete, so the tile itself is a container and the opening part is the
+   button inside it. */
+.folderCard { position: relative; display: block; padding: 0; }
+.folderOpen {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: none; border: none; font-family: inherit; padding: 20px 18px;
+}
+.folderActions {
+  position: absolute; top: 8px; right: 8px; display: flex; gap: 2px;
+  opacity: 0; transition: opacity 0.12s;
+}
+.folderCard:hover .folderActions,
+.folderCard:focus-within .folderActions { opacity: 1; }
+.folderActions button {
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-text-muted); cursor: pointer; border-radius: 6px;
+  width: 26px; height: 26px; line-height: 1; font-size: 13px; padding: 0;
+}
+.folderActions button:hover { color: var(--color-text); border-color: var(--color-primary); }
+.folderActions button:last-child:hover { color: #b91c1c; border-color: #fca5a5; }
+.folderActions button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* On a touch screen there is no hover, so the controls are simply there. */
+@media (hover: none) {
+  .folderActions { opacity: 1; }
+}
+
+.folderRename {
+  width: 100%; font-family: inherit; font-size: 14px; font-weight: 600;
+  padding: 5px 8px; border: 1px solid var(--color-primary);
+  border-radius: 6px; background: var(--color-bg, #fff); color: var(--color-text);
+}
+
+/* The "new folder" tile reads as an invitation rather than as a folder. */
+.folderNew { border-style: dashed; padding: 20px 18px; }
+.folderNew .folderName, .folderNew .folderIcon { color: var(--color-text-muted); }
+
+/* Breadcrumbs */
+.crumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1; font-size: 14px; }
+.crumbSep { color: var(--color-text-muted); margin: 0 4px; }

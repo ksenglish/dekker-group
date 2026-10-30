@@ -535,3 +535,17 @@
   color: #075985; font-size: 14px; line-height: 1; padding: 2px 4px;
 }
 .priceListNoteClose:hover { opacity: 0.7; }
+
+/* Where the document is going. Two different answers, so it is a choice
+   rather than a checkbox somebody has to decode. */
+.pickerDest {
+  display: flex; gap: 0; margin: 0 0 12px;
+  border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden;
+}
+.pickerDestBtn {
+  flex: 1; padding: 8px 12px; font-size: 13px; font-weight: 600;
+  font-family: inherit; cursor: pointer; border: none;
+  background: var(--color-surface); color: var(--color-text-muted);
+}
+.pickerDestBtn + .pickerDestBtn { border-left: 1px solid var(--color-border); }
+.pickerDestOn { background: var(--color-primary); color: #fff; }

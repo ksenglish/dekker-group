@@ -60,6 +60,10 @@ function DocumentsTab({ isAdmin }) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState('');
+  const [adding, setAdding] = useState(false);     // typing a new folder's name
+  const [newName, setNewName] = useState('');
+  const [renaming, setRenaming] = useState(null);  // folder being renamed
+  const [busy, setBusy] = useState(false);
   const fileRef = useRef();
 
   function loadFolders() {
@@ -69,9 +73,74 @@ function DocumentsTab({ isAdmin }) {
 
   async function openIt(folder) {
     setOpenFolder(folder);
+    setErr('');
     setDocuments([]);
     const { data } = await api.get(`/hub/folders/${folder.id}/documents`);
     setDocuments(data);
+  }
+
+  // Where we are, and what is in it. Folders nest now, so "the folders" is
+  // whatever sits under the one being looked at rather than all of them.
+  const here = openFolder ? openFolder.id : null;
+  const children = folders.filter(f => (f.parent_id || null) === here);
+
+  // The trail back to the top, for the breadcrumb.
+  const trail = [];
+  for (let cur = openFolder; cur; cur = folders.find(f => f.id === cur.parent_id)) {
+    trail.unshift(cur);
+    if (trail.length > 20) break;   // a tree that has gone wrong is not a hang
+  }
+
+  async function createFolder(e) {
+    e?.preventDefault();
+    const name = newName.trim();
+    if (!name) return;
+    setBusy(true); setErr('');
+    try {
+      await api.post('/hub/folders', { name, parent_id: here });
+      setNewName(''); setAdding(false);
+      await loadFolders();
+    } catch (e2) {
+      setErr(e2.response?.data?.error || 'Could not make that folder');
+    } finally { setBusy(false); }
+  }
+
+  async function renameFolder(folder, name) {
+    if (!name.trim() || name.trim() === folder.name) { setRenaming(null); return; }
+    setBusy(true); setErr('');
+    try {
+      await api.put(`/hub/folders/${folder.id}`, { name: name.trim() });
+      setRenaming(null);
+      await loadFolders();
+      // The breadcrumb is showing the old name until it is told otherwise.
+      if (openFolder?.id === folder.id) setOpenFolder({ ...openFolder, name: name.trim() });
+    } catch (e2) {
+      setErr(e2.response?.data?.error || 'Could not rename that folder');
+    } finally { setBusy(false); }
+  }
+
+  async function deleteFolder(folder) {
+    setErr('');
+    const go = async cascade => api.delete(
+      `/hub/folders/${folder.id}${cascade ? '?cascade=1' : ''}`);
+    try {
+      if (!confirm(`Delete the folder "${folder.name}"?`)) return;
+      setBusy(true);
+      await go(false);
+      await loadFolders();
+    } catch (e2) {
+      // Not empty. The server says what is inside rather than refusing
+      // blankly, so the second question is one somebody can answer.
+      if (e2.response?.data?.needs_confirm) {
+        const { error } = e2.response.data;
+        if (confirm(`${error}\n\nDelete it and everything in it? This cannot be undone.`)) {
+          try { await go(true); await loadFolders(); }
+          catch (e3) { setErr(e3.response?.data?.error || 'Could not delete that folder'); }
+        }
+      } else {
+        setErr(e2.response?.data?.error || 'Could not delete that folder');
+      }
+    } finally { setBusy(false); }
   }
 
   async function handleUpload(e) {
@@ -141,12 +210,84 @@ function DocumentsTab({ isAdmin }) {
 
   if (loading) return <div className={styles.loading}>Loading…</div>;
 
+  // The folder tiles for wherever we are, with the admin controls on each.
+  const folderTiles = (
+    <>
+      {children.map(f => (
+        <div key={f.id} className={styles.folderCard}>
+          {renaming === f.id ? (
+            <form
+              onSubmit={e => { e.preventDefault(); renameFolder(f, e.target.elements.n.value); }}
+              onClick={e => e.stopPropagation()}
+            >
+              <input name="n" defaultValue={f.name} autoFocus disabled={busy}
+                className={styles.folderRename}
+                onBlur={e => renameFolder(f, e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape') setRenaming(null); }} />
+            </form>
+          ) : (
+            <>
+              <button className={styles.folderOpen} onClick={() => openIt(f)}>
+                <div className={styles.folderIcon}>📁</div>
+                <div className={styles.folderName}>{f.name}</div>
+                <div className={styles.folderCount}>
+                  {[
+                    f.folder_count ? `${f.folder_count} folder${f.folder_count === 1 ? '' : 's'}` : null,
+                    `${f.document_count} ${f.document_count === 1 ? 'document' : 'documents'}`,
+                  ].filter(Boolean).join(' · ')}
+                </div>
+              </button>
+              {isAdmin && (
+                <div className={styles.folderActions}>
+                  <button title="Rename" disabled={busy}
+                    onClick={() => { setErr(''); setRenaming(f.id); }}>✎</button>
+                  <button title="Delete" disabled={busy}
+                    onClick={() => deleteFolder(f)}>✕</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      ))}
+
+      {isAdmin && (adding ? (
+        <form className={styles.folderCard} onSubmit={createFolder}>
+          <div className={styles.folderIcon}>📁</div>
+          <input autoFocus value={newName} disabled={busy} placeholder="Folder name"
+            className={styles.folderRename}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') { setAdding(false); setNewName(''); } }} />
+          <div className={styles.folderCount}>Enter to save · Esc to cancel</div>
+        </form>
+      ) : (
+        <button className={`${styles.folderCard} ${styles.folderNew}`}
+          onClick={() => { setErr(''); setAdding(true); }}>
+          <div className={styles.folderIcon}>＋</div>
+          <div className={styles.folderName}>New folder</div>
+          <div className={styles.folderCount}>{openFolder ? `inside ${openFolder.name}` : 'at the top level'}</div>
+        </button>
+      ))}
+    </>
+  );
+
   if (openFolder) {
     return (
       <div className={styles.card}>
         <div className={styles.cardHeader}>
-          <button className={styles.backLink} onClick={() => { setOpenFolder(null); setErr(''); }}>← All folders</button>
-          <h2>{openFolder.name}</h2>
+          {/* Where you are, and every step back out of it. */}
+          <nav className={styles.crumbs}>
+            <button className={styles.backLink} onClick={() => { setOpenFolder(null); setErr(''); }}>
+              Dekker Hub
+            </button>
+            {trail.map((f, i) => (
+              <span key={f.id}>
+                <span className={styles.crumbSep}>›</span>
+                {i === trail.length - 1
+                  ? <strong>{f.name}</strong>
+                  : <button className={styles.backLink} onClick={() => openIt(f)}>{f.name}</button>}
+              </span>
+            ))}
+          </nav>
           {isAdmin && (
             <>
               <input ref={fileRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={handleUpload} />
@@ -157,6 +298,11 @@ function DocumentsTab({ isAdmin }) {
           )}
         </div>
         {err && <div className={styles.errorMsg}>{err}</div>}
+
+        {(children.length > 0 || isAdmin) && (
+          <div className={styles.folderGrid} style={{ marginBottom: 18 }}>{folderTiles}</div>
+        )}
+
         {documents.length === 0 ? (
           <p className={styles.emptySmall}>No documents in this folder yet.</p>
         ) : (
@@ -182,17 +328,10 @@ function DocumentsTab({ isAdmin }) {
   }
 
   return (
-    <div className={styles.folderGrid}>
-      {folders.map(f => (
-        <button key={f.id} className={styles.folderCard} onClick={() => openIt(f)}>
-          <div className={styles.folderIcon}>📁</div>
-          <div className={styles.folderName}>{f.name}</div>
-          <div className={styles.folderCount}>
-            {f.document_count} {f.document_count === 1 ? 'document' : 'documents'}
-          </div>
-        </button>
-      ))}
-    </div>
+    <>
+      {err && <div className={styles.errorMsg}>{err}</div>}
+      <div className={styles.folderGrid}>{folderTiles}</div>
+    </>
   );
 }
 
