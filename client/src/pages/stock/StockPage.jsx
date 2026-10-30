@@ -42,6 +42,9 @@ export default function StockPage() {
   // Teaching the app a barcode it has never seen. Admin only.
   const [addingBarcode, setAddingBarcode] = useState(false);
   const [labelsFor, setLabelsFor] = useState(null);
+  // Moving something by hand rather than by scanning it. { from, product }
+  // when opened off a row, or an empty object from the button in the header.
+  const [moving, setMoving] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -115,6 +118,15 @@ export default function StockPage() {
               + Add New Barcode
             </button>
           )}
+          {/* Scanning is how stock normally moves. This is for the rest: a
+              stocktake correction, a van swapped over, a tool handed from one
+              crew to another with nothing to scan. Admin only, and it lands in
+              Recent movements like any other move. */}
+          {admin && (
+            <button className={styles.btnSecondary} onClick={() => setMoving({})}>
+              ⇄ Move stock
+            </button>
+          )}
           <button className={styles.btnSecondary} onClick={() => setScanMode('receive')}>
             Receive into warehouse
           </button>
@@ -128,6 +140,7 @@ export default function StockPage() {
         {[
           ['levels', 'Stock levels'],
           ['tools', 'Tools'],
+          ['warehouse', 'Warehouse'],
           ['vans', 'Vans'],
           ['movements', 'Recent movements'],
           ...(admin ? [['value', 'Value']] : []),
@@ -263,10 +276,17 @@ export default function StockPage() {
         )
       ) : tab === 'tools' ? (
         <ToolsTab warehouse={warehouse} vans={vans} canSeeValue={admin} />
+      ) : tab === 'warehouse' ? (
+        <WarehouseTab
+          warehouse={warehouse}
+          canSeeValue={admin}
+          onMove={admin ? row => setMoving({ from: warehouse.id, product: row }) : null}
+        />
       ) : tab === 'value' ? (
         <ValueTab />
       ) : (
-        <VansTab locations={locations} canManage={canManage} onChanged={load} />
+        <VansTab locations={locations} canManage={canManage} onChanged={load}
+          onMove={admin ? (vanId, row) => setMoving({ from: vanId, product: row }) : null} />
       )}
 
       {scanMode && (
@@ -285,6 +305,276 @@ export default function StockPage() {
       )}
 
       {labelsFor && <LabelSheet rows={labelsFor} onClose={() => { setLabelsFor(null); load(); }} />}
+
+      {moving && (
+        <MoveStock
+          locations={locations}
+          start={moving}
+          onClose={() => setMoving(null)}
+          onMoved={() => { setMoving(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// What is actually on the shelf.
+//
+// The Stock levels tab answers "where is this product"; this answers "what is
+// in the warehouse", which is the question somebody standing in it is asking.
+// Materials and tools are listed apart for the same reason they are counted
+// apart — a shelf of consumables and a rack of drills are two different
+// things to be short of.
+function WarehouseTab({ warehouse, canSeeValue, onMove }) {
+  const [items, setItems] = useState(null);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (!warehouse) { setItems([]); return; }
+    api.get(`/stock/locations/${warehouse.id}/stock`)
+      .then(r => setItems(r.data))
+      .catch(() => setItems([]));
+  }, [warehouse]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!items) return [];
+    if (!q) return items;
+    return items.filter(i =>
+      i.name.toLowerCase().includes(q) || (i.category || '').toLowerCase().includes(q));
+  }, [items, search]);
+
+  if (!warehouse) {
+    return (
+      <div className={styles.empty}>
+        There is no warehouse set up yet. Add one under Vans — a location of type
+        warehouse is where stock is received into.
+      </div>
+    );
+  }
+  if (items === null) return <div className={styles.loading}>Loading…</div>;
+
+  const sum = rows => rows.reduce((t, i) => t + Number(i.value_cents || 0), 0);
+  const units = rows => rows.reduce((t, i) => t + Number(i.quantity || 0), 0);
+  const materials = visible.filter(i => i.stock_kind !== 'tool');
+  const tools = visible.filter(i => i.stock_kind === 'tool');
+
+  const section = (heading, rows, blurb) => rows.length === 0 ? null : (
+    <div key={heading} style={{ marginBottom: 20 }}>
+      <div className={styles.whSectionHead}>
+        <h3 className={styles.whSectionTitle}>{heading}</h3>
+        <span className={styles.whSectionHint}>{blurb}</span>
+      </div>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Category</th>
+              <th className={styles.num}>On hand</th>
+              {canSeeValue && <th className={styles.num}>Value at cost</th>}
+              {onMove && <th />}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(i => (
+              <tr key={i.id}>
+                <td><span className={styles.productName}>{i.name}</span></td>
+                <td className={styles.muted}>{i.category || '—'}</td>
+                <td className={styles.num}>
+                  <QtyCell value={Number(i.quantity || 0)} /> <span className={styles.muted}>{i.unit || 'each'}</span>
+                </td>
+                {canSeeValue && <td className={styles.num}>{fmtMoney(i.value_cents)}</td>}
+                {onMove && (
+                  <td className={styles.num}>
+                    <button className={styles.linkBtn} onClick={() => onMove(i)}>Move…</button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan={2} className={styles.total}>
+                {rows.length} product{rows.length === 1 ? '' : 's'}
+              </td>
+              <td className={`${styles.num} ${styles.total}`}>{fmtQty(units(rows))}</td>
+              {canSeeValue && <td className={`${styles.num} ${styles.total}`}>{fmtMoney(sum(rows))}</td>}
+              {onMove && <td />}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {canSeeValue && (
+        <div className={styles.valueTotal}>
+          <div className={styles.valueTotalLabel}>In {warehouse.name}, at cost</div>
+          <div className={styles.valueTotalFigure}>{fmtMoney(sum(visible))}</div>
+        </div>
+      )}
+
+      <input
+        className={styles.search}
+        placeholder="Search the warehouse by product or category…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
+
+      {items.length === 0 ? (
+        <div className={styles.empty}>
+          Nothing is recorded in {warehouse.name} yet. Receive a delivery in, or move
+          something back off a van, and it will show here.
+        </div>
+      ) : visible.length === 0 ? (
+        <div className={styles.empty}>Nothing in the warehouse matches that search.</div>
+      ) : (
+        <>
+          {section('Materials', materials, 'Consumables — used up on a job and charged to it.')}
+          {section('Tools', tools, 'Ours. They go out to a job and come back, and are never charged to one.')}
+        </>
+      )}
+
+      <div className={styles.footNote}>
+        {onMove
+          ? 'Tap Move… on any line to send it to a van, or use ⇄ Move stock at the top. '
+          : 'Stock moves by scanning. Ask an admin to move something by hand. '}
+        Negative figures mean more has been scanned out than was recorded in — worth a recount.
+      </div>
+    </>
+  );
+}
+
+// Moving something by hand.
+//
+// Scanning is how stock normally moves and it stays that way. This is for the
+// rest of it — a van swapped over, a tool handed between crews, a stocktake
+// that found four of something in the wrong place — and it writes the same
+// movement a scan would, so Recent movements tells the whole story rather
+// than most of it.
+function MoveStock({ locations, start, onClose, onMoved }) {
+  const places = locations.filter(l => l.is_active !== false);
+  const [fromId, setFromId] = useState(start?.from || places[0]?.id || '');
+  const [toId, setToId] = useState('');
+  const [productId, setProductId] = useState(start?.product?.id || '');
+  const [qty, setQty] = useState(start?.product ? '1' : '1');
+  const [stock, setStock] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  // What is actually at the place it is coming from. Picking from the whole
+  // price list would offer four thousand things that are not there, and the
+  // one number that matters — how many there are — would be missing.
+  useEffect(() => {
+    if (!fromId) { setStock([]); return; }
+    setStock(null);
+    api.get(`/stock/locations/${fromId}/stock`)
+      .then(r => setStock(r.data))
+      .catch(() => setStock([]));
+  }, [fromId]);
+
+  useEffect(() => {
+    // Keep a pre-filled product only while it is still at the place chosen.
+    if (!stock) return;
+    if (productId && !stock.some(s => s.id === productId)) setProductId('');
+  }, [stock, productId]);
+
+  const picked = (stock || []).find(s => s.id === productId) || null;
+  const available = Number(picked?.quantity || 0);
+  const wanted = Number(qty);
+  const destinations = places.filter(l => l.id !== fromId);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!productId || !fromId || !toId) { setError('Pick what is moving, and where from and to.'); return; }
+    if (!(wanted > 0)) { setError('Quantity must be more than zero.'); return; }
+    setBusy(true); setError('');
+    try {
+      await api.post('/stock/transfer', {
+        product_id: productId, from_location_id: fromId, to_location_id: toId, quantity: wanted,
+      });
+      onMoved();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not move that');
+      setBusy(false);
+    }
+  }
+
+  const nameOf = id => places.find(p => p.id === id)?.name || '';
+
+  return (
+    <div className={styles.overlay} onClick={onClose}>
+      <form className={styles.movePanel} onClick={e => e.stopPropagation()} onSubmit={submit}>
+        <div className={styles.movePanelHead}>
+          <h2>Move stock</h2>
+          <button type="button" className={styles.close} onClick={onClose}>✕</button>
+        </div>
+
+        <p className={styles.moveHint}>
+          Recorded in Recent movements exactly as a scan would be, with your name on it.
+        </p>
+
+        <label className={styles.moveField}>
+          <span>From</span>
+          <select value={fromId} onChange={e => { setFromId(e.target.value); setError(''); }}>
+            {places.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </label>
+
+        <label className={styles.moveField}>
+          <span>What is moving</span>
+          {stock === null ? (
+            <div className={styles.muted}>Loading what is there…</div>
+          ) : stock.length === 0 ? (
+            <div className={styles.muted}>Nothing is recorded at {nameOf(fromId)}.</div>
+          ) : (
+            <select value={productId} onChange={e => { setProductId(e.target.value); setError(''); }}>
+              <option value="">Choose…</option>
+              {stock.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} — {fmtQty(s.quantity)} {s.unit || 'each'}
+                  {s.stock_kind === 'tool' ? ' (tool)' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+        </label>
+
+        <label className={styles.moveField}>
+          <span>To</span>
+          <select value={toId} onChange={e => { setToId(e.target.value); setError(''); }}>
+            <option value="">Choose…</option>
+            {destinations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </label>
+
+        <label className={styles.moveField}>
+          <span>How many</span>
+          <input type="number" min="0" step="0.01" value={qty}
+            onChange={e => { setQty(e.target.value); setError(''); }} />
+          {picked && (
+            <span className={styles.moveNote}>
+              {fmtQty(available)} {picked.unit || 'each'} at {nameOf(fromId)}
+              {/* Allowed, because refusing it would only mean the move goes
+                  unrecorded and the count drifts further — the same reason
+                  scanning lets a figure go negative. Said out loud, though. */}
+              {wanted > available && ` · moving ${fmtQty(wanted)} leaves it at ${fmtQty(available - wanted)}`}
+            </span>
+          )}
+        </label>
+
+        {error && <div className={styles.error}>{error}</div>}
+
+        <div className={styles.moveActions}>
+          <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
+          <button type="submit" className={styles.btnPrimary} disabled={busy || !productId || !toId}>
+            {busy ? 'Moving…' : 'Move'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -522,7 +812,7 @@ function QtyCell({ value, onClick }) {
   );
 }
 
-function VansTab({ locations, canManage, onChanged }) {
+function VansTab({ locations, canManage, onChanged, onMove }) {
   const [staff, setStaff] = useState([]);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -598,7 +888,10 @@ function VansTab({ locations, canManage, onChanged }) {
               />
             )}
 
-            {openStock === van.id && <LocationStock locationId={van.id} />}
+            {openStock === van.id && (
+              <LocationStock locationId={van.id}
+                onMove={onMove ? row => onMove(van.id, row) : null} />
+            )}
           </div>
         ))}
       </div>
@@ -626,7 +919,7 @@ function VansTab({ locations, canManage, onChanged }) {
 
 // What should be on the van right now — the list a tech checks against before
 // heading out, rather than reading it off the wide grid.
-function LocationStock({ locationId }) {
+function LocationStock({ locationId, onMove }) {
   const [items, setItems] = useState(null);
 
   useEffect(() => {
@@ -656,6 +949,12 @@ function LocationStock({ locationId }) {
           </span>
           <span className={`${styles.num} ${Number(i.quantity) < 0 ? styles.qtyNegative : ''}`}>
             {fmtQty(i.quantity)} {i.unit || 'each'}
+            {/* Off the van and back to the warehouse, or across to another
+                van — the move that has nothing to scan, because the thing is
+                already in somebody's hand. */}
+            {onMove && (
+              <> <button className={styles.linkBtn} onClick={() => onMove(i)}>Move…</button></>
+            )}
           </span>
         </div>
       ))}

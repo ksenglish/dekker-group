@@ -305,3 +305,56 @@
   font-size: 26px; font-weight: 700; letter-spacing: 0.06em;
   color: var(--color-text); margin-bottom: 8px; word-break: break-all;
 }
+
+/* An empty state the page has been rendering unstyled since it was written —
+   the class was used in three places and never defined. */
+.empty {
+  padding: 22px 4px; font-size: 13.5px; color: var(--color-text-muted);
+}
+.error {
+  margin: 10px 0; padding: 9px 12px; font-size: 13px;
+  background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b;
+  border-radius: var(--radius);
+}
+
+/* ── Warehouse ──────────────────────────────────────────────────────────────
+   Materials and tools listed apart, for the same reason they are counted
+   apart: a shelf of consumables and a rack of drills are two different things
+   to be short of. */
+.whSectionHead {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 0 2px 8px;
+}
+.whSectionTitle {
+  margin: 0; font-size: 13px; font-weight: 700; letter-spacing: 0.03em;
+  text-transform: uppercase; color: var(--color-text);
+}
+.whSectionHint { font-size: 12.5px; color: var(--color-text-muted); }
+
+/* ── Moving something by hand ───────────────────────────────────────────── */
+.overlay {
+  position: fixed; inset: 0; z-index: 400; background: rgba(15, 23, 42, 0.45);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.movePanel {
+  background: var(--color-surface); border-radius: 12px; width: 100%; max-width: 440px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.25); padding: 0 20px 20px;
+  max-height: 90vh; overflow: auto;
+}
+.movePanelHead {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 0 4px; position: sticky; top: 0; background: var(--color-surface);
+}
+.movePanelHead h2 { margin: 0; font-size: 17px; }
+.moveHint { margin: 0 0 14px; font-size: 12.5px; color: var(--color-text-muted); }
+.moveField { display: block; margin-bottom: 14px; }
+.moveField > span:first-child {
+  display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px;
+  color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em;
+}
+.moveField select, .moveField input {
+  width: 100%; padding: 9px 10px; font-size: 14px; font-family: inherit;
+  border: 1px solid var(--color-border); border-radius: 7px;
+  background: var(--color-bg, #fff); color: var(--color-text);
+}
+.moveNote { display: block; margin-top: 5px; font-size: 12px; color: var(--color-text-muted); }
+.moveActions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
