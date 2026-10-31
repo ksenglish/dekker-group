@@ -247,6 +247,86 @@
   .bottomNavIcon {
     font-size: 20px;
     line-height: 1;
+    position: relative;
+  }
+  /* Small, because the rail has no room — but PDF Check with sixty-six
+     waiting should say so without being opened. */
+  .bottomNavBadge {
+    position: absolute; top: -4px; left: 11px;
+    min-width: 15px; height: 15px; padding: 0 3px;
+    border-radius: 99px; background: #ef4444; color: #fff;
+    font-size: 9px; font-weight: 700; line-height: 15px; text-align: center;
+  }
+}
+
+/* ── The menu, for anyone set up with it instead of the rail ─────────────── */
+.navMenuBtn, .navMenu, .navMenuScrim { display: none; }
+
+@media (max-width: 768px) {
+  .navMenuBtn {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; left: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: 52px; height: 52px; border-radius: 50%; border: none;
+    background: #0f172a; color: #fff; font-size: 20px; cursor: pointer;
+    z-index: 130; box-shadow: 0 6px 20px rgba(15, 23, 42, 0.35);
+  }
+  .navMenuIcon { line-height: 1; }
+  .navMenuBadge {
+    position: absolute; top: -2px; right: -2px;
+    min-width: 20px; height: 20px; padding: 0 5px;
+    border-radius: 99px; background: #ef4444; color: #fff;
+    font-size: 11px; font-weight: 700; line-height: 20px; text-align: center;
+    border: 2px solid #0f172a;
+  }
+
+  .navMenuScrim {
+    display: block; position: fixed; inset: 0;
+    background: rgba(15, 23, 42, 0.45); z-index: 120;
+  }
+
+  /* Rises from the bottom, where the thumb already is, and stops short of
+     the top so it reads as a menu over the page rather than a new page. */
+  .navMenu {
+    display: flex; flex-direction: column;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 125;
+    max-height: 82vh; overflow-y: auto;
+    background: #0f172a; color: #fff;
+    border-radius: 16px 16px 0 0;
+    padding: 0 0 calc(20px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.4);
+  }
+  .navMenuHead {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 20px 12px; border-bottom: 1px solid rgba(255 255 255 / 0.1);
+    margin-bottom: 6px;
+    /* Stays put while the list behind it scrolls, so the way out is always
+       where it was left. */
+    position: sticky; top: 0; background: #0f172a; z-index: 1;
+  }
+  .navMenuHead > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .navMenuHead strong { font-size: 15px; }
+  .navMenuHead span { font-size: 12px; color: rgba(255 255 255 / 0.55); }
+  .navMenuClose {
+    flex: none; width: 34px; height: 34px; border-radius: 8px;
+    border: 1px solid rgba(255 255 255 / 0.2); background: none;
+    color: rgba(255 255 255 / 0.75); font-size: 15px; cursor: pointer; line-height: 1;
+  }
+
+  .navMenuItem {
+    display: flex; align-items: center; gap: 14px;
+    padding: 13px 20px; text-decoration: none;
+    color: rgba(255 255 255 / 0.75); font-size: 15px;
+  }
+  .navMenuItem:active { background: rgba(255 255 255 / 0.06); }
+  .navMenuItemActive { color: #fff; background: rgba(96, 165, 250, 0.15); }
+  .navMenuItemIcon { font-size: 18px; width: 24px; text-align: center; }
+  .navMenuItemLabel { flex: 1; }
+
+  .navMenuLogout {
+    margin: 10px 20px 0; padding: 11px; border-radius: 8px;
+    border: 1px solid rgba(255 255 255 / 0.2); background: none;
+    color: rgba(255 255 255 / 0.75); font-family: inherit; font-size: 14px;
+    cursor: pointer;
   }
 }
 
@@ -309,4 +389,10 @@
     z-index: 110;
     box-shadow: 0 6px 20px rgba(15, 23, 42, 0.35);
   }
+}
+
+/* With the menu there is no rail under it, so the search button sits level
+   with the menu button rather than floating where the rail used to be. */
+@media (max-width: 768px) {
+  .searchFabLow { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 }

@@ -302,7 +302,7 @@ async function logout(req, res) {
 
 async function me(req, res) {
   try {
-    const { rows } = await pool.query('SELECT id, name, email, role, permissions, licence_number, mobile, default_billing_rate_id, created_at FROM users WHERE id = $1', [req.user.id]);
+    const { rows } = await pool.query('SELECT id, name, email, role, permissions, licence_number, mobile, mobile_nav, default_billing_rate_id, created_at FROM users WHERE id = $1', [req.user.id]);
     if (!rows[0]) return res.status(404).json({ error: 'User not found' });
     res.json(rows[0]);
   } catch { res.status(500).json({ error: 'Server error' }); }

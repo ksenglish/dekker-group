@@ -51,6 +51,7 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
     cost_rate: user?.cost_rate != null ? String(user.cost_rate) : '',
     licence_number: user?.licence_number || '',
     mobile: user?.mobile || '',
+    mobile_nav: user?.mobile_nav === 'menu' ? 'menu' : 'rail',
     address: user?.address || '',
     gst_number: user?.gst_number || '',
     gst_registered: !!user?.gst_registered,
@@ -107,6 +108,7 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
         // than zero — zero would read as free labour in the job profit figures.
         cost_rate: form.cost_rate === '' ? '' : form.cost_rate,
         licence_number: form.licence_number || null, mobile: form.mobile || null,
+        mobile_nav: form.mobile_nav,
         address: form.address || null, gst_number: form.gst_number || null,
         gst_registered: form.gst_registered,
         // Sent for every role: the server drops it for the roles that can't hold
@@ -222,6 +224,29 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
               <label>Mobile</label>
               <p className={styles.hint}>Pre-fills the phone field on onsite compliance forms.</p>
               <input value={form.mobile} onChange={e => set('mobile', e.target.value)} placeholder="e.g. 021 123 4567" />
+            </div>
+            {/* How the app gets around on their phone. Two different habits:
+                somebody who lives in two or three sections all day wants them
+                under a thumb, and somebody who uses all of them wants to read
+                a list. */}
+            <div className={styles.field} style={{ gridColumn: '1/-1' }}>
+              <label>Phone layout</label>
+              <p className={styles.hint}>
+                How they move between sections on a phone. The desktop is unchanged either way.
+              </p>
+              <div className={styles.navChoice}>
+                {[
+                  ['rail', 'Bottom bar', 'Icons across the bottom, scrolled sideways. The shorter list, in the order a phone gets used.'],
+                  ['menu', 'Menu', 'A ☰ button that opens every section, in the same order as the desktop sidebar.'],
+                ].map(([value, label, blurb]) => (
+                  <button key={value} type="button"
+                    className={`${styles.navChoiceBtn} ${form.mobile_nav === value ? styles.navChoiceOn : ''}`}
+                    onClick={() => set('mobile_nav', value)}>
+                    <strong>{label}</strong>
+                    <span>{blurb}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Billing details — used on Buyer Created Invoices for commission */}

@@ -58,6 +58,44 @@ const NAV_ITEMS = [
   { to: '/hub', label: 'Dekker Hub', icon: '🏢' },
 ];
 
+const ROLE_LABELS = {
+  admin: 'Admin', sales: 'Sales', operations: 'Operations',
+  subcontractor: 'Subcontractor', office: 'Office', field_tech: 'Field Tech',
+};
+const roleLabel = role => ROLE_LABELS[role] || role;
+
+// The rail across the bottom of a phone: a shorter list than the desktop
+// sidebar, in the order a phone actually gets used, because past about six
+// it has to be scrolled sideways and the rest are found by swiping.
+const MOBILE_RAIL = [
+  { to: '/',          icon: '⊞', label: 'Home',      exact: true },
+  { to: '/todos',     icon: '☑', label: 'To-Do', badge: 'todos' },
+  // Admin only on mobile, so a new enquiry can be picked up and called
+  // back from the phone rather than waiting for someone at a desk.
+  { to: '/leads',     icon: '📥', label: 'New Leads', adminOnly: true, needs: 'leads', badge: 'leads' },
+  // Same reasoning: a receipt handed over on site can be photographed,
+  // read and put on the job without getting back to a desktop.
+  { to: '/invoice-inbox', icon: '🧾', label: 'PDF Check', adminOnly: true, needs: 'invoices', badge: 'inbox' },
+  { to: '/jobs',      icon: '🔧', label: 'Jobs' },
+  { to: '/schedule',  icon: '📅', label: 'Schedule' },
+  { to: '/quotes',    icon: '📋', label: 'Quotes', hideForOperations: true, needs: 'quotes.all' },
+  { to: '/customers', icon: '👥', label: 'Customers' },
+  { to: '/products',  icon: '🏷', label: 'Price List', hideForOperations: true },
+  { to: '/timesheets', icon: '⏱', label: 'Timesheets' },
+  { to: '/reports',   icon: '📊', label: 'Reports', adminOnly: true, needs: 'reports.all' },
+  { to: '/presenter', icon: '🎯', label: 'Presenter', hideForOperations: true },
+  { to: '/hub',       icon: '🏢', label: 'Hub' },
+  // The admin pages live in the desktop sidebar, which is hidden on a
+  // phone. This opens a menu of them instead of adding four more items
+  // to a rail that already has to scroll.
+  { to: '/admin',     icon: '🛠', label: 'Admin', adminOnly: true },
+];
+
+// The other way: a menu, holding every section the desktop sidebar holds,
+// in the order the desktop lists them. Nothing is dropped for want of room,
+// because a menu has as much room as it needs.
+const MOBILE_MENU = [...NAV_ITEMS, { to: '/admin', icon: '🛠', label: 'Admin', adminOnly: true }];
+
 // What to put in the rail. The server decides what anyone can actually open;
 // this only keeps people out of sections that would refuse them.
 //
@@ -86,6 +124,11 @@ export default function AppShell() {
   }
   const isPresenter = location.pathname === '/presenter';
   const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Shut on the way to anywhere. Each item closes it on its own press, but a
+  // link inside a page, the back button and the search panel all navigate too.
+  useEffect(() => { setMenuOpen(false); }, [location.pathname]);
   const [openLeads, setOpenLeads] = useState(0);
   const [inboxCount, setInboxCount] = useState(0);
   const [dueTodos, setDueTodos] = useState(0);
@@ -156,6 +199,16 @@ export default function AppShell() {
   }, [refreshLeadCount, refreshInboxCount, refreshTodoCount]);
 
   const badgeCounts = { leads: openLeads, inbox: inboxCount, todos: dueTodos, todosNew: newTodos };
+
+  // Which way this person gets around on a phone. Set when their account is
+  // made; anyone whose account predates the setting is on the rail, which is
+  // what they have always had.
+  const menuNav = user?.mobile_nav === 'menu';
+  const mobileItems = visibleNavItems(menuNav ? MOBILE_MENU : MOBILE_RAIL, user);
+  // Everything waiting, on one number, so a closed menu is not a place for
+  // work to go unnoticed.
+  const menuBadgeTotal = mobileItems.reduce(
+    (sum, item) => sum + (item.badge ? badgeCounts[item.badge] || 0 : 0), 0);
 
   async function handleLogout() {
     await logout();
@@ -237,10 +290,7 @@ export default function AppShell() {
             </div>
             <div className={styles.userDetails}>
               <span className={styles.userName}>{user?.name}</span>
-              <span className={styles.userRole}>{{
-                admin: 'Admin', sales: 'Sales', operations: 'Operations',
-                subcontractor: 'Subcontractor', office: 'Office', field_tech: 'Field Tech',
-              }[user?.role] || user?.role}</span>
+              <span className={styles.userRole}>{roleLabel(user?.role)}</span>
             </div>
           </div>
           <button className={styles.logoutBtn} onClick={handleLogout} title="Sign out">
@@ -288,44 +338,79 @@ export default function AppShell() {
         </Routes>
       </main>
 
-      {/* Mobile bottom navigation */}
-      <nav className={styles.bottomNav}>
-        {visibleNavItems([
-          { to: '/',          icon: '⊞', label: 'Home',      exact: true },
-          { to: '/todos',     icon: '☑', label: 'To-Do' },
-          // Admin only on mobile, so a new enquiry can be picked up and called
-          // back from the phone rather than waiting for someone at a desk.
-          { to: '/leads',     icon: '📥', label: 'New Leads', adminOnly: true, needs: 'leads' },
-          { to: '/jobs',      icon: '🔧', label: 'Jobs' },
-          { to: '/schedule',  icon: '📅', label: 'Schedule' },
-          { to: '/quotes',    icon: '📋', label: 'Quotes', hideForOperations: true, needs: 'quotes.all' },
-          { to: '/customers', icon: '👥', label: 'Customers' },
-          { to: '/products',  icon: '🏷', label: 'Price List', hideForOperations: true },
-          { to: '/timesheets', icon: '⏱', label: 'Timesheets' },
-          // Admin only, matching who can act on what's in here — mainly so
-          // receipts can be photographed and filed into Operating Costs on the
-          // phone rather than having to get back to a desktop.
-          { to: '/reports',   icon: '📊', label: 'Reports', adminOnly: true, needs: 'reports.all' },
-          { to: '/presenter', icon: '🎯', label: 'Presenter', hideForOperations: true },
-          { to: '/hub',       icon: '🏢', label: 'Hub' },
-          // The admin pages live in the desktop sidebar, which is hidden on a
-          // phone. This opens a menu of them instead of adding four more items
-          // to a rail that already has to scroll.
-          { to: '/admin',     icon: '🛠', label: 'Admin', adminOnly: true },
-        ], user).map(item => (
-          <NavLink key={item.to} to={item.to} end={item.exact}
-            className={({ isActive }) =>
-              `${styles.bottomNavItem} ${isActive ? styles.bottomNavItemActive : ''}`
-            }>
-            <span className={styles.bottomNavIcon}>{item.icon}</span>
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
-      </nav>
+      {/* Mobile navigation, either way round. */}
+      {menuNav ? (
+        <>
+          {/* Only opens. Closing lives in the menu's own header, because a
+              floating button over a scrolling list sits on top of whichever
+              item happens to be under it. */}
+          {!menuOpen && (
+            <button className={styles.navMenuBtn} onClick={() => setMenuOpen(true)}
+              aria-label="Open the menu">
+              <span className={styles.navMenuIcon}>☰</span>
+              {/* Anything waiting is worth knowing about before the menu is
+                  opened, since behind a menu is where it would be missed. */}
+              {menuBadgeTotal > 0 && (
+                <span className={styles.navMenuBadge}>{menuBadgeTotal}</span>
+              )}
+            </button>
+          )}
+
+          {menuOpen && (
+            <>
+              <div className={styles.navMenuScrim} onClick={() => setMenuOpen(false)} />
+              <nav className={styles.navMenu}>
+                <div className={styles.navMenuHead}>
+                  <div>
+                    <strong>{user?.name}</strong>
+                    <span>{roleLabel(user?.role)}</span>
+                  </div>
+                  <button className={styles.navMenuClose} onClick={() => setMenuOpen(false)}
+                    aria-label="Close the menu">✕</button>
+                </div>
+                {mobileItems.map(item => (
+                  <NavLink key={item.to} to={item.to} end={item.exact}
+                    onClick={() => setMenuOpen(false)}
+                    className={({ isActive }) =>
+                      `${styles.navMenuItem} ${isActive ? styles.navMenuItemActive : ''}`
+                    }>
+                    <span className={styles.navMenuItemIcon}>{item.icon}</span>
+                    <span className={styles.navMenuItemLabel}>{item.label}</span>
+                    {item.badge && badgeCounts[item.badge] > 0 && (
+                      <span className={styles.navBadge}>{badgeCounts[item.badge]}</span>
+                    )}
+                  </NavLink>
+                ))}
+                <button className={styles.navMenuLogout} onClick={() => { setMenuOpen(false); handleLogout(); }}>
+                  Sign out
+                </button>
+              </nav>
+            </>
+          )}
+        </>
+      ) : (
+        <nav className={styles.bottomNav}>
+          {mobileItems.map(item => (
+            <NavLink key={item.to} to={item.to} end={item.exact}
+              className={({ isActive }) =>
+                `${styles.bottomNavItem} ${isActive ? styles.bottomNavItemActive : ''}`
+              }>
+              <span className={styles.bottomNavIcon}>
+                {item.icon}
+                {item.badge && badgeCounts[item.badge] > 0 && (
+                  <span className={styles.bottomNavBadge}>{badgeCounts[item.badge]}</span>
+                )}
+              </span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      )}
 
       {/* On a phone the sidebar is gone, and this is the thing most worth
           reaching with a thumb: say a name instead of typing a job number. */}
-      <button className={styles.searchFab} onClick={() => setSearchOpen(true)}
+      <button className={`${styles.searchFab} ${menuNav ? styles.searchFabLow : ''}`}
+        onClick={() => setSearchOpen(true)}
         aria-label="Search, or say what you are looking for">🔍</button>
 
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
