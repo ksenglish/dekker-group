@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './InvoiceInbox.module.css';
@@ -19,6 +19,208 @@ function flattenFolders(folders, parentId = null, depth = 0) {
 
 // Files a PDF under operating costs. Admins can mint a folder here rather than
 // having to break off and set one up under Reports first.
+const money = cents => (Number(cents || 0) / 100).toLocaleString('en-NZ', {
+  style: 'currency', currency: 'NZD', minimumFractionDigits: 2,
+});
+
+// Things we have bought that the price list has never heard of, while they
+// are still sitting here.
+//
+// Filing a document already adds its unknown lines automatically, under
+// Supplier Purchases, named whatever the supplier called them — right for the
+// hundred things nobody will ever quote, wrong for the few that matter. This
+// is the chance to do those properly: a real name, the right category, and a
+// decision about whether it is a material or a tool, with the cost and the
+// sell price already filled in from the scan.
+//
+// Folded away by default. It is a prompt, not the job: the job is clearing
+// the documents below it.
+function NewLineItems({ refreshKey }) {
+  const [data, setData] = useState(null);
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(null);   // the line being written up
+  const [form, setForm] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [doneKeys, setDoneKeys] = useState([]);  // added this session
+  // Whether somebody has typed their own sell price. Once they have, the
+  // markup stops rewriting it.
+  const [sellTouched, setSellTouched] = useState(false);
+
+  useEffect(() => {
+    api.get('/invoice-inbox/new-lines')
+      .then(r => setData(r.data))
+      .catch(() => setData({ lines: [] }));
+  }, [refreshKey]);
+
+  const lines = (data?.lines || []).filter(l => !doneKeys.includes(l.description));
+  if (!data || lines.length === 0) return null;
+
+  function start(line) {
+    setError('');
+    setAdding(line.description);
+    setForm({
+      name: line.description,
+      sku: line.sku || '',
+      supplier: line.supplier || '',
+      category: 'Supplier Purchases',
+      unit: 'each',
+      stock_kind: 'material',
+      cost_price: (line.cost_cents / 100).toFixed(2),
+      unit_price: (line.sell_cents / 100).toFixed(2),
+      description: `First seen on ${line.supplier || 'a supplier document'}`
+        + `${line.documents?.length ? ` (${line.documents.join(', ')})` : ''}.`,
+    });
+  }
+
+  // Typing a cost re-prices the sell at the markup, until somebody types a
+  // sell price of their own — after that it is theirs and is left alone.
+  const setCost = v => setForm(f => {
+    const n = parseFloat(v);
+    const sell = !sellTouched && Number.isFinite(n) && n > 0
+      ? (n * (1 + (data.lines[0]?.markup_pct ?? 30) / 100)).toFixed(2)
+      : f.unit_price;
+    return { ...f, cost_price: v, unit_price: sell };
+  });
+
+  async function save(e) {
+    e.preventDefault();
+    if (!form.name.trim()) { setError('Give it a name'); return; }
+    setBusy(true); setError('');
+    try {
+      await api.post('/products', {
+        ...form,
+        cost_price: parseFloat(form.cost_price) || 0,
+        unit_price: parseFloat(form.unit_price) || 0,
+      });
+      setDoneKeys(k => [...k, adding]);
+      setAdding(null); setForm(null); setSellTouched(false);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not add that to the price list');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className={styles.newLines}>
+      <button className={styles.newLinesHead} onClick={() => setOpen(o => !o)}>
+        <span className={styles.newLinesIcon}>{open ? '📂' : '📁'}</span>
+        <span className={styles.newLinesTitle}>New Line Items</span>
+        <span className={styles.newLinesCount}>{lines.length}</span>
+        <span className={styles.newLinesHint}>
+          on the documents below, and not on the price list yet
+        </span>
+        <span className={styles.newLinesChevron}>{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div className={styles.newLinesBody}>
+          {error && <div className={styles.linkError}>{error}</div>}
+
+          {lines.map(line => (
+            <div key={line.description} className={styles.newLineRow}>
+              <div className={styles.newLineMain}>
+                <div className={styles.newLineName}>{line.description}</div>
+                <div className={styles.newLineMeta}>
+                  {line.supplier || 'Supplier not read'}
+                  {line.sku && ` · ${line.sku}`}
+                  {line.times_seen > 1 && ` · seen ${line.times_seen} times`}
+                  {line.documents?.length > 0 && ` · ${line.documents.join(', ')}`}
+                </div>
+              </div>
+              <div className={styles.newLinePrices}>
+                <span>{money(line.cost_cents)} cost</span>
+                <strong>{money(line.sell_cents)} sell</strong>
+                <span className={styles.newLineMarkup}>+{line.markup_pct}%</span>
+              </div>
+              <button className={styles.btnConfirmLink} onClick={() => start(line)}>
+                Add to Price List
+              </button>
+            </div>
+          ))}
+
+          <div className={styles.newLinesFoot}>
+            Read off {data.documents_read} document{data.documents_read === 1 ? '' : 's'} still waiting.
+            Anything left here is added automatically, under Supplier Purchases, when its
+            document is filed or linked to a job.
+          </div>
+        </div>
+      )}
+
+      {adding && form && (
+        <div className={styles.pickerOverlay} onClick={() => setAdding(null)}>
+          <form className={styles.pickerPanel} onClick={e => e.stopPropagation()} onSubmit={save}>
+            <div className={styles.pickerHeader}>
+              <h2>Add to the Price List</h2>
+              <button type="button" className={styles.pickerClose} onClick={() => setAdding(null)}>✕</button>
+            </div>
+            <p className={styles.pickerHint}>
+              Filled in from the scan. Change anything that the supplier wrote badly —
+              this is the name it will carry on a quote.
+            </p>
+
+            <label className={styles.newLineField}>
+              <span>Name</span>
+              <input value={form.name} autoFocus
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </label>
+
+            <div className={styles.newLineGrid}>
+              <label className={styles.newLineField}>
+                <span>Supplier code</span>
+                <input value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} />
+              </label>
+              <label className={styles.newLineField}>
+                <span>Supplier</span>
+                <input value={form.supplier}
+                  onChange={e => setForm(f => ({ ...f, supplier: e.target.value }))} />
+              </label>
+              <label className={styles.newLineField}>
+                <span>Category</span>
+                <input value={form.category}
+                  onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
+              </label>
+              <label className={styles.newLineField}>
+                <span>Unit</span>
+                <input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} />
+              </label>
+              <label className={styles.newLineField}>
+                <span>Cost excl. GST</span>
+                <input type="number" min="0" step="0.01" value={form.cost_price}
+                  onChange={e => setCost(e.target.value)} />
+              </label>
+              <label className={styles.newLineField}>
+                <span>Sell excl. GST</span>
+                <input type="number" min="0" step="0.01" value={form.unit_price}
+                  onChange={e => { setSellTouched(true); setForm(f => ({ ...f, unit_price: e.target.value })); }} />
+              </label>
+            </div>
+
+            <label className={styles.newLineField}>
+              <span>Stock type</span>
+              <div className={styles.pickerDest}>
+                {[['material', 'Material'], ['tool', 'Tool']].map(([value, label]) => (
+                  <button key={value} type="button"
+                    className={`${styles.pickerDestBtn} ${form.stock_kind === value ? styles.pickerDestOn : ''}`}
+                    onClick={() => setForm(f => ({ ...f, stock_kind: value }))}>{label}</button>
+                ))}
+              </div>
+            </label>
+
+            {error && <div className={styles.linkError}>{error}</div>}
+
+            <div className={styles.newLineActions}>
+              <button type="button" className={styles.btnCancel} onClick={() => setAdding(null)}>Cancel</button>
+              <button type="submit" className={styles.btnConfirmLink} disabled={busy}>
+                {busy ? 'Adding…' : 'Add to Price List'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FolderPicker({ scan, onClose, onFiled }) {
   const { user } = useAuth();
   const [folders, setFolders] = useState([]);
@@ -259,6 +461,13 @@ export default function InvoiceInboxPage() {
   // What reached the price list, said out loud. Filing a document now adds
   // anything on it we have never bought before, and a write nobody sees is a
   // write nobody trusts.
+  // Reading a receipt in from here rather than waiting for it to be emailed.
+  const uploadRef = useRef();
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  // Bumped whenever the waiting documents change, so the New Line Items panel
+  // re-reads: what is new depends entirely on what is still in the inbox.
+  const [newLinesKey, setNewLinesKey] = useState(0);
   const [added, setAdded] = useState(null);
   const [selected, setSelected] = useState([]);       // ids ticked for bulk delete
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -269,6 +478,10 @@ export default function InvoiceInboxPage() {
       .then(r => { setScans(r.data); setSelected([]); })
       .catch(() => {})
       .finally(() => setLoading(false));
+    // What is new depends entirely on what is still waiting, so anything that
+    // changes the list changes that too — filing a document takes its lines
+    // off this panel.
+    setNewLinesKey(k => k + 1);
   }, []);
 
   const allSelected = scans.length > 0 && selected.length === scans.length;
@@ -372,6 +585,36 @@ export default function InvoiceInboxPage() {
     } finally { setFilingBusy(false); }
   }
 
+  async function handleUpload(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { setUploadError('That file is over 10MB — try a photo rather than a scan.'); return; }
+    setUploading(true); setUploadError('');
+    try {
+      const data_base64 = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = ev => res(ev.target.result);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
+      });
+      const { data } = await api.post('/invoice-inbox/upload', {
+        filename: file.name, mime_type: file.type, data_base64,
+      });
+      load();
+      setNewLinesKey(k => k + 1);
+      window.dispatchEvent(new Event('invoice-inbox-updated'));
+      if (!data.items_found) {
+        setUploadError(
+          'That document is in the list, but no line items could be read off it — '
+          + 'use Edit Lines to enter them by hand.'
+        );
+      }
+    } catch (err) {
+      setUploadError(err.response?.data?.error || 'Could not read that document.');
+    } finally { setUploading(false); }
+  }
+
   async function handleDelete(scanId) {
     if (!confirm('Remove this invoice from the inbox? It will not be added to any job.')) return;
     try {
@@ -402,7 +645,25 @@ export default function InvoiceInboxPage() {
             delete it if it isn't a cost at all.
           </p>
         </div>
+        {/* A receipt handed over on site had to be emailed to office@ and
+            waited for. This reads it here and puts it at the top of the same
+            list, so it links to a job by the route that already exists. */}
+        <div className={styles.headerActions}>
+          <input ref={uploadRef} type="file" accept="image/*,application/pdf,.pdf"
+            style={{ display: 'none' }} onChange={handleUpload} />
+          <button className={styles.btnUpload} disabled={uploading}
+            onClick={() => uploadRef.current?.click()}>
+            {uploading
+              ? <><span className={styles.uploadSpinner} /> Reading…</>
+              : <>✨ Upload Receipt / Invoice</>}
+          </button>
+          <span className={styles.uploadHint}>Photo or PDF · max 10MB</span>
+        </div>
       </div>
+
+      {uploadError && <div className={styles.linkError}>{uploadError}</div>}
+
+      <NewLineItems refreshKey={newLinesKey} />
 
       {filing && (
         <FolderPicker
@@ -416,6 +677,7 @@ export default function InvoiceInboxPage() {
           }}
         />
       )}
+
 
       {scans.length > 0 && (
         <div className={styles.toolbar}>

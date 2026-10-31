@@ -6,6 +6,11 @@ const fileStore = require('../services/fileStore');
 const costFiling = require('../services/costFiling');
 const priceListIntake = require('../services/priceListIntake');
 const subcontractors = require('../services/subcontractors');
+const supplierMemory = require('../services/supplierMemory');
+const { extractLineItems } = require('../services/invoiceExtract');
+const { matchProduct, groupSame, usableSku } = require('../services/productMatch');
+const { DEFAULT_MARKUP, sellFrom } = require('../services/costsToPriceList');
+const { looksLikeAProduct } = require('../services/priceListIntake');
 
 // Count unmatched (for sidebar badge)
 router.get('/count', authenticate, async (req, res) => {
@@ -217,6 +222,156 @@ router.post('/', authenticateAutomation, async (req, res) => {
   } catch (err) {
     console.error('Invoice inbox save error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Things we have bought that the price list has never heard of, while they
+// are still sitting in PDF Check.
+//
+// Filing a document already adds its unknown lines automatically, under
+// Supplier Purchases, named whatever the supplier called them. That is the
+// right default for the hundred things nobody will ever quote. It is the
+// wrong one for the few that matter, which want a proper name, the right
+// category, and a decision about whether they are a material or a tool.
+//
+// So this is the chance to do it properly: everything new that is waiting,
+// before it is filed, with what it cost and what it would sell for.
+router.get('/new-lines', authenticate, async (req, res) => {
+  try {
+    const { rows: scans } = await pool.query(
+      `SELECT id, supplier, invoice_number, document_type, parsed_items, cost_kind,
+              COALESCE(invoice_date, created_at::date) AS dated
+         FROM job_cost_scans
+        WHERE status = 'unmatched'
+          AND COALESCE(document_type, 'invoice') <> 'credit_note'
+          -- A sub-contractor's lines are labour on one job and never belong
+          -- on the price list, so they are not offered here either.
+          AND COALESCE(cost_kind, 'material') <> 'subcontractor'
+        ORDER BY created_at DESC`
+    );
+
+    // Every usable line off every waiting document, tagged with where it came
+    // from so the screen can say "seen on 3 documents".
+    const lines = [];
+    for (const s of scans) {
+      for (const item of s.parsed_items || []) {
+        const cost = Math.round(Number(item.unit_price || 0) * 100);
+        if (!looksLikeAProduct(item.description) || cost < 1) continue;
+        lines.push({
+          description: String(item.description).trim(),
+          sku: item.sku || null,
+          supplier: s.supplier || null,
+          cost_cents: cost,
+          scan_id: s.id,
+          invoice_number: s.invoice_number,
+          dated: s.dated,
+        });
+      }
+    }
+
+    // Grouped by the shared rule before anything is looked up, so the same
+    // bracket on four invoices is one row rather than four.
+    const groups = groupSame(lines, {
+      skuOf: l => l.sku, nameOf: l => l.description, supplierOf: l => l.supplier,
+    });
+
+    const out = [];
+    for (const group of groups.values()) {
+      const newest = group[0];
+      const { product } = await matchProduct(
+        { sku: newest.sku, name: newest.description, supplier: newest.supplier, alsoDescription: true });
+      if (product) continue;      // already on the price list, nothing to do
+      out.push({
+        description: newest.description,
+        sku: usableSku(newest.sku) ? String(newest.sku).trim() : null,
+        supplier: newest.supplier,
+        cost_cents: newest.cost_cents,
+        sell_cents: sellFrom(newest.cost_cents, DEFAULT_MARKUP),
+        markup_pct: Math.round(DEFAULT_MARKUP * 100),
+        times_seen: group.length,
+        documents: [...new Set(group.map(l => l.invoice_number).filter(Boolean))].slice(0, 4),
+        scan_id: newest.scan_id,
+        last_seen: newest.dated,
+      });
+    }
+
+    out.sort((a, b) => b.times_seen - a.times_seen || b.cost_cents - a.cost_cents);
+    res.json({ lines: out, documents_read: scans.length });
+  } catch (err) {
+    console.error('[invoice-inbox] new lines failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// A document scanned in from PDF Check itself.
+//
+// Everything in this inbox used to arrive one way: the Apps Script reading
+// office@, which means a receipt handed over on site had to be emailed in and
+// waited for. This is the same thing done by hand — read the document, put it
+// in the inbox — and it comes out looking exactly like one that arrived by
+// email, so it links to a job, files to a folder or goes to the Hub by the
+// routes that already exist.
+router.post('/upload', authenticate, async (req, res) => {
+  const { filename, mime_type, data_base64 } = req.body || {};
+  if (!data_base64 || !mime_type) return res.status(400).json({ error: 'file data required' });
+
+  try {
+    const scan = await extractLineItems({
+      base64: data_base64, mimeType: mime_type,
+      knownSuppliers: await supplierMemory.knownSuppliers(),
+    });
+    // The GST number says who sent it where the name was read badly or only
+    // ever appears as a logo.
+    const known = await supplierMemory.resolve({
+      supplier: scan.supplier, gstNumber: scan.supplier_gst_number,
+    });
+    const supplier = known || scan.supplier || null;
+
+    const stored = await fileStore.storeDataUrl({
+      prefix: 'cost-scans/inbox',
+      filename: filename || `${scan.invoice_number || 'receipt'}.pdf`,
+      dataUrl: data_base64,
+    });
+
+    const { rows: [row] } = await pool.query(
+      `INSERT INTO job_cost_scans
+         (document_base64, mime_type, supplier, invoice_number, invoice_date, parsed_items,
+          status, storage_key, size_bytes, document_type, supplier_gst_number, cost_kind,
+          gst_treatment)
+       VALUES ($1,$2,$3,$4,$5,$6,'unmatched',$7,$8,$9,$10,$11,$12)
+       RETURNING id, supplier, invoice_number, detected_job_number, created_at`,
+      [
+        stored ? null : data_base64,
+        mime_type,
+        supplier,
+        scan.invoice_number || null,
+        /^\d{4}-\d{2}-\d{2}$/.test(String(scan.invoice_date || '')) ? scan.invoice_date : null,
+        JSON.stringify(scan.items || []),
+        stored?.key || null, stored?.size || null,
+        scan.document_type === 'credit_note' ? 'credit_note' : 'invoice',
+        scan.supplier_gst_number || null,
+        await subcontractors.kindFor({ supplier, gstNumber: scan.supplier_gst_number }),
+        scan.gst_treatment || 'exclusive',
+      ]
+    );
+
+    // Remembered the same way a document confirmed on a job is, so the next
+    // one from this supplier arrives already named.
+    if (supplier) {
+      await supplierMemory.learn({
+        supplier, gstNumber: scan.supplier_gst_number, readAs: scan.supplier,
+      }).catch(() => {});
+    }
+
+    res.status(201).json({
+      ...row,
+      items_found: (scan.items || []).length,
+      supplier_recognised: !!known && known !== scan.supplier,
+    });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('[invoice-inbox] upload failed:', err.message);
+    res.status(500).json({ error: err.message || 'Could not read that document' });
   }
 });
 

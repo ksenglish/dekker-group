@@ -7,8 +7,13 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  /* Wraps, so the upload button drops below the heading on a phone rather
+     than squeezing the title into a single-word column. */
+  flex-wrap: wrap;
+  gap: 12px;
   margin-bottom: 28px;
 }
+.header > div:first-child { flex: 1 1 280px; min-width: 0; }
 
 .title {
   font-size: 24px;
@@ -549,3 +554,84 @@
 }
 .pickerDestBtn + .pickerDestBtn { border-left: 1px solid var(--color-border); }
 .pickerDestOn { background: var(--color-primary); color: #fff; }
+
+/* ── Reading a receipt in from here ───────────────────────────────────────── */
+.headerActions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.btnUpload {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 16px; font-size: 13.5px; font-weight: 600; font-family: inherit;
+  border: none; border-radius: 8px; cursor: pointer;
+  background: var(--color-primary); color: #fff;
+}
+.btnUpload:hover:not(:disabled) { background: var(--color-primary-dark); }
+.btnUpload:disabled { opacity: 0.7; cursor: not-allowed; }
+.uploadHint { font-size: 11.5px; color: var(--color-text-muted); }
+.uploadSpinner {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff;
+  animation: uploadSpin 0.7s linear infinite;
+}
+@keyframes uploadSpin { to { transform: rotate(360deg); } }
+
+/* ── New line items ───────────────────────────────────────────────────────── */
+.newLines {
+  border: 1px solid var(--color-border); border-radius: 10px;
+  background: var(--color-surface); margin-bottom: 16px; overflow: hidden;
+}
+.newLinesHead {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 12px 16px; background: none; border: none; cursor: pointer;
+  font-family: inherit; text-align: left;
+}
+.newLinesHead:hover { background: #f8fafc; }
+.newLinesIcon { font-size: 17px; }
+.newLinesTitle { font-size: 14px; font-weight: 700; color: var(--color-text); }
+.newLinesCount {
+  background: var(--color-primary); color: #fff; border-radius: 99px;
+  font-size: 11.5px; font-weight: 700; padding: 1px 8px; min-width: 20px; text-align: center;
+}
+.newLinesHint { font-size: 12.5px; color: var(--color-text-muted); flex: 1; }
+.newLinesChevron { color: var(--color-text-muted); font-size: 12px; }
+.newLinesBody { border-top: 1px solid var(--color-border); }
+
+.newLineRow {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 11px 16px; border-bottom: 1px solid var(--color-border);
+}
+.newLineRow:last-of-type { border-bottom: none; }
+.newLineMain { flex: 1; min-width: 200px; }
+.newLineName { font-size: 13.5px; font-weight: 600; color: var(--color-text); }
+.newLineMeta { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+.newLinePrices {
+  display: flex; align-items: baseline; gap: 10px; font-size: 13px;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.newLinePrices span { color: var(--color-text-muted); }
+.newLineMarkup { font-size: 11.5px; }
+.newLinesFoot {
+  padding: 10px 16px; font-size: 12px; color: var(--color-text-muted);
+  background: #f8fafc; border-top: 1px solid var(--color-border);
+}
+
+.newLineField { display: block; margin-bottom: 12px; }
+.newLineField > span:first-child {
+  display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 4px;
+  color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em;
+}
+.newLineField input {
+  width: 100%; padding: 8px 10px; font-size: 14px; font-family: inherit;
+  border: 1px solid var(--color-border); border-radius: 7px;
+  background: var(--color-bg, #fff); color: var(--color-text);
+}
+.newLineGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.newLineActions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+
+@media (max-width: 640px) {
+  .newLineGrid { grid-template-columns: 1fr; }
+  /* The explanation is in the footer of the open panel anyway, and four
+     words to a line beside the heading reads as damage. */
+  .newLinesHint { display: none; }
+  .newLinesChevron { margin-left: auto; }
+  .headerActions { align-items: stretch; width: 100%; }
+  .newLinePrices { width: 100%; }
+}
