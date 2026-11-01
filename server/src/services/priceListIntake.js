@@ -99,8 +99,18 @@ async function intake({
     return out;
   }
 
+  // Lines somebody has already said are not products — contracting hours, a
+  // skip bin, a monthly fee. The rules above catch freight and rounding by
+  // shape; these are the ones only somebody who knows the business can tell,
+  // and having said so once they should not have to say it again.
+  const { rows: ignored } = await client.query(
+    'SELECT LOWER(TRIM(description)) AS d FROM price_list_ignored_lines');
+  const dismissed = new Set(ignored.map(r => r.d));
+
   const usable = lines.filter(l =>
-    looksLikeAProduct(l.description) && Number(l.cost_cents) >= MIN_COST_CENTS);
+    looksLikeAProduct(l.description)
+    && !dismissed.has(String(l.description).trim().toLowerCase())
+    && Number(l.cost_cents) >= MIN_COST_CENTS);
   out.skipped += lines.length - usable.length;
 
   // One invoice can list the same thing twice — two lengths of the same flue

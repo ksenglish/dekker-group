@@ -15,6 +15,9 @@ import { fetchAsDataUrl } from '../../components/products/authedFile';
 
 const fmt = cents => '$' + (cents / 100).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const GST_RATE = 0.15;
+// The house markup. A new product is priced at cost plus this until somebody
+// types a sell price of their own.
+const MARKUP_PCT = 30;
 const fmtIncGst = cents => fmt(Math.round(cents * (1 + GST_RATE)));
 
 function ProductModal({ product, onSave, onClose, isAdmin }) {
@@ -55,6 +58,10 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
   // Whether the cost being typed includes GST. What is stored is always
   // exclusive; this only says what the number in the box means.
   const [costInclGst, setCostInclGst] = useState(false);
+  // The sell price follows the cost at the house markup until somebody types
+  // one of their own. An existing product already has a sell price, so editing
+  // one never has it rewritten underneath.
+  const [sellTouched, setSellTouched] = useState(!!(product && product.unit_price > 0));
   // A kit is a product made of other products. Its two prices are added up from
   // the parts, so the price boxes go read-only while it is on — two sources for
   // one number is how they end up disagreeing.
@@ -66,6 +73,24 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
   const initialBrochure = useRef(product?.brochure_url || product?.brochure_base64 || '');
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  // Cost in, sell out at + MARKUP_PCT. Recomputed from the whole cost rather
+  // than nudged, so typing 16.61 a digit at a time ends up priced off 16.61
+  // and not off the 1 it started with.
+  function priceFrom(costEx, touched = sellTouched) {
+    if (touched || !(costEx > 0)) return;
+    setForm(f => ({ ...f, unit_price: (costEx * (1 + MARKUP_PCT / 100)).toFixed(2) }));
+  }
+  function setCostPrice(v) {
+    set('cost_price', v);
+    const n = parseFloat(v);
+    priceFrom(Number.isFinite(n) && n > 0 ? (costInclGst ? n / (1 + GST_RATE) : n) : 0);
+  }
+  function setCostGst(incl) {
+    setCostInclGst(incl);
+    const n = parseFloat(form.cost_price);
+    priceFrom(Number.isFinite(n) && n > 0 ? (incl ? n / (1 + GST_RATE) : n) : 0);
+  }
 
   const kitTotals = rollUp(kitLines.map(l => ({ ...l, quantity: parseFloat(l.quantity) || 0 })));
   const kitPriced = isKit && kitLines.length > 0;
@@ -259,8 +284,20 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
                 value={kitPriced ? (kitTotals.sell / 100).toFixed(2) : form.unit_price}
                 readOnly={kitPriced}
                 title={kitPriced ? 'Added up from the kit above' : undefined}
-                onChange={e => set('unit_price', e.target.value)} placeholder="0.00" />
+                onChange={e => { setSellTouched(true); set('unit_price', e.target.value); }} placeholder="0.00" />
               {kitPriced && <span className={styles.kitHint}>Added up from the kit above</span>}
+              {!kitPriced && !sellTouched && costExGst > 0 && (
+                <span className={styles.kitHint}>Cost + {MARKUP_PCT}% until you type one.</span>
+              )}
+              {!kitPriced && sellTouched && costExGst > 0 && (
+                <span className={styles.kitHint}>
+                  Typed in.{' '}
+                  <button type="button" className={styles.linkBtn}
+                    onClick={() => { setSellTouched(false); priceFrom(costExGst, false); }}>
+                    Use cost + {MARKUP_PCT}%
+                  </button>
+                </span>
+              )}
             </div>
             {isAdmin && (
               <div className={styles.formGroup}>
@@ -269,12 +306,12 @@ function ProductModal({ product, onSave, onClose, isAdmin }) {
                   {[[false, 'Excl. GST'], [true, 'Incl. GST']].map(([incl, label]) => (
                     <button key={label} type="button"
                       className={`${styles.gstBtn} ${costInclGst === incl ? styles.gstBtnOn : ''}`}
-                      onClick={() => setCostInclGst(incl)}>{label}</button>
+                      onClick={() => setCostGst(incl)}>{label}</button>
                   ))}
                   <input type="number" min="0" step="0.01"
                     value={kitPriced ? (kitTotals.cost / 100).toFixed(2) : form.cost_price}
                     readOnly={kitPriced}
-                    onChange={e => set('cost_price', e.target.value)} placeholder="0.00" />
+                    onChange={e => setCostPrice(e.target.value)} placeholder="0.00" />
                 </div>
                 <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
                   {kitPriced

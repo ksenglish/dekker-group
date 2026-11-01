@@ -275,9 +275,15 @@ router.get('/new-lines', authenticate, async (req, res) => {
       skuOf: l => l.sku, nameOf: l => l.description, supplierOf: l => l.supplier,
     });
 
+    // The ones somebody has already said are not products.
+    const { rows: ignored } = await pool.query(
+      'SELECT LOWER(TRIM(description)) AS d FROM price_list_ignored_lines');
+    const dismissed = new Set(ignored.map(r => r.d));
+
     const out = [];
     for (const group of groups.values()) {
       const newest = group[0];
+      if (dismissed.has(newest.description.trim().toLowerCase())) continue;
       const { product } = await matchProduct(
         { sku: newest.sku, name: newest.description, supplier: newest.supplier, alsoDescription: true });
       if (product) continue;      // already on the price list, nothing to do
@@ -299,6 +305,46 @@ router.get('/new-lines', authenticate, async (req, res) => {
     res.json({ lines: out, documents_read: scans.length });
   } catch (err) {
     console.error('[invoice-inbox] new lines failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Saying a line is not a product, and never will be.
+//
+// Admin only: it is a decision about the price list rather than about one
+// document, and it holds for every invoice that ever carries those words
+// again.
+router.post('/new-lines/dismiss', authenticate, requireRole('admin'), async (req, res) => {
+  const description = String(req.body?.description || '').trim();
+  if (!description) return res.status(400).json({ error: 'Which line?' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO price_list_ignored_lines (description, sku, supplier, dismissed_by)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (LOWER(TRIM(description))) DO NOTHING
+       RETURNING id`,
+      [description, req.body?.sku || null, req.body?.supplier || null, req.user.id]
+    );
+    res.status(201).json({ dismissed: description, already: rows.length === 0 });
+  } catch (err) {
+    console.error('[invoice-inbox] dismiss failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Changing your mind. Not on a screen anywhere yet, but the row has to be
+// removable or a mis-press is permanent.
+router.delete('/new-lines/dismiss', authenticate, requireRole('admin'), async (req, res) => {
+  const description = String(req.body?.description || req.query?.description || '').trim();
+  if (!description) return res.status(400).json({ error: 'Which line?' });
+  try {
+    const { rowCount } = await pool.query(
+      'DELETE FROM price_list_ignored_lines WHERE LOWER(TRIM(description)) = LOWER(TRIM($1))',
+      [description]
+    );
+    res.json({ restored: rowCount > 0 });
+  } catch (err) {
+    console.error('[invoice-inbox] undismiss failed:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 });

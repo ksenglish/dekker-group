@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import NewProductModal from '../../components/products/NewProductModal';
 import styles from './InvoiceInbox.module.css';
 
 const fmtDate = d => new Date(d).toLocaleDateString('en-NZ', {
@@ -36,67 +37,45 @@ const money = cents => (Number(cents || 0) / 100).toLocaleString('en-NZ', {
 // Folded away by default. It is a prompt, not the job: the job is clearing
 // the documents below it.
 function NewLineItems({ refreshKey }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [data, setData] = useState(null);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(null);   // the line being written up
-  const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [doneKeys, setDoneKeys] = useState([]);  // added this session
-  // Whether somebody has typed their own sell price. Once they have, the
-  // markup stops rewriting it.
-  const [sellTouched, setSellTouched] = useState(false);
+  const [doneKeys, setDoneKeys] = useState([]);  // dealt with this session
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api.get('/invoice-inbox/new-lines')
       .then(r => setData(r.data))
       .catch(() => setData({ lines: [] }));
-  }, [refreshKey]);
+  }, []);
+
+  useEffect(() => { load(); }, [load, refreshKey]);
 
   const lines = (data?.lines || []).filter(l => !doneKeys.includes(l.description));
   if (!data || lines.length === 0) return null;
 
-  function start(line) {
-    setError('');
-    setAdding(line.description);
-    setForm({
-      name: line.description,
-      sku: line.sku || '',
-      supplier: line.supplier || '',
-      category: 'Supplier Purchases',
-      unit: 'each',
-      stock_kind: 'material',
-      cost_price: (line.cost_cents / 100).toFixed(2),
-      unit_price: (line.sell_cents / 100).toFixed(2),
-      description: `First seen on ${line.supplier || 'a supplier document'}`
-        + `${line.documents?.length ? ` (${line.documents.join(', ')})` : ''}.`,
-    });
-  }
-
-  // Typing a cost re-prices the sell at the markup, until somebody types a
-  // sell price of their own — after that it is theirs and is left alone.
-  const setCost = v => setForm(f => {
-    const n = parseFloat(v);
-    const sell = !sellTouched && Number.isFinite(n) && n > 0
-      ? (n * (1 + (data.lines[0]?.markup_pct ?? 30) / 100)).toFixed(2)
-      : f.unit_price;
-    return { ...f, cost_price: v, unit_price: sell };
-  });
-
-  async function save(e) {
-    e.preventDefault();
-    if (!form.name.trim()) { setError('Give it a name'); return; }
+  // Not everything on an invoice is something we sell. Contracting hours, a
+  // skip bin, a monthly fee — they are real costs and they are never products,
+  // and until now the only way past them was to add them to the price list or
+  // look at them forever. Dismissing one keeps it off this list and off the
+  // price list when its document is filed.
+  async function dismiss(line) {
+    if (!confirm(
+      `Not a product: "${line.description}"?\n\n`
+      + 'It stays a cost on whatever it was bought for. It just stops being offered '
+      + 'here, and will not be added to the price list automatically.'
+    )) return;
     setBusy(true); setError('');
     try {
-      await api.post('/products', {
-        ...form,
-        cost_price: parseFloat(form.cost_price) || 0,
-        unit_price: parseFloat(form.unit_price) || 0,
+      await api.post('/invoice-inbox/new-lines/dismiss', {
+        description: line.description, sku: line.sku || null, supplier: line.supplier || null,
       });
-      setDoneKeys(k => [...k, adding]);
-      setAdding(null); setForm(null); setSellTouched(false);
+      setDoneKeys(k => [...k, line.description]);
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not add that to the price list');
+      setError(err.response?.data?.error || 'Could not dismiss that');
     } finally { setBusy(false); }
   }
 
@@ -132,9 +111,19 @@ function NewLineItems({ refreshKey }) {
                 <strong>{money(line.sell_cents)} sell</strong>
                 <span className={styles.newLineMarkup}>+{line.markup_pct}%</span>
               </div>
-              <button className={styles.btnConfirmLink} onClick={() => start(line)}>
-                Add to Price List
-              </button>
+              <div className={styles.newLineActions}>
+                <button className={styles.btnConfirmLink} disabled={busy}
+                  onClick={() => { setError(''); setAdding(line); }}>
+                  Add to Price List
+                </button>
+                {isAdmin && (
+                  <button className={styles.btnNotProduct} disabled={busy}
+                    title="Not a product — stop offering this"
+                    onClick={() => dismiss(line)}>
+                    Not a product
+                  </button>
+                )}
+              </div>
             </div>
           ))}
 
@@ -146,76 +135,21 @@ function NewLineItems({ refreshKey }) {
         </div>
       )}
 
-      {adding && form && (
-        <div className={styles.pickerOverlay} onClick={() => setAdding(null)}>
-          <form className={styles.pickerPanel} onClick={e => e.stopPropagation()} onSubmit={save}>
-            <div className={styles.pickerHeader}>
-              <h2>Add to the Price List</h2>
-              <button type="button" className={styles.pickerClose} onClick={() => setAdding(null)}>✕</button>
-            </div>
-            <p className={styles.pickerHint}>
-              Filled in from the scan. Change anything that the supplier wrote badly —
-              this is the name it will carry on a quote.
-            </p>
-
-            <label className={styles.newLineField}>
-              <span>Name</span>
-              <input value={form.name} autoFocus
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-            </label>
-
-            <div className={styles.newLineGrid}>
-              <label className={styles.newLineField}>
-                <span>Supplier code</span>
-                <input value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} />
-              </label>
-              <label className={styles.newLineField}>
-                <span>Supplier</span>
-                <input value={form.supplier}
-                  onChange={e => setForm(f => ({ ...f, supplier: e.target.value }))} />
-              </label>
-              <label className={styles.newLineField}>
-                <span>Category</span>
-                <input value={form.category}
-                  onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
-              </label>
-              <label className={styles.newLineField}>
-                <span>Unit</span>
-                <input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))} />
-              </label>
-              <label className={styles.newLineField}>
-                <span>Cost excl. GST</span>
-                <input type="number" min="0" step="0.01" value={form.cost_price}
-                  onChange={e => setCost(e.target.value)} />
-              </label>
-              <label className={styles.newLineField}>
-                <span>Sell excl. GST</span>
-                <input type="number" min="0" step="0.01" value={form.unit_price}
-                  onChange={e => { setSellTouched(true); setForm(f => ({ ...f, unit_price: e.target.value })); }} />
-              </label>
-            </div>
-
-            <label className={styles.newLineField}>
-              <span>Stock type</span>
-              <div className={styles.pickerDest}>
-                {[['material', 'Material'], ['tool', 'Tool']].map(([value, label]) => (
-                  <button key={value} type="button"
-                    className={`${styles.pickerDestBtn} ${form.stock_kind === value ? styles.pickerDestOn : ''}`}
-                    onClick={() => setForm(f => ({ ...f, stock_kind: value }))}>{label}</button>
-                ))}
-              </div>
-            </label>
-
-            {error && <div className={styles.linkError}>{error}</div>}
-
-            <div className={styles.newLineActions}>
-              <button type="button" className={styles.btnCancel} onClick={() => setAdding(null)}>Cancel</button>
-              <button type="submit" className={styles.btnConfirmLink} disabled={busy}>
-                {busy ? 'Adding…' : 'Add to Price List'}
-              </button>
-            </div>
-          </form>
-        </div>
+      {/* The same form as Add Product on the Price List — same fields, same
+          layout, same stylesheet — seeded from the scan. One form to learn
+          rather than a cut-down one here and the real one there. */}
+      {adding && (
+        <NewProductModal
+          title="Add to the Price List"
+          initialName={adding.description}
+          initialSku={adding.sku || ''}
+          initialSupplier={adding.supplier || ''}
+          initialCategory='Supplier Purchases'
+          initialCostDollars={(adding.cost_cents / 100).toFixed(2)}
+          markupPct={adding.markup_pct ?? 30}
+          onCreated={() => { setDoneKeys(k => [...k, adding.description]); setAdding(null); }}
+          onClose={() => setAdding(null)}
+        />
       )}
     </div>
   );

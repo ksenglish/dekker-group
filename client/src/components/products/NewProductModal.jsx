@@ -25,16 +25,23 @@ const GST_RATE = 0.15;
 const exGst = incl => incl / (1 + GST_RATE);
 
 export default function NewProductModal({
-  initialDescription = '', initialCostDollars = '', initialChargeDollars = '', markupPct = 0,
+  initialName = '', initialDescription = '', initialCostDollars = '', initialChargeDollars = '',
+  initialSupplier = '', initialSku = '', initialCategory = '', initialStockKind = 'material',
+  // Thirty per cent unless a caller has its own: a proposal prices at the
+  // markup that proposal was built on, everywhere else uses the house one.
+  markupPct = 30,
+  title = 'Add to Price List',
   onCreated, onClose,
 }) {
   const [form, setForm] = useState({
-    name: '',
+    name: initialName,
     description: initialDescription,
     quote_description: '',
-    category: '',
+    category: initialCategory,
     subcategory_1: '', subcategory_2: '', subcategory_3: '', subcategory_4: '',
-    supplier: '',
+    supplier: initialSupplier,
+    sku: initialSku,
+    stock_kind: initialStockKind === 'tool' ? 'tool' : 'material',
     unit: 'each',
     unit_price: initialChargeDollars && parseFloat(initialChargeDollars) > 0 ? initialChargeDollars : '',
     cost_price: initialCostDollars && parseFloat(initialCostDollars) > 0 ? initialCostDollars : '',
@@ -59,6 +66,14 @@ export default function NewProductModal({
 
   useEffect(() => {
     nameRef.current?.focus();
+    // Price the seeded cost once on the way in. Without this the markup only
+    // ever fired on a keystroke, so a form opened with a cost already in it —
+    // which is every form opened off a scan — showed an empty sell price.
+    const n = parseFloat(initialCostDollars);
+    if (!sellTouched && markupPct && Number.isFinite(n) && n > 0) {
+      setForm(f => ({ ...f, unit_price: (n * (1 + markupPct / 100)).toFixed(2) }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -117,7 +132,7 @@ export default function NewProductModal({
     <div className={styles.modalOverlay} {...overlayClose(onClose)}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
-          <h2>Add to Price List</h2>
+          <h2>{title}</h2>
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
         <form onSubmit={save} className={styles.modalBody}>
@@ -158,10 +173,35 @@ export default function NewProductModal({
             </div>
 
             <div className={styles.formGroup}>
+              <label>Supplier Code / SKU</label>
+              <input value={form.sku} onChange={e => set('sku', e.target.value)}
+                placeholder="e.g. 0123456" />
+            </div>
+
+            <div className={styles.formGroup}>
               <label>Unit</label>
               <select value={form.unit} onChange={e => set('unit', e.target.value)}>
                 {PRODUCT_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
+            </div>
+
+            {/* What this is for stock purposes. A material is bought, used up
+                and charged to the job; a tool is owned, moves between the
+                warehouse, the vans and jobs, and is never charged to one. */}
+            <div className={styles.formGroup}>
+              <label>Stock type</label>
+              <div className={styles.gstToggle}>
+                {[['material', 'Material'], ['tool', 'Tool']].map(([value, label]) => (
+                  <button key={value} type="button"
+                    className={`${styles.gstBtn} ${form.stock_kind === value ? styles.gstBtnOn : ''}`}
+                    onClick={() => set('stock_kind', value)}>{label}</button>
+                ))}
+              </div>
+              <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+                {form.stock_kind === 'tool'
+                  ? 'Counted apart from stock, on the Tools tab. Never charged to a job.'
+                  : 'Normal stock: used up on a job and charged to it.'}
+              </span>
             </div>
 
             <div className={styles.formGroup}>

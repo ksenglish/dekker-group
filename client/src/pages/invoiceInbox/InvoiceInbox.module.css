@@ -635,3 +635,14 @@
   .headerActions { align-items: stretch; width: 100%; }
   .newLinePrices { width: 100%; }
 }
+
+/* "Not a product" — a dismissal, not a delete, so it reads as quiet rather
+   than dangerous. */
+.btnNotProduct {
+  padding: 7px 12px; font-size: 12.5px; font-family: inherit; cursor: pointer;
+  border: 1px solid var(--color-border); border-radius: 7px;
+  background: none; color: var(--color-text-muted); white-space: nowrap;
+}
+.btnNotProduct:hover:not(:disabled) { color: #b91c1c; border-color: #fca5a5; background: #fef2f2; }
+.btnNotProduct:disabled { opacity: 0.5; cursor: not-allowed; }
+.newLineActions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
