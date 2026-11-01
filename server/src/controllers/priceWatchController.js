@@ -68,10 +68,19 @@ async function applyFromCosts(req, res) {
           result.updated++;
         } else {
           await pool.query(
+            // The description is what goes on a quote line, so it is the
+            // product. It used to say where the product came from — "From
+            // Bunnings invoice 954200222021, Fri Oct 02 2026 00:00:00
+            // GMT+0000" — which is a note to ourselves printed on the
+            // customer's quote, and had to be retyped every time one was used.
+            // Where it came from is already recorded: the supplier is on the
+            // row and the invoice is on the job it was bought for.
             `INSERT INTO products (name, sku, category, unit, cost_price, unit_price, supplier, description)
              VALUES ($1,$2,$3,'each',$4,$5,$6,$7)`,
-            [row.name, row.sku, CATEGORY, row.cost_cents, row.sell_cents, row.supplier,
-             `From ${row.supplier || 'a supplier'} invoice${row.last_invoice ? ` ${row.last_invoice}` : ''}, ${row.last_seen}.`]
+            // The name twice, as two parameters: one parameter cannot be both
+            // the varchar name and the text description, and Postgres refuses
+            // the statement rather than guessing.
+            [row.name, row.sku, CATEGORY, row.cost_cents, row.sell_cents, row.supplier, row.name]
           );
           result.created++;
         }

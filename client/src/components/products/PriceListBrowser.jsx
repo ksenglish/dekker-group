@@ -67,7 +67,14 @@ function FolderTile({ name, count, onClick }) {
 function ProductTile({ product, onOpen }) {
   // Descriptions hold rich text, so the markup is flattened rather than shown
   // as literal tags.
-  const description = htmlToText(product.description).trim();
+  //
+  // A product whose description is its own name shows the name once. Most of
+  // what the invoice scanner adds is exactly that — the supplier wrote one
+  // line and it is both the name and the description — and printing it twice
+  // reads as a mistake rather than as detail.
+  const flat = htmlToText(product.description).trim();
+  const description = flat.toLowerCase() === String(product.name || '').trim().toLowerCase()
+    ? '' : flat;
   return (
     <button style={card} onClick={() => onOpen(product)} title={product.name}
       onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--color-primary)'}

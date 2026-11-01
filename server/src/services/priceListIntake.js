@@ -130,10 +130,19 @@ async function intake({
 
       const cost = Math.round(Number(line.cost_cents));
       const { rows: [made] } = await client.query(
+        // The description is the line that goes on a quote, so it is the
+        // product's own name until somebody writes something better. Left
+        // empty it reads as blank on the price list and in the stock report,
+        // and every screen that uses it has to remember to fall back.
+        //
+        // The name goes in as two parameters rather than one reused: Postgres
+        // infers a parameter's type from where it sits, and one sitting in
+        // both a varchar column and a text one has no single answer — it
+        // refuses the statement rather than picking.
         `INSERT INTO products
-           (name, category, subcategory_1, unit, cost_price, unit_price,
+           (name, description, category, subcategory_1, unit, cost_price, unit_price,
             supplier, sku, stock_kind, is_active)
-         VALUES ($1,$2,$3,'each',$4,$5,$6,$7,$8,true)
+         VALUES ($1,$9,$2,$3,'each',$4,$5,$6,$7,$8,true)
          RETURNING id, name, stock_kind`,
         [
           name, CATEGORY,
@@ -144,6 +153,7 @@ async function intake({
           supplier ? String(supplier).trim() : null,
           usableSku(line.sku) ? String(line.sku).trim() : null,
           stockKind === 'tool' ? 'tool' : 'material',
+          name,
         ]
       );
       out.created.push(made);
