@@ -131,3 +131,73 @@
   .folderRow { flex-wrap: wrap; }
   .docRow { align-items: flex-start; }
 }
+
+/* ── Lines that have nowhere to go ───────────────────────────────────────────
+   The count sits above both tabs and does not go away until every line on
+   every filed document has an answer. Filing put the PDF away; this is what
+   says where the things on it went. */
+
+.tabPill {
+  display: inline-block; margin-left: 7px; padding: 1px 7px;
+  font-size: 11px; font-weight: 700; line-height: 1.6;
+  background: #b45309; color: #fff; border-radius: 99px;
+}
+
+.alertBar {
+  margin-bottom: 16px; padding: 12px 14px;
+  border: 1px solid #fcd34d; border-radius: 9px; background: #fffbeb;
+  font-size: 13px; color: #78350f; line-height: 1.6;
+}
+.alertHead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.alertHead > span { flex: 1; min-width: 240px; }
+.alertBtn {
+  padding: 6px 12px; font-size: 12.5px; font-weight: 600; font-family: inherit;
+  cursor: pointer; border-radius: 6px; white-space: nowrap;
+  border: 1px solid #b45309; background: #fff; color: #92400e;
+}
+.alertBtn:hover { background: #fef3c7; }
+
+.allClear {
+  margin-bottom: 16px; padding: 9px 14px; font-size: 13px;
+  border: 1px solid #86efac; border-radius: 9px; background: #f0fdf4; color: #166534;
+}
+
+.needsList { margin-top: 12px; border-top: 1px solid #fcd34d; }
+.needsItem { border-bottom: 1px solid #fde68a; padding: 4px 0; }
+.needsItem:last-child { border-bottom: none; }
+.needsRow {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; padding: 7px 0;
+}
+.needsWhere {
+  font-size: 12px; color: #92400e; background: #fef3c7;
+  padding: 2px 8px; border-radius: 99px; white-space: nowrap;
+}
+
+.shortChip {
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+  color: #92400e; background: #fef3c7; border: 1px solid #fcd34d;
+  padding: 2px 9px; border-radius: 99px;
+}
+.okChip {
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+  color: #166534; background: #f0fdf4; border: 1px solid #86efac;
+  padding: 2px 9px; border-radius: 99px;
+}
+
+.smallBtnWarn {
+  padding: 5px 10px; font-size: 12px; font-family: inherit; cursor: pointer;
+  border-radius: 6px; white-space: nowrap;
+  border: 1px solid #f59e0b; background: #fffbeb; color: #92400e; font-weight: 600;
+}
+.smallBtnWarn:hover { background: #fef3c7; }
+
+.docPlacement { padding: 0 14px 12px; }
+
+.filterRow {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.onlyShort {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  font-size: 12.5px; color: var(--color-text-muted); cursor: pointer;
+}

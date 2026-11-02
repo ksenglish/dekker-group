@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import LinePlacement from '../../components/costs/LinePlacement';
 import styles from './Costs.module.css';
 
 const fmtMoney = cents => (Number(cents || 0) / 100).toLocaleString('en-NZ', {
@@ -20,6 +21,14 @@ export default function CostsPage() {
   const { user } = useAuth();
   const admin = isAdmin(user?.role);
   const [tab, setTab] = useState('direct');
+  const [short, setShort] = useState(null);
+
+  // Asked for both tabs at once, because the point of the number is that it
+  // is visible before anybody has gone looking for it.
+  const loadShort = useCallback(() => {
+    api.get('/costs/unaccounted').then(r => setShort(r.data)).catch(() => {});
+  }, []);
+  useEffect(() => { loadShort(); }, [loadShort]);
 
   return (
     <div className={styles.page}>
@@ -37,42 +46,128 @@ export default function CostsPage() {
           onClick={() => setTab('direct')}
         >
           📁 Direct Costs
+          {short?.direct.lines > 0 && <span className={styles.tabPill}>{short.direct.lines}</span>}
         </button>
         <button
           className={`${styles.tab} ${tab === 'operating' ? styles.tabActive : ''}`}
           onClick={() => setTab('operating')}
         >
           📁 Operating Costs
+          {short?.operating.lines > 0 && <span className={styles.tabPill}>{short.operating.lines}</span>}
         </button>
       </div>
 
-      {tab === 'direct' ? <DirectCosts /> : <OperatingCosts admin={admin} />}
+      <Unaccounted short={short} onChanged={loadShort} />
+
+      {tab === 'direct'
+        ? <DirectCosts refreshKey={short?.direct.lines} onChanged={loadShort} />
+        : <OperatingCosts admin={admin} onChanged={loadShort} />}
+    </div>
+  );
+}
+
+// Every line still with nowhere to go, from both tabs, newest first.
+//
+// Filing a document puts the PDF away. It says nothing about where the things
+// on the PDF went, and nothing used to: a receipt for a drill and a box of
+// screws could sit in Operating Costs / Tools / Kyle with the drill in the
+// warehouse and the screws nowhere at all, and the only way to notice was to
+// open the PDF and remember. So the count sits above both tabs and does not
+// go away until every line has an answer.
+function Unaccounted({ short, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [placing, setPlacing] = useState(null);
+
+  if (!short) return null;
+  const lines = short.direct.lines + short.operating.lines;
+  if (lines === 0) {
+    return (
+      <div className={styles.allClear}>
+        ✓ Every line item on every filed document is accounted for.
+      </div>
+    );
+  }
+
+  const docs = short.documents.length;
+  return (
+    <div className={styles.alertBar}>
+      <div className={styles.alertHead}>
+        <span>
+          <strong>{lines} line item{lines === 1 ? '' : 's'}</strong> on {docs}{' '}
+          document{docs === 1 ? '' : 's'} {lines === 1 ? 'has' : 'have'} nowhere to go yet —
+          not on a job, and not in a van or the warehouse as a tool or a material.
+        </span>
+        <button className={styles.alertBtn} onClick={() => setOpen(o => !o)}>
+          {open ? 'Hide' : 'Show them'}
+        </button>
+      </div>
+
+      {open && (
+        <div className={styles.needsList}>
+          {short.documents.map(d => (
+            <div key={d.id} className={styles.needsItem}>
+              <div className={styles.needsRow}>
+                <div className={styles.docMain}>
+                  <span className={styles.docSupplier}>{d.supplier || 'Unknown supplier'}</span>
+                  {d.invoice_number && <span className={styles.muted}>#{d.invoice_number}</span>}
+                  <span className={styles.muted}>{fmtDate(d.created_at)}</span>
+                  <span className={styles.needsWhere}>
+                    {d.job_id ? (formatJobNumber(d) || 'On a job') : d.where}
+                  </span>
+                </div>
+                <div className={styles.docActions}>
+                  <span className={styles.shortChip}>
+                    {d.lines_placed} of {d.lines_total} placed
+                  </span>
+                  <button className={styles.smallBtn} onClick={() => openDocument(d.id)}>PDF</button>
+                  {d.job_id ? (
+                    <Link className={styles.smallBtn} to={`/jobs/${d.job_id}`}>Open job</Link>
+                  ) : (
+                    <button
+                      className={styles.smallBtn}
+                      onClick={() => setPlacing(placing === d.id ? null : d.id)}
+                    >
+                      {placing === d.id ? 'Close' : 'Where did it go?'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {placing === d.id && (
+                <LinePlacement scanId={d.id} onChanged={onChanged} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // Everything already attached to a job. Read-only on purpose — these are filed
 // by the job they belong to, so there is nothing to organise here.
-function DirectCosts() {
+function DirectCosts({ refreshKey }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [onlyShort, setOnlyShort] = useState(false);
 
   useEffect(() => {
     api.get('/costs/direct')
       .then(r => setRows(r.data))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshKey]);
 
   const q = search.trim().toLowerCase();
-  const visible = q
+  const matching = q
     ? rows.filter(r =>
         (r.supplier || '').toLowerCase().includes(q) ||
         (r.invoice_number || '').toLowerCase().includes(q) ||
         (r.customer_name || '').toLowerCase().includes(q) ||
         (formatJobNumber(r) || '').toLowerCase().includes(q))
     : rows;
+  const visible = onlyShort ? matching.filter(r => r.lines_missing > 0) : matching;
+  const shortCount = rows.filter(r => r.lines_missing > 0).length;
 
   const total = visible.reduce((sum, r) => sum + Number(r.total_cents || 0), 0);
 
@@ -81,16 +176,29 @@ function DirectCosts() {
   return (
     <>
       <p className={styles.folderNote}>
-        Every supplier invoice attached to a job. Filed by the job it belongs to,
-        so there is nothing to organise here.
+        Every supplier invoice attached to a job. Linking a document puts all of
+        its lines on that job, so these are accounted for by the job itself —
+        the column to watch is <strong>Items</strong>, which says how many of
+        the lines read off the PDF the job actually carries.
       </p>
 
-      <input
-        className={styles.search}
-        placeholder="Search by supplier, invoice number, job or customer…"
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-      />
+      <div className={styles.filterRow}>
+        <input
+          className={styles.search}
+          style={{ marginBottom: 0 }}
+          placeholder="Search by supplier, invoice number, job or customer…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+        {shortCount > 0 && (
+          <label className={styles.onlyShort}>
+            <input type="checkbox" checked={onlyShort}
+              onChange={e => setOnlyShort(e.target.checked)} />
+            {shortCount === 1 ? "Only the one that doesn't add up"
+              : `Only the ${shortCount} that don't add up`}
+          </label>
+        )}
+      </div>
 
       {visible.length === 0 ? (
         <div className={styles.empty}>
@@ -124,7 +232,14 @@ function DirectCosts() {
                       <Link to={`/jobs/${r.job_id}`}>{formatJobNumber(r) || 'View job'}</Link>
                       {r.customer_name && <div className={styles.muted}>{r.customer_name}</div>}
                     </td>
-                    <td className={styles.num}>{r.item_count}</td>
+                    <td className={styles.num}>
+                      {r.lines_missing > 0 ? (
+                        <span className={styles.shortChip}
+                          title="Lines were read off this PDF that the job does not carry as a cost">
+                          {r.item_count} of {r.lines_total}
+                        </span>
+                      ) : r.item_count}
+                    </td>
                     <td className={styles.num}>{fmtMoney(r.total_cents)}</td>
                     <td className={styles.num}>
                       <a
@@ -188,7 +303,7 @@ function readAsDataUrl(file) {
   });
 }
 
-function OperatingCosts({ admin }) {
+function OperatingCosts({ admin, onChanged: onPlaced }) {
   const [folders, setFolders] = useState([]);
   const [openIds, setOpenIds] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -282,6 +397,7 @@ function OperatingCosts({ admin }) {
             onRemove={remove}
             onAddSub={addSubfolder}
             onChanged={load}
+            onPlaced={onPlaced}
           />
         ))}
       </div>
@@ -310,7 +426,7 @@ function OperatingCosts({ admin }) {
 
 // Renders itself for its own children, so nesting has no fixed depth. Indent is
 // capped so a deep tree stays readable on a phone instead of marching off-screen.
-function FolderNode({ folder, depth, admin, allFolders, openIds, onToggle, onRename, onRemove, onAddSub, onChanged }) {
+function FolderNode({ folder, depth, admin, allFolders, openIds, onToggle, onRename, onRemove, onAddSub, onChanged, onPlaced }) {
   const isOpen = openIds.includes(folder.id);
   const indent = Math.min(depth, 5) * 18;
   const [uploading, setUploading] = useState(false);
@@ -318,6 +434,10 @@ function FolderNode({ folder, depth, admin, allFolders, openIds, onToggle, onRen
   // Bumped whenever this folder's contents change from up here, so the list
   // below refetches — it keys its own load off the folder id alone otherwise.
   const [contentsKey, setContentsKey] = useState(0);
+  // A document uploaded here never passed through PDF Check, so nothing has
+  // asked where its lines went. The panel opens on it as it lands rather than
+  // leaving it to be found in a count later.
+  const [justUploaded, setJustUploaded] = useState(null);
   const fileRef = useRef(null);
 
   // Upload files the folder open, so the newly filed document is visible right
@@ -341,9 +461,12 @@ function FolderNode({ folder, depth, admin, allFolders, openIds, onToggle, onRen
       const count = Array.isArray(data.parsed_items) ? data.parsed_items.length : 0;
       setUploadNote(
         data.scan_error ? `Filed, but the scan failed: ${data.scan_error}`
-          : count ? `Filed — ${count} line item${count === 1 ? '' : 's'} read off it.`
+          : count
+            ? `Filed — ${count} line item${count === 1 ? '' : 's'} read off it.`
+              + ' Say where each one went below.'
           : 'Filed, but no line items could be read off it.'
       );
+      if (count) setJustUploaded(data.id);
       if (!isOpen) onToggle(folder.id);
       setContentsKey(k => k + 1);
       onChanged();
@@ -408,6 +531,7 @@ function FolderNode({ folder, depth, admin, allFolders, openIds, onToggle, onRen
               onRemove={onRemove}
               onAddSub={onAddSub}
               onChanged={onChanged}
+              onPlaced={onPlaced}
             />
           ))}
           <FolderContents
@@ -415,6 +539,8 @@ function FolderNode({ folder, depth, admin, allFolders, openIds, onToggle, onRen
             allFolders={allFolders}
             refreshKey={contentsKey}
             onChanged={onChanged}
+            onPlaced={onPlaced}
+            openPlacementFor={justUploaded}
             indent={indent}
           />
         </>
@@ -423,10 +549,13 @@ function FolderNode({ folder, depth, admin, allFolders, openIds, onToggle, onRen
   );
 }
 
-function FolderContents({ folderId, allFolders = [], refreshKey = 0, onChanged, indent = 0 }) {
+function FolderContents({ folderId, allFolders = [], refreshKey = 0, onChanged, onPlaced, openPlacementFor, indent = 0 }) {
   const [docs, setDocs] = useState(null);
   // Which row is currently showing its folder picker — only ever one at a time.
   const [movingId, setMovingId] = useState(null);
+  // And which is showing where its lines went.
+  const [placingId, setPlacingId] = useState(null);
+  useEffect(() => { if (openPlacementFor) setPlacingId(openPlacementFor); }, [openPlacementFor]);
 
   const load = useCallback(() => {
     api.get('/costs/operating', { params: { folder_id: folderId } })
@@ -469,7 +598,8 @@ function FolderContents({ folderId, allFolders = [], refreshKey = 0, onChanged, 
         const items = Array.isArray(d.parsed_items) ? d.parsed_items : [];
         const total = items.reduce((s, i) => s + (i.unit_price || 0) * (i.quantity || 1), 0);
         return (
-          <div key={d.id} className={styles.docRow}>
+          <div key={d.id}>
+          <div className={styles.docRow}>
             <div className={styles.docMain}>
               <span className={styles.docSupplier}>{d.supplier || 'Unknown supplier'}</span>
               {d.invoice_number && <span className={styles.muted}>#{d.invoice_number}</span>}
@@ -479,9 +609,24 @@ function FolderContents({ folderId, allFolders = [], refreshKey = 0, onChanged, 
                   {items.length} item{items.length === 1 ? '' : 's'} · ${total.toFixed(2)}
                 </span>
               )}
+              {d.lines_total > 0 && (
+                <span className={d.lines_missing > 0 ? styles.shortChip : styles.okChip}>
+                  {d.lines_missing > 0
+                    ? `${d.lines_placed} of ${d.lines_total} placed`
+                    : 'all placed'}
+                </span>
+              )}
             </div>
             <div className={styles.docActions}>
               <button className={styles.smallBtn} onClick={() => openDocument(d.id)}>PDF</button>
+              {d.lines_total > 0 && (
+                <button
+                  className={d.lines_missing > 0 ? styles.smallBtnWarn : styles.smallBtn}
+                  onClick={() => setPlacingId(placingId === d.id ? null : d.id)}
+                >
+                  {placingId === d.id ? 'Close' : 'Where did it go?'}
+                </button>
+              )}
               {movingId === d.id ? (
                 <select
                   className={styles.smallBtn}
@@ -507,6 +652,15 @@ function FolderContents({ folderId, allFolders = [], refreshKey = 0, onChanged, 
               )}
               <button className={styles.smallBtnDanger} onClick={() => remove(d)}>Delete</button>
             </div>
+          </div>
+          {placingId === d.id && (
+            <div className={styles.docPlacement}>
+              <LinePlacement
+                scanId={d.id}
+                onChanged={() => { load(); onPlaced?.(); }}
+              />
+            </div>
+          )}
           </div>
         );
       })}

@@ -5,6 +5,8 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { extractLineItems } = require('../services/invoiceExtract');
 const fileStore = require('../services/fileStore');
 const supplierMemory = require('../services/supplierMemory');
+const linePlacement = require('../services/linePlacement');
+const { looksLikeAProduct } = require('../services/priceListIntake');
 
 router.use(authenticate);
 
@@ -114,6 +116,7 @@ router.get('/direct', async (req, res) => {
       `SELECT s.id, s.supplier, s.invoice_number, s.mime_type, s.created_at, s.job_id,
               j.job_number, j.external_ref, j.description AS job_description,
               c.name AS customer_name,
+              s.parsed_items,
               ${TOTAL_FROM_JOB_COSTS} AS total_cents,
               (SELECT COUNT(*)::int FROM job_costs jc WHERE jc.scan_id = s.id) AS item_count
        FROM job_cost_scans s
@@ -122,7 +125,11 @@ router.get('/direct', async (req, res) => {
        WHERE s.job_id IS NOT NULL AND (s.document_base64 IS NOT NULL OR s.storage_key IS NOT NULL)
        ORDER BY s.created_at DESC`
     );
-    res.json(rows);
+    // Lines read off the PDF against costs the job actually carries. A gap is
+    // a line that was read and then went nowhere — which is the whole thing
+    // this is here to catch.
+    res.json((await linePlacement.tally(rows, looksLikeAProduct))
+      .map(({ parsed_items, ...row }) => row));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -141,9 +148,84 @@ router.get('/operating', async (req, res) => {
        ORDER BY s.created_at DESC`,
       [folder_id || null]
     );
-    res.json(rows);
+    res.json(await linePlacement.tally(rows, looksLikeAProduct));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// Everything still unaccounted for, across both tabs.
+//
+// Filing a document puts the PDF somewhere. It does not say where the things
+// on the PDF went, and for a long time nothing did — a receipt for a drill
+// and a box of screws could sit in Operating Costs / Tools / Kyle with the
+// drill in the warehouse and the screws nowhere at all, and the only way to
+// notice was to open the PDF and remember.
+//
+// So the question is asked of everything already filed, not just of what is
+// arriving: which lines, on which documents, have nowhere to go yet.
+router.get('/unaccounted', async (req, res) => {
+  try {
+    const { rows: operating } = await pool.query(
+      `SELECT s.id, s.supplier, s.invoice_number, s.created_at, s.parsed_items,
+              s.folder_id, s.placement_required, f.name AS folder_name
+         FROM job_cost_scans s
+         LEFT JOIN cost_folders f ON f.id = s.folder_id
+        WHERE s.status = 'filed' AND s.job_id IS NULL
+          AND s.cost_kind IS DISTINCT FROM 'subcontractor'
+        ORDER BY s.created_at DESC`
+    );
+    const { rows: direct } = await pool.query(
+      `SELECT s.id, s.supplier, s.invoice_number, s.created_at, s.parsed_items,
+              s.job_id, j.job_number, j.external_ref,
+              (SELECT COUNT(*)::int FROM job_costs jc WHERE jc.scan_id = s.id) AS item_count
+         FROM job_cost_scans s
+         JOIN jobs j ON j.id = s.job_id
+        WHERE s.document_base64 IS NOT NULL OR s.storage_key IS NOT NULL
+        ORDER BY s.created_at DESC`
+    );
+
+    const shortOf = rows => rows.filter(r => r.lines_missing > 0);
+    const ops = shortOf(await linePlacement.tally(operating, looksLikeAProduct));
+    const dir = shortOf(await linePlacement.tally(direct, looksLikeAProduct));
+    const sum = rows => rows.reduce((n, r) => n + r.lines_missing, 0);
+
+    // The folder path, so a document in Tools / Kyle is findable from the list
+    // rather than naming a folder that appears three times in the tree.
+    const tree = await folderPaths();
+    const strip = ({ parsed_items, ...row }) => row;
+
+    res.json({
+      operating: { documents: ops.length, lines: sum(ops) },
+      direct: { documents: dir.length, lines: sum(dir) },
+      documents: [
+        ...ops.map(r => ({ ...strip(r), where: tree.get(r.folder_id) || 'Operating Costs' })),
+        ...dir.map(r => ({ ...strip(r), where: 'On a job' })),
+      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 200),
+    });
+  } catch (err) {
+    console.error('[costs] unaccounted failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Each folder's full path, for naming where a document sits. The tree is small
+// enough that reading it whole beats recursing in SQL.
+async function folderPaths() {
+  const { rows } = await pool.query('SELECT id, name, parent_id FROM cost_folders');
+  const byId = new Map(rows.map(f => [f.id, f]));
+  const out = new Map();
+  for (const f of rows) {
+    const parts = [];
+    const seen = new Set();
+    let cur = f;
+    while (cur && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      parts.unshift(cur.name);
+      cur = cur.parent_id ? byId.get(cur.parent_id) : null;
+    }
+    out.set(f.id, parts.join(' / '));
+  }
+  return out;
+}
 
 // Upload a PDF or a photo of a receipt straight into a folder. The scanner
 // reads the line items off it so a hand-filed document carries the same detail

@@ -201,4 +201,52 @@ async function outstanding(scanId, parsedItems, looksLikeAProduct, client = pool
   return { total: lines.length, placed: lines.length - missing.length, missing };
 }
 
-module.exports = { placeableLines, place, unplace, outstanding, CATEGORY };
+// The same question asked of a whole list of documents at once.
+//
+// Reports → Costs shows a folder at a time, and a folder can hold a hundred
+// documents; asking per document would be a hundred queries to draw one list.
+// Pass rows that already carry id, parsed_items and (for job-linked ones)
+// job_id and item_count, and each comes back with its tally.
+//
+// A document linked to a job is accounted for by that job: linking turns
+// every line into a cost on it, which is where those lines were meant to end
+// up. What is worth knowing there is whether any line failed to make the
+// trip, so its tally is counted against the job costs the scan produced
+// rather than against placements it was never going to have.
+async function tally(scans, looksLikeAProduct, client = pool) {
+  const ids = scans.map(s => s.id);
+  const placed = new Map();
+  if (ids.length) {
+    const { rows } = await client.query(
+      `SELECT scan_id, line_index FROM scan_line_placements WHERE scan_id = ANY($1::uuid[])`,
+      [ids]);
+    for (const r of rows) {
+      if (!placed.has(r.scan_id)) placed.set(r.scan_id, new Set());
+      placed.get(r.scan_id).add(r.line_index);
+    }
+  }
+
+  return scans.map(scan => {
+    const lines = placeableLines(scan.parsed_items, looksLikeAProduct)
+      .filter(l => l.placeable);
+    if (scan.job_id) {
+      const onJob = Number(scan.item_count || 0);
+      return {
+        ...scan,
+        lines_total: lines.length,
+        lines_placed: Math.min(onJob, lines.length),
+        lines_missing: Math.max(0, lines.length - onJob),
+      };
+    }
+    const done = placed.get(scan.id) || new Set();
+    const missing = lines.filter(l => !done.has(l.index)).length;
+    return {
+      ...scan,
+      lines_total: lines.length,
+      lines_placed: lines.length - missing,
+      lines_missing: missing,
+    };
+  });
+}
+
+module.exports = { placeableLines, place, unplace, outstanding, tally, CATEGORY };
