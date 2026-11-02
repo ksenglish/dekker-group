@@ -16,6 +16,7 @@
 // is still most of the work — the folder is chosen, somebody just says yes.
 const pool = require('../db/pool');
 const priceListIntake = require('./priceListIntake');
+const linePlacement = require('./linePlacement');
 
 // Supplier names are matched the way the rest of the app matches them: case,
 // spacing and punctuation are not a different supplier.
@@ -171,7 +172,8 @@ async function suggest({ supplier, documentType }, client = pool) {
 // the place to change it.
 async function fileScan(scanId, client = pool) {
   const { rows: [scan] } = await client.query(
-    `SELECT id, supplier, document_type, status, folder_id, parsed_items, cost_kind
+    `SELECT id, supplier, document_type, status, folder_id, parsed_items, cost_kind,
+            placement_required
        FROM job_cost_scans WHERE id = $1`,
     [scanId]
   );
@@ -180,6 +182,24 @@ async function fileScan(scanId, client = pool) {
   const pick = await suggest(
     { supplier: scan.supplier, documentType: scan.document_type }, client);
   if (!pick) return { filed: false, reason: 'no_idea' };
+
+  // Filing on arrival must not jump the queue. Filing is what turns these
+  // lines into a figure in a cost report and nothing else, so a document
+  // whose lines have nowhere to go yet keeps its folder as a suggestion and
+  // waits in PDF Check for somebody to say where each one went. Once they
+  // have, one press files it into the folder already chosen here.
+  if (scan.placement_required) {
+    const left = await linePlacement.outstanding(
+      scanId, scan.parsed_items, priceListIntake.looksLikeAProduct, client);
+    if (left.missing.length) {
+      await client.query(
+        'UPDATE job_cost_scans SET suggested_folder_id = $1, filed_because = $2 WHERE id = $3',
+        [pick.folderId, pick.why, scanId]
+      );
+      return { filed: false, reason: 'needs_placement', folderId: pick.folderId,
+        why: pick.why, ...left };
+    }
+  }
 
   if (!pick.confident) {
     await client.query(
@@ -217,11 +237,12 @@ async function fileWaiting({ limit = 500 } = {}) {
       LIMIT $1`,
     [limit]
   );
-  const out = { looked: rows.length, filed: 0, suggested: 0, stumped: 0, products_added: 0 };
+  const out = { looked: rows.length, filed: 0, suggested: 0, needs_placement: 0, stumped: 0, products_added: 0 };
   for (const r of rows) {
     const result = await fileScan(r.id);
     if (result.filed) out.filed++;
     else if (result.reason === 'suggested') out.suggested++;
+    else if (result.reason === 'needs_placement') out.needs_placement++;
     else out.stumped++;
     // Said out loud, because putting a backlog away can put a few hundred rows
     // on the price list and that should not be a surprise.

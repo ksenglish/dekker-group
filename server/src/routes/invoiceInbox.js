@@ -11,6 +11,7 @@ const { extractLineItems } = require('../services/invoiceExtract');
 const { matchProduct, groupSame, usableSku } = require('../services/productMatch');
 const { DEFAULT_MARKUP, sellFrom } = require('../services/costsToPriceList');
 const { looksLikeAProduct } = require('../services/priceListIntake');
+const linePlacement = require('../services/linePlacement');
 
 // Count unmatched (for sidebar badge)
 router.get('/count', authenticate, async (req, res) => {
@@ -309,6 +310,133 @@ router.get('/new-lines', authenticate, async (req, res) => {
   }
 });
 
+// ── Where each line went ─────────────────────────────────────────────────────
+
+// One document's lines, with what has been decided about each.
+router.get('/:id/lines', authenticate, async (req, res) => {
+  try {
+    const { rows: [scan] } = await pool.query(
+      `SELECT id, supplier, invoice_number, parsed_items, cost_kind, placement_required, status
+         FROM job_cost_scans WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!scan) return res.status(404).json({ error: 'Not found' });
+
+    const lines = linePlacement.placeableLines(scan.parsed_items, looksLikeAProduct);
+    const { rows: placed } = await pool.query(
+      `SELECT p.*, l.name AS location_name, j.job_number, j.external_ref, pr.name AS product_name,
+              pr.stock_kind
+         FROM scan_line_placements p
+         LEFT JOIN stock_locations l ON l.id = p.location_id
+         LEFT JOIN jobs j ON j.id = p.job_id
+         LEFT JOIN products pr ON pr.id = p.product_id
+        WHERE p.scan_id = $1`,
+      [req.params.id]
+    );
+    const byIndex = new Map(placed.map(p => [p.line_index, p]));
+
+    res.json({
+      scan: {
+        id: scan.id, supplier: scan.supplier, invoice_number: scan.invoice_number,
+        cost_kind: scan.cost_kind, placement_required: scan.placement_required,
+      },
+      lines: lines.map(l => ({ ...l, placement: byIndex.get(l.index) || null })),
+      ...await linePlacement.outstanding(scan.id, scan.parsed_items, looksLikeAProduct),
+    });
+  } catch (err) {
+    console.error('[invoice-inbox] lines failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Place one line, or several in one go — which is what "everything else to the
+// warehouse" on the screen sends.
+router.post('/:id/lines/place', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const wanted = Array.isArray(req.body?.placements) ? req.body.placements : [req.body];
+  if (!wanted.length) return res.status(400).json({ error: 'Nothing to place' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [scan] } = await client.query(
+      `SELECT id, supplier, parsed_items, cost_kind FROM job_cost_scans WHERE id = $1 FOR UPDATE`,
+      [req.params.id]
+    );
+    if (!scan) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const lines = linePlacement.placeableLines(scan.parsed_items, looksLikeAProduct);
+    const done = [];
+
+    for (const want of wanted) {
+      const line = lines.find(l => l.index === Number(want.line_index));
+      if (!line) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `There is no line ${want.line_index} on this document` });
+      }
+      const destination = want.destination;
+      if (!['location', 'job', 'not_stock'].includes(destination)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Pick where the line went' });
+      }
+      if (destination === 'location') {
+        const { rows } = await client.query(
+          'SELECT id FROM stock_locations WHERE id = $1 AND is_active', [want.location_id]);
+        if (!rows[0]) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'That stock location does not exist' });
+        }
+      }
+      if (destination === 'job') {
+        const { rows } = await client.query('SELECT id FROM jobs WHERE id = $1', [want.job_id]);
+        if (!rows[0]) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'That job does not exist' });
+        }
+      }
+      done.push(await linePlacement.place(client, {
+        scan, line, destination,
+        locationId: want.location_id || null,
+        jobId: want.job_id || null,
+        stockKind: want.stock_kind === 'tool' ? 'tool' : 'material',
+        note: want.note || null,
+        userId: req.user.id,
+      }));
+    }
+
+    await client.query('COMMIT');
+    const left = await linePlacement.outstanding(scan.id, scan.parsed_items, looksLikeAProduct);
+    // The array is `placements`, not `placed`: `placed` is the count of how
+    // many of the document's lines are now settled, and one name for both is
+    // how the array quietly became a number.
+    res.status(201).json({ placements: done, ...left });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[invoice-inbox] place failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
+});
+
+// Undo one, and undo what it did.
+router.delete('/:id/lines/:index/place', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const undone = await linePlacement.unplace(client, {
+      scanId: req.params.id, lineIndex: Number(req.params.index),
+    });
+    await client.query('COMMIT');
+    if (!undone) return res.status(404).json({ error: 'That line was not placed' });
+    res.json({ undone: undone.description, was: undone.destination });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[invoice-inbox] unplace failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  } finally { client.release(); }
+});
+
 // Saying a line is not a product, and never will be.
 //
 // Admin only: it is a decision about the price list rather than about one
@@ -455,6 +583,27 @@ router.put('/:id/items', authenticate, async (req, res) => {
     // Once it's been linked or filed the figures are on the job, so editing
     // here would no longer change anything.
     if (!rows[0]) return res.status(404).json({ error: 'Not found, or it has already been linked or filed' });
+
+    // The placements were against positions in the old list. After an edit
+    // those positions mean different words, so they are undone rather than
+    // left pointing at whatever now sits where they used to — which would be
+    // stock received against the wrong product with nothing to say so.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows: had } = await client.query(
+        'SELECT line_index FROM scan_line_placements WHERE scan_id = $1', [req.params.id]);
+      for (const row of had) {
+        await linePlacement.unplace(client, { scanId: req.params.id, lineIndex: row.line_index });
+      }
+      await client.query('COMMIT');
+      if (had.length) {
+        console.log('[invoice-inbox] cleared %d placement(s) after a line edit', had.length);
+      }
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('[invoice-inbox] could not clear placements after edit:', e.message);
+    } finally { client.release(); }
     res.json(rows[0]);
   } catch (err) {
     console.error('Invoice inbox item edit failed:', err);
@@ -492,6 +641,21 @@ router.post('/:id/link', authenticate, async (req, res) => {
       );
     }
 
+    // Linking the whole document to a job is itself an answer for every line
+    // on it: they all went to that job, and they are all now costs on it. So
+    // they are recorded as placed, rather than the document being filed and
+    // then asked where its lines went.
+    for (let i = 0; i < costItems.length; i++) {
+      await client.query(
+        `INSERT INTO scan_line_placements
+           (scan_id, line_index, description, quantity, destination, job_id, placed_by)
+         VALUES ($1,$2,$3,$4,'job',$5,$6)
+         ON CONFLICT (scan_id, line_index) DO NOTHING`,
+        [scan.id, i, String(costItems[i].description || '').trim() || `Line ${i + 1}`,
+         Number(costItems[i].quantity) || 1, job_id, req.user.id]
+      );
+    }
+
     await client.query('COMMIT');
 
     // Onto the price list, after the costs are safely committed. A document
@@ -525,6 +689,31 @@ router.post('/:id/file', authenticate, async (req, res) => {
   try {
     const { rows: [folder] } = await pool.query('SELECT id FROM cost_folders WHERE id = $1', [folder_id]);
     if (!folder) return res.status(404).json({ error: 'Folder not found' });
+
+    // The step this whole thing exists for. Filing into an operating-cost
+    // folder turns the lines into a number in a report and nothing else, which
+    // is exactly how a drill bought at Mitre 10 ends up in no van, no
+    // warehouse and no tool register. So every line has to have been placed
+    // first — unless this document predates the rule, in which case it is not
+    // held up by it.
+    const { rows: [waiting] } = await pool.query(
+      `SELECT parsed_items, placement_required FROM job_cost_scans WHERE id = $1`,
+      [req.params.id]
+    );
+    if (waiting?.placement_required) {
+      const left = await linePlacement.outstanding(
+        req.params.id, waiting.parsed_items, looksLikeAProduct);
+      if (left.missing.length) {
+        return res.status(409).json({
+          error: `${left.missing.length} of ${left.total} line`
+            + `${left.total === 1 ? '' : 's'} on this document ${left.missing.length === 1 ? 'has' : 'have'}`
+            + ' nowhere to go yet. Say where each one went — a van, the warehouse, a job,'
+            + ' or used up — and it can be filed.',
+          needs_placement: true,
+          ...left,
+        });
+      }
+    }
 
     const { rows } = await pool.query(
       `UPDATE job_cost_scans
