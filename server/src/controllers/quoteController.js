@@ -209,6 +209,12 @@ const hasWords = html => /[a-z0-9]/i.test(String(html || '').replace(/<[^>]*>/g,
 const termsFor = (quote, docTheme) =>
   (quote?.terms_and_conditions ?? docTheme?.termsAndConditions) || '';
 
+// Payment terms work the same way, and are the ones most likely to move job
+// to job — a deposit on a big supply, progress payments on a long install,
+// seven days instead of the 20th for a customer who asked.
+const paymentTermsFor = (quote, docTheme) =>
+  (quote?.payment_terms ?? docTheme?.paymentTerms) || '';
+
 async function get(req, res) {
   if (await denyUnreachable(req, res)) return;
   try {
@@ -245,6 +251,7 @@ async function get(req, res) {
       line_items: items.rows,
       attachment_ids: await getQuoteAttachmentIds(q.id),
       theme_terms: docTheme.termsAndConditions || '',
+      theme_payment_terms: docTheme.paymentTerms || '',
       theme_name: docTheme.name,
     });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
@@ -366,6 +373,12 @@ async function update(req, res) {
   // editor is the only thing that should be deciding what markup it carries.
   const typedTerms = String(req.body.terms_and_conditions ?? '').trim();
   const ownTerms = editsTerms && hasWords(typedTerms) ? sanitizeHtml(typedTerms) : null;
+  // Payment terms are plain text wherever they are shown — the PDF draws them
+  // as a paragraph and the public page prints them pre-wrapped — so they are
+  // kept as typed rather than run through the HTML sanitizer.
+  const editsPayment = Object.prototype.hasOwnProperty.call(req.body, 'payment_terms');
+  const typedPayment = String(req.body.payment_terms ?? '').trim();
+  const ownPayment = editsPayment && typedPayment ? typedPayment : null;
   if (await denyUnreachable(req, res)) return;
   try {
     // Totals always come from the quote's own line items
@@ -376,10 +389,11 @@ async function update(req, res) {
     const { rows } = await pool.query(
       `UPDATE quotes SET status=$1, subtotal=$2, gst=$3, total=$4, notes=$5, updated_at=NOW(),
               theme_id=COALESCE($6, theme_id), quote_date=COALESCE($7, quote_date), expires_at=COALESCE($8, expires_at),
-              terms_and_conditions=CASE WHEN $9 THEN $10 ELSE terms_and_conditions END
-       WHERE id=$11 RETURNING *`,
+              terms_and_conditions=CASE WHEN $9 THEN $10 ELSE terms_and_conditions END,
+              payment_terms=CASE WHEN $11 THEN $12 ELSE payment_terms END
+       WHERE id=$13 RETURNING *`,
       [status, subtotal, gst, total, notes != null ? sanitizeHtml(notes) : null, theme_id || null, quote_date || null, expires_at || null,
-       editsTerms, ownTerms, req.params.id]
+       editsTerms, ownTerms, editsPayment, ownPayment, req.params.id]
     );
     // Sent as the full selection, so replace rather than merge. Restricted to
     // attachments actually on this quote's job.
@@ -970,7 +984,7 @@ async function downloadPdf(req, res) {
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: termsFor(q, docTheme),
+      status: q.status, notes: q.notes, paymentTerms: paymentTermsFor(q, docTheme), terms: termsFor(q, docTheme),
       issuedAt: q.quote_date || q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
       appendixPdfs,
@@ -1048,7 +1062,7 @@ async function sendEmail(req, res) {
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: termsFor(q, docTheme),
+      status: q.status, notes: q.notes, paymentTerms: paymentTermsFor(q, docTheme), terms: termsFor(q, docTheme),
       issuedAt: q.quote_date || q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
       appendixPdfs,
@@ -1216,7 +1230,7 @@ async function publicGet(req, res) {
       job_external_ref: q.external_ref,
       job_address: formatJobAddress(q),
       notes: q.notes,
-      payment_terms: docTheme.paymentTerms || '',
+      payment_terms: paymentTermsFor(q, docTheme),
       terms: termsFor(q, docTheme),
       subtotal: q.subtotal, gst: q.gst, total: q.total,
       created_at: q.created_at,

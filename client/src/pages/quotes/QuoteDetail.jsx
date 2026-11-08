@@ -42,29 +42,37 @@ function whoFromMessage(a) {
   return m ? m[1] : null;
 }
 
-// The terms this quote goes out under.
+// Wording this quote can bend without bending the theme's.
 //
-// They belong to the Document Theme, and for almost every quote that is the
-// end of it. But one job in twenty needs a line changed — a staged payment,
-// a site condition, something the customer's own contract asks for — and the
-// only ways to do that were to edit the theme, which rewrites the terms on
-// every other quote using it, or to build a near-duplicate theme for one
+// Terms and conditions and payment terms both belong to the Document Theme,
+// and for almost every quote that is the end of it. But one job in twenty
+// needs a line changed — a deposit on a big supply, progress payments on a
+// long install, a site condition the customer's own contract asks for — and
+// the only ways to do that were to edit the theme, which rewrites the wording
+// on every other quote using it, or to build a near-duplicate theme for one
 // quote.
 //
 // So this quote can take a copy and change it. Until somebody asks for that,
 // the quote follows the theme and a later edit to the theme still reaches it.
-function QuoteTerms({ value, onChange, themeTerms, themeName, locked }) {
+//
+// Written once for both because they are the same decision, and two copies of
+// it would not stay the same for long. `rich` is the only difference that
+// matters: terms and conditions are formatted, payment terms are plain text
+// wherever they are printed.
+function ThemeWording({
+  label, value, onChange, themeValue, themeName, locked, rich, placeholder, printedWhere,
+}) {
   const own = value !== '';
   const [showing, setShowing] = useState(false);
   // Terms written before the rich text editor existed are plain, and feeding
   // those to a contentEditable runs every line together.
   const asHtml = v => (v ? (isHtml(v) ? v : textToHtml(v)) : '');
-  const blank = own && !htmlHasWords(value);
+  const blank = own && !hasWords(value);
 
   return (
     <div className={styles.termsBlock}>
       <div className={styles.termsHead}>
-        <label className={styles.fieldLabel} style={{ margin: 0 }}>Terms &amp; Conditions</label>
+        <label className={styles.fieldLabel} style={{ margin: 0 }}>{label}</label>
         <span className={own ? styles.termsOwn : styles.termsFollowing}>
           {own ? 'Written for this quote' : `Following the ${themeName} theme`}
         </span>
@@ -85,18 +93,21 @@ function QuoteTerms({ value, onChange, themeTerms, themeName, locked }) {
           )
         ) : (
           <>
-            <button type="button" className={styles.termsLink}
-              onClick={() => setShowing(v => !v)}>
-              {showing ? 'Hide' : 'Read them'}
-            </button>
+            {themeValue && (
+              <button type="button" className={styles.termsLink}
+                onClick={() => setShowing(v => !v)}>
+                {showing ? 'Hide' : 'Read them'}
+              </button>
+            )}
             {!locked && (
               <button
                 type="button"
                 className={styles.termsLink}
                 // The theme's words are copied in to be edited: an empty box
-                // would read as "this quote has no terms", which is not what
+                // would read as "this quote has none", which is not what
                 // pressing Edit means.
-                onClick={() => onChange(asHtml(themeTerms) || '<div><br></div>')}
+                onClick={() => onChange(
+                  rich ? (asHtml(themeValue) || '<div><br></div>') : (themeValue || ' '))}
               >
                 Edit for this quote
               </button>
@@ -107,40 +118,46 @@ function QuoteTerms({ value, onChange, themeTerms, themeName, locked }) {
 
       {own ? (
         <>
-          <RichTextEditor
-            value={asHtml(value)}
-            onChange={onChange}
-            placeholder="Terms and conditions for this quote…"
-          />
+          {rich ? (
+            <RichTextEditor value={asHtml(value)} onChange={onChange} placeholder={placeholder} />
+          ) : (
+            <textarea
+              className={styles.termsPlain}
+              value={value}
+              disabled={locked}
+              placeholder={placeholder}
+              rows={5}
+              onChange={e => onChange(e.target.value)}
+            />
+          )}
           <p className={blank ? styles.termsWarn : styles.termsNote}>
             {blank
               ? 'Left empty, this quote goes back to the theme\u2019s wording when you save.'
               : `This wording is this quote\u2019s own. Later changes to the ${themeName} theme will not reach it.`}
           </p>
         </>
-      ) : showing ? (
-        themeTerms ? (
+      ) : showing && themeValue ? (
+        rich ? (
           <div className={styles.termsPreview}
-            dangerouslySetInnerHTML={{ __html: safeHtml(asHtml(themeTerms)) }} />
+            dangerouslySetInnerHTML={{ __html: safeHtml(asHtml(themeValue)) }} />
         ) : (
-          <p className={styles.termsNote}>This theme has no terms and conditions set.</p>
+          <div className={styles.termsPreview} style={{ whiteSpace: 'pre-wrap' }}>{themeValue}</div>
         )
       ) : (
         <p className={styles.termsNote}>
-          {themeTerms
-            ? 'The theme\u2019s standard terms print at the end of this quote.'
-            : 'This theme has no terms and conditions set, so none will print.'}
+          {themeValue
+            ? `The theme\u2019s standard wording prints ${printedWhere}.`
+            : 'This theme has none set, so none will print.'}
         </p>
       )}
     </div>
   );
 }
-
 // An editor left empty still holds markup — <div><br></div> and the like — so
 // "has the user actually written anything" is a question about words, not
-// about length.
-function htmlHasWords(html) {
-  return /[a-z0-9]/i.test(String(html).replace(/<[^>]*>/g, ''));
+// about length. Harmless on the plain field, which has no tags to strip.
+function hasWords(value) {
+  return /[a-z0-9]/i.test(String(value).replace(/<[^>]*>/g, ''));
 }
 export default function QuoteDetail() {
   const { id } = useParams();
@@ -163,6 +180,7 @@ export default function QuoteDetail() {
   // wording is not copied in until somebody asks for it, so a quote left
   // alone keeps following later edits to the theme.
   const [ownTerms, setOwnTerms] = useState('');
+  const [ownPaymentTerms, setOwnPaymentTerms] = useState('');
   const [quoteDate, setQuoteDate] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [activity, setActivity] = useState([]);
@@ -181,7 +199,8 @@ export default function QuoteDetail() {
   // Details, description, theme, dates and attachments all save together, so
   // one snapshot of the lot decides whether anything is outstanding.
   const detailsSnapshot = JSON.stringify({
-    notes, themeId, quoteDate, expiresAt, ownTerms, attachmentIds: [...attachmentIds].sort(),
+    notes, themeId, quoteDate, expiresAt, ownTerms, ownPaymentTerms,
+    attachmentIds: [...attachmentIds].sort(),
   });
   // null until the quote has loaded, so the first render can't look "unsaved".
   const savedDetailsRef = useRef(null);
@@ -196,6 +215,7 @@ export default function QuoteDetail() {
   // saved on the quote — switching the dropdown should show the terms that
   // switch would bring with it.
   const selectedTheme = themes.find(t => t.id === themeId);
+  const themeName = selectedTheme?.name || quote?.theme_name || 'document';
 
   // Anything outstanding anywhere on the page — the details block or the line
   // items, which save separately but should warn as one.
@@ -221,6 +241,7 @@ export default function QuoteDetail() {
       setNotes(r.data.notes || '');
       setThemeId(r.data.theme_id || '');
       setOwnTerms(r.data.terms_and_conditions || '');
+      setOwnPaymentTerms(r.data.payment_terms || '');
       setQuoteDate(toDateInput(r.data.quote_date || r.data.created_at));
       setExpiresAt(toDateInput(r.data.expires_at));
       setAttachmentIds(r.data.attachment_ids || []);
@@ -232,6 +253,7 @@ export default function QuoteDetail() {
         quoteDate: toDateInput(r.data.quote_date || r.data.created_at),
         expiresAt: toDateInput(r.data.expires_at),
         ownTerms: r.data.terms_and_conditions || '',
+        ownPaymentTerms: r.data.payment_terms || '',
         attachmentIds: [...(r.data.attachment_ids || [])].sort(),
       });
     }).catch(err => setLoadError(err.response?.data?.error || ''))
@@ -340,7 +362,7 @@ export default function QuoteDetail() {
     setSavingDetails(true);
     try {
       const snapshot = JSON.stringify({
-        notes: notesToSave, themeId, quoteDate, expiresAt, ownTerms,
+        notes: notesToSave, themeId, quoteDate, expiresAt, ownTerms, ownPaymentTerms,
         attachmentIds: [...attachmentIds].sort(),
       });
       const { data } = await api.put(`/quotes/${id}`, {
@@ -349,6 +371,7 @@ export default function QuoteDetail() {
         attachment_ids: attachmentIds,
         // Blank means follow the theme, which is what the server stores.
         terms_and_conditions: ownTerms,
+        payment_terms: ownPaymentTerms,
       });
       setQuote(q => ({ ...q, ...data }));
       // Records what was actually sent, not the values as they stand now — the
@@ -663,12 +686,27 @@ export default function QuoteDetail() {
               <label className={styles.fieldLabel}>Description</label>
               <RichTextEditor value={notes} onChange={setNotes} placeholder="Add a description to appear on the quote PDF…" />
 
-              <QuoteTerms
+              <ThemeWording
+                label="Payment Terms"
+                value={ownPaymentTerms}
+                onChange={setOwnPaymentTerms}
+                themeValue={selectedTheme?.paymentTerms ?? quote.theme_payment_terms ?? ''}
+                themeName={themeName}
+                locked={isLocked}
+                placeholder="e.g. 30% deposit on acceptance, balance on completion…"
+                printedWhere="straight after the line items"
+              />
+
+              <ThemeWording
+                label="Terms & Conditions"
+                rich
                 value={ownTerms}
                 onChange={setOwnTerms}
-                themeTerms={selectedTheme?.termsAndConditions ?? quote.theme_terms ?? ''}
-                themeName={selectedTheme?.name || quote.theme_name || 'the theme'}
+                themeValue={selectedTheme?.termsAndConditions ?? quote.theme_terms ?? ''}
+                themeName={themeName}
                 locked={isLocked}
+                placeholder="Terms and conditions for this quote…"
+                printedWhere="at the end of this quote"
               />
             </div>
           </div>
