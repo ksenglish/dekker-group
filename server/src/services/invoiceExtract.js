@@ -8,12 +8,25 @@ const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 const PROMPT = `Extract all line items from this invoice or receipt.
 
-STEP 1 — Determine GST treatment by reading the document carefully:
-- If there is a separate "GST", "Tax", or "GST (15%)" line showing an amount, the line item prices are GST-EXCLUSIVE (ex-GST). Use them as-is.
-- If the document says "GST inclusive", "incl. GST", or "inc GST" near the prices, the prices are GST-INCLUSIVE. Divide by 1.15 to get ex-GST.
-- If the subtotal + a GST amount = the total, the line item prices are GST-EXCLUSIVE. Use them as-is.
+STEP 1 — Determine GST treatment. Do the ARITHMETIC first; the wording on the
+document decides only when the arithmetic cannot.
+- Add up the line item prices. If that sum ALREADY EQUALS the grand total,
+  the GST is inside those prices: they are GST-INCLUSIVE. Divide by 1.15.
+- If that sum PLUS a GST amount equals the grand total, the prices are
+  GST-EXCLUSIVE. Use them as-is.
+- A line reading "GST content", "GST included", "includes GST", "GST incl",
+  "Total includes GST" or similar is NOT a GST-exclusive breakdown. It is
+  telling you how much GST is already inside the total, so the prices are
+  GST-INCLUSIVE. Divide by 1.15. This is how supermarket and retail till
+  receipts are printed, and getting it wrong makes every line 15% too high.
+- A separate "GST" or "GST (15%)" line ADDED to a subtotal to reach the total
+  means the prices are GST-EXCLUSIVE. Use them as-is.
+- A till receipt from a shop (supermarket, hardware, petrol station, cafe) is
+  GST-INCLUSIVE unless it plainly shows a subtotal with GST added to it.
 - If only a grand total is shown with no breakdown, assume GST-INCLUSIVE and divide by 1.15.
-Set "gst_treatment" to "exclusive" or "inclusive" to record which case applies.
+Set "gst_treatment" to "exclusive" or "inclusive" to record which case the
+document was — not what you did to the numbers. Either way the unit_price you
+return is ex-GST.
 
 STEP 2 — Extract each line item with these fields:
 - "description": string (item name/description)

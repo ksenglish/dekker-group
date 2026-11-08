@@ -553,9 +553,23 @@ router.post('/upload', authenticate, async (req, res) => {
 // than held in the browser, so an invoice can be fixed now and linked later —
 // and so filing it to a folder, which reads the same field, gets the corrected
 // figures too.
+// Fixing what the reader made of a document.
+//
+// Everything in the app is held GST-exclusive, because that is what a cost
+// is and what a margin is worked out from. A receipt from a supermarket or a
+// hardware counter prints the other kind, and when the reader takes those
+// figures as ex-GST every line is 15% too high — which somebody then has to
+// put right by dividing each one by 1.15 on a calculator.
+//
+// So the editor says which kind the figures it is sending are, and the sum is
+// done here. One place, one rounding, and the document is marked with how it
+// was read.
+const GST_RATE = 0.15;
+
 router.put('/:id/items', authenticate, async (req, res) => {
-  const { items } = req.body;
+  const { items, prices_include_gst } = req.body;
   if (!Array.isArray(items)) return res.status(400).json({ error: 'items must be a list' });
+  const inclusive = prices_include_gst === true;
 
   const cleaned = [];
   for (const raw of items) {
@@ -569,16 +583,20 @@ router.put('/:id/items', authenticate, async (req, res) => {
       // Quantity is a magnitude; a credit is carried as a negative unit price,
       // matching how the scanner normalises them.
       quantity: Math.max(0.01, Math.abs(Number.isFinite(quantity) && quantity !== 0 ? quantity : 1)),
-      unit_price: unitPrice,
+      // Rounded to the cent, because a price is money and a line carrying
+      // 10.434782608695652 reads as a mistake wherever it is shown.
+      unit_price: inclusive
+        ? Math.round((unitPrice / (1 + GST_RATE)) * 100) / 100
+        : unitPrice,
     });
   }
 
   try {
     const { rows } = await pool.query(
-      `UPDATE job_cost_scans SET parsed_items = $1
-       WHERE id = $2 AND status = 'unmatched'
-       RETURNING id, parsed_items`,
-      [JSON.stringify(cleaned), req.params.id]
+      `UPDATE job_cost_scans SET parsed_items = $1, gst_treatment = $2
+       WHERE id = $3 AND status = 'unmatched'
+       RETURNING id, parsed_items, gst_treatment`,
+      [JSON.stringify(cleaned), inclusive ? 'inclusive' : 'exclusive', req.params.id]
     );
     // Once it's been linked or filed the figures are on the job, so editing
     // here would no longer change anything.

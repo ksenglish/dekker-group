@@ -658,3 +658,42 @@
 }
 .btnPlace:hover { background: #fef3c7; }
 .btnPlaceOpen { background: #92400e; border-color: #92400e; color: #fff; }
+
+/* ── Which kind of figures the editor is holding ─────────────────────────────
+   Costs are held without GST all through the app. A receipt from a supermarket
+   or a trade counter prints the other kind, and when the reader takes those as
+   ex-GST every line is 15% too high — which used to mean dividing each one by
+   1.15 by hand. Saying which kind they are is the whole fix. */
+
+.gstBar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 10px; padding: 9px 12px;
+  border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg);
+}
+.gstLabel { font-size: 13px; font-weight: 600; color: var(--color-text); }
+.gstChoice {
+  display: inline-flex; border: 1px solid var(--color-border);
+  border-radius: 7px; overflow: hidden; background: var(--color-surface);
+}
+.gstOpt, .gstOptOn {
+  padding: 6px 13px; font-size: 12.5px; font-family: inherit; cursor: pointer;
+  border: none; background: none; color: var(--color-text-muted); white-space: nowrap;
+}
+.gstOpt:hover { color: var(--color-text); background: var(--color-bg); }
+.gstOptOn {
+  background: #1e40af; color: #fff; font-weight: 600;
+}
+.gstNote { font-size: 12px; color: var(--color-text-muted); flex: 1; min-width: 200px; }
+
+/* The figure that will actually be stored, beside the one being typed. */
+.gstDerived { color: var(--color-text-muted); }
+
+.totalRowQuiet td {
+  padding-top: 0; font-size: 12px; color: var(--color-text-muted);
+  border-top: none;
+}
+
+/* The line-item tables are wider than a phone, and the card clips. Scrolling
+   them sideways is how the Total column exists at all on a 375px screen. */
+.tableScroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tableScroll > table { min-width: 460px; }

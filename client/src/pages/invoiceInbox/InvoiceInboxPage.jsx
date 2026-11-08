@@ -8,6 +8,10 @@ import styles from './InvoiceInbox.module.css';
 const fmtDate = d => new Date(d).toLocaleDateString('en-NZ', {
   day: 'numeric', month: 'short', year: 'numeric',
 });
+// Costs are held without GST throughout the app; this is only ever used to
+// show the other figure beside them, or to take it back off what was typed.
+const GST_RATE = 0.15;
+
 const fmtCurrency = cents => `$${((cents || 0) / 100).toFixed(2)}`;
 
 // Folders nest, so the picker shows them in tree order with the depth carried
@@ -332,6 +336,11 @@ export default function InvoiceInboxPage() {
     setItemsError('');
     setEditing({
       scanId: scan.id,
+      // What the prices in the table mean. The app holds costs ex GST, so
+      // that is where the editor starts; saying they include GST is what a
+      // supermarket or hardware receipt needs, and the 1.15 is then the
+      // app's job rather than somebody's.
+      inclusive: false,
       items: items.map(i => ({
         description: i.description || '',
         quantity: String(i.quantity ?? 1),
@@ -361,7 +370,9 @@ export default function InvoiceInboxPage() {
     if (payload.some(i => !Number.isFinite(i.unit_price))) { setItemsError('Every line needs a unit price'); return; }
     setSavingItems(true); setItemsError('');
     try {
-      const { data } = await api.put(`/invoice-inbox/${editing.scanId}/items`, { items: payload });
+      const { data } = await api.put(`/invoice-inbox/${editing.scanId}/items`, {
+        items: payload, prices_include_gst: editing.inclusive,
+      });
       setScans(s => s.map(x => x.id === editing.scanId ? { ...x, parsed_items: data.parsed_items } : x));
       setEditing(null);
     } catch (err) {
@@ -684,6 +695,12 @@ export default function InvoiceInboxPage() {
           const editingTotal = isEditing
             ? editing.items.reduce((s, i) => s + (parseFloat(i.unit_price) || 0) * (parseFloat(i.quantity) || 0), 0)
             : 0;
+          // Typed figures against stored ones. Costs are held ex GST, so when
+          // the table holds a receipt's GST-inclusive prices the ex-GST column
+          // is shown beside them — the number that will actually be saved,
+          // visible before it is.
+          const exOf = v => v / (1 + GST_RATE);
+          const editingEx = isEditing && editing.inclusive ? exOf(editingTotal) : editingTotal;
 
           return (
             <div key={scan.id} className={`${styles.card} ${selected.includes(scan.id) ? styles.cardSelected : ''}`}>
@@ -765,12 +782,40 @@ export default function InvoiceInboxPage() {
               {isEditing ? (
                 <>
                   {itemsError && <div className={styles.itemsError}>{itemsError}</div>}
+
+                  <div className={styles.gstBar}>
+                    <span className={styles.gstLabel}>The prices below</span>
+                    <div className={styles.gstChoice}>
+                      <button
+                        className={editing.inclusive ? styles.gstOpt : styles.gstOptOn}
+                        onClick={() => setEditing(e => ({ ...e, inclusive: false }))}
+                      >
+                        exclude GST
+                      </button>
+                      <button
+                        className={editing.inclusive ? styles.gstOptOn : styles.gstOpt}
+                        onClick={() => setEditing(e => ({ ...e, inclusive: true }))}
+                      >
+                        include GST
+                      </button>
+                    </div>
+                    <span className={styles.gstNote}>
+                      {editing.inclusive
+                        ? 'Type what the receipt prints — 15% comes off each line when you save.'
+                        : 'Costs are held without GST. A supermarket or counter receipt prints the other kind.'}
+                    </span>
+                  </div>
+
+                  <div className={styles.tableScroll}>
                   <table className={styles.itemsTable}>
                     <thead>
                       <tr>
                         <th>Description</th>
                         <th className={styles.num}>Qty</th>
-                        <th className={styles.num}>Unit Price</th>
+                        <th className={styles.num}>
+                          Unit Price{editing.inclusive ? ' (inc GST)' : ''}
+                        </th>
+                        {editing.inclusive && <th className={styles.num}>Ex GST</th>}
                         <th className={styles.num}>Total</th>
                         <th />
                       </tr>
@@ -794,6 +839,11 @@ export default function InvoiceInboxPage() {
                               <input className={styles.editNum} type="number" step="0.01" value={item.unit_price}
                                 onChange={e => updateItem(i, 'unit_price', e.target.value)} />
                             </td>
+                            {editing.inclusive && (
+                              <td className={`${styles.num} ${styles.gstDerived}`}>
+                                ${exOf(parseFloat(item.unit_price) || 0).toFixed(2)}
+                              </td>
+                            )}
                             <td className={styles.num}>${lineTotal.toFixed(2)}</td>
                             <td className={styles.num}>
                               <button className={styles.rowRemove} onClick={() => removeItem(i)} title="Remove line">✕</button>
@@ -802,12 +852,22 @@ export default function InvoiceInboxPage() {
                         );
                       })}
                       <tr className={styles.totalRow}>
-                        <td colSpan={3}>Total (ex GST)</td>
+                        <td colSpan={editing.inclusive ? 4 : 3}>
+                          {editing.inclusive ? 'Total (inc GST)' : 'Total (ex GST)'}
+                        </td>
                         <td className={styles.num}>${editingTotal.toFixed(2)}</td>
                         <td />
                       </tr>
+                      {editing.inclusive && (
+                        <tr className={styles.totalRow}>
+                          <td colSpan={4}>Total saved (ex GST)</td>
+                          <td className={styles.num}>${editingEx.toFixed(2)}</td>
+                          <td />
+                        </tr>
+                      )}
                     </tbody>
                   </table>
+                  </div>
                   <div className={styles.editActions}>
                     <button className={styles.btnAddLine} onClick={addItem}>+ Add line</button>
                     <span style={{ flex: 1 }} />
@@ -818,6 +878,7 @@ export default function InvoiceInboxPage() {
                   </div>
                 </>
               ) : items.length > 0 ? (
+                <div className={styles.tableScroll}>
                 <table className={styles.itemsTable}>
                   <thead>
                     <tr>
@@ -840,8 +901,14 @@ export default function InvoiceInboxPage() {
                       <td colSpan={3}>Total (ex GST)</td>
                       <td className={styles.num}>${total.toFixed(2)}</td>
                     </tr>
+                    {/* What the document itself says, for checking against it. */}
+                    <tr className={styles.totalRowQuiet}>
+                      <td colSpan={3}>with GST</td>
+                      <td className={styles.num}>${(total * (1 + GST_RATE)).toFixed(2)}</td>
+                    </tr>
                   </tbody>
                 </table>
+                </div>
               ) : (
                 <div className={styles.noItems}>
                   No line items could be extracted from this invoice — use Edit Lines to enter them by hand
