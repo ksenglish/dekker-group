@@ -40,7 +40,7 @@ const escapeHtml = s => String(s)
 
 // Plain text from before the editor existed, in the div-per-line shape the
 // editor produces — so it can be concatenated without losing its line breaks.
-function textToHtml(text) {
+export function textToHtml(text) {
   return String(text)
     .split(/\r?\n/)
     .map(line => (line.trim() ? `<div>${escapeHtml(line)}</div>` : '<div><br></div>'))

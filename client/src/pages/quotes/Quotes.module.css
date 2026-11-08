@@ -351,3 +351,37 @@
 .reacceptNote {
   margin: 4px 0 0; font-size: 12px; color: var(--color-text-muted);
 }
+
+/* ── Terms & Conditions, per quote ───────────────────────────────────────────
+   They belong to the Document Theme, and for almost every quote that is the
+   end of it. One job in twenty needs a line changed, and the alternatives
+   were editing the theme — which rewrites the terms on every other quote
+   using it — or building a near-duplicate theme for one quote. */
+
+.termsBlock { margin-top: 18px; }
+
+.termsHead {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.termsFollowing, .termsOwn {
+  font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 99px;
+  white-space: nowrap;
+}
+.termsFollowing { color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; }
+.termsOwn { color: #92400e; background: #fffbeb; border: 1px solid #fcd34d; }
+
+.termsLink {
+  border: none; background: none; padding: 0; cursor: pointer; font-family: inherit;
+  font-size: 12.5px; font-weight: 600; color: var(--color-primary); white-space: nowrap;
+}
+.termsLink:hover { text-decoration: underline; }
+
+.termsPreview {
+  max-height: 260px; overflow-y: auto; padding: 12px 14px;
+  border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg);
+  font-size: 13px; line-height: 1.6; color: var(--color-text);
+}
+
+.termsNote { margin: 6px 0 0; font-size: 12px; color: var(--color-text-muted); }
+.termsWarn { margin: 6px 0 0; font-size: 12px; font-weight: 600; color: #b45309; }

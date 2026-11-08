@@ -8,7 +8,7 @@ import EmailComposeModal from './EmailComposeModal';
 import ReacceptModal from './ReacceptModal';
 import AttachJobModal from './AttachJobModal';
 import RichTextEditor from '../../components/RichTextEditor';
-import { appendDescription } from '../../lib/richText';
+import { appendDescription, isHtml, safeHtml, textToHtml } from '../../lib/richText';
 import PriceListBrowser from '../../components/products/PriceListBrowser';
 import LineItemsEditor from '../jobs/LineItemsEditor';
 import SalesPresenter from '../presenter/SalesPresenter';
@@ -42,6 +42,106 @@ function whoFromMessage(a) {
   return m ? m[1] : null;
 }
 
+// The terms this quote goes out under.
+//
+// They belong to the Document Theme, and for almost every quote that is the
+// end of it. But one job in twenty needs a line changed — a staged payment,
+// a site condition, something the customer's own contract asks for — and the
+// only ways to do that were to edit the theme, which rewrites the terms on
+// every other quote using it, or to build a near-duplicate theme for one
+// quote.
+//
+// So this quote can take a copy and change it. Until somebody asks for that,
+// the quote follows the theme and a later edit to the theme still reaches it.
+function QuoteTerms({ value, onChange, themeTerms, themeName, locked }) {
+  const own = value !== '';
+  const [showing, setShowing] = useState(false);
+  // Terms written before the rich text editor existed are plain, and feeding
+  // those to a contentEditable runs every line together.
+  const asHtml = v => (v ? (isHtml(v) ? v : textToHtml(v)) : '');
+  const blank = own && !htmlHasWords(value);
+
+  return (
+    <div className={styles.termsBlock}>
+      <div className={styles.termsHead}>
+        <label className={styles.fieldLabel} style={{ margin: 0 }}>Terms &amp; Conditions</label>
+        <span className={own ? styles.termsOwn : styles.termsFollowing}>
+          {own ? 'Written for this quote' : `Following the ${themeName} theme`}
+        </span>
+        <span style={{ flex: 1 }} />
+        {own ? (
+          !locked && (
+            <button
+              type="button"
+              className={styles.termsLink}
+              onClick={() => {
+                if (confirm('Go back to the theme\u2019s wording? What you have written here will be lost.')) {
+                  onChange('');
+                }
+              }}
+            >
+              Use the theme&rsquo;s wording
+            </button>
+          )
+        ) : (
+          <>
+            <button type="button" className={styles.termsLink}
+              onClick={() => setShowing(v => !v)}>
+              {showing ? 'Hide' : 'Read them'}
+            </button>
+            {!locked && (
+              <button
+                type="button"
+                className={styles.termsLink}
+                // The theme's words are copied in to be edited: an empty box
+                // would read as "this quote has no terms", which is not what
+                // pressing Edit means.
+                onClick={() => onChange(asHtml(themeTerms) || '<div><br></div>')}
+              >
+                Edit for this quote
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {own ? (
+        <>
+          <RichTextEditor
+            value={asHtml(value)}
+            onChange={onChange}
+            placeholder="Terms and conditions for this quote…"
+          />
+          <p className={blank ? styles.termsWarn : styles.termsNote}>
+            {blank
+              ? 'Left empty, this quote goes back to the theme\u2019s wording when you save.'
+              : `This wording is this quote\u2019s own. Later changes to the ${themeName} theme will not reach it.`}
+          </p>
+        </>
+      ) : showing ? (
+        themeTerms ? (
+          <div className={styles.termsPreview}
+            dangerouslySetInnerHTML={{ __html: safeHtml(asHtml(themeTerms)) }} />
+        ) : (
+          <p className={styles.termsNote}>This theme has no terms and conditions set.</p>
+        )
+      ) : (
+        <p className={styles.termsNote}>
+          {themeTerms
+            ? 'The theme\u2019s standard terms print at the end of this quote.'
+            : 'This theme has no terms and conditions set, so none will print.'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// An editor left empty still holds markup — <div><br></div> and the like — so
+// "has the user actually written anything" is a question about words, not
+// about length.
+function htmlHasWords(html) {
+  return /[a-z0-9]/i.test(String(html).replace(/<[^>]*>/g, ''));
+}
 export default function QuoteDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -59,6 +159,10 @@ export default function QuoteDetail() {
   const [notes, setNotes] = useState('');
   const [themes, setThemes] = useState([]);
   const [themeId, setThemeId] = useState('');
+  // This quote's own terms, or '' while it follows the theme's. The theme's
+  // wording is not copied in until somebody asks for it, so a quote left
+  // alone keeps following later edits to the theme.
+  const [ownTerms, setOwnTerms] = useState('');
   const [quoteDate, setQuoteDate] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [activity, setActivity] = useState([]);
@@ -77,7 +181,7 @@ export default function QuoteDetail() {
   // Details, description, theme, dates and attachments all save together, so
   // one snapshot of the lot decides whether anything is outstanding.
   const detailsSnapshot = JSON.stringify({
-    notes, themeId, quoteDate, expiresAt, attachmentIds: [...attachmentIds].sort(),
+    notes, themeId, quoteDate, expiresAt, ownTerms, attachmentIds: [...attachmentIds].sort(),
   });
   // null until the quote has loaded, so the first render can't look "unsaved".
   const savedDetailsRef = useRef(null);
@@ -87,6 +191,11 @@ export default function QuoteDetail() {
   // Once a quote is approved it may be in front of the customer, so the editor
   // is read-only until someone deliberately resets it to draft.
   const isLocked = ['approved', 'sent', 'accepted'].includes(quote?.status);
+
+  // The theme as currently chosen on screen, which is not necessarily the one
+  // saved on the quote — switching the dropdown should show the terms that
+  // switch would bring with it.
+  const selectedTheme = themes.find(t => t.id === themeId);
 
   // Anything outstanding anywhere on the page — the details block or the line
   // items, which save separately but should warn as one.
@@ -111,6 +220,7 @@ export default function QuoteDetail() {
       setQuote(r.data);
       setNotes(r.data.notes || '');
       setThemeId(r.data.theme_id || '');
+      setOwnTerms(r.data.terms_and_conditions || '');
       setQuoteDate(toDateInput(r.data.quote_date || r.data.created_at));
       setExpiresAt(toDateInput(r.data.expires_at));
       setAttachmentIds(r.data.attachment_ids || []);
@@ -121,6 +231,7 @@ export default function QuoteDetail() {
         themeId: r.data.theme_id || '',
         quoteDate: toDateInput(r.data.quote_date || r.data.created_at),
         expiresAt: toDateInput(r.data.expires_at),
+        ownTerms: r.data.terms_and_conditions || '',
         attachmentIds: [...(r.data.attachment_ids || [])].sort(),
       });
     }).catch(err => setLoadError(err.response?.data?.error || ''))
@@ -229,12 +340,15 @@ export default function QuoteDetail() {
     setSavingDetails(true);
     try {
       const snapshot = JSON.stringify({
-        notes: notesToSave, themeId, quoteDate, expiresAt, attachmentIds: [...attachmentIds].sort(),
+        notes: notesToSave, themeId, quoteDate, expiresAt, ownTerms,
+        attachmentIds: [...attachmentIds].sort(),
       });
       const { data } = await api.put(`/quotes/${id}`, {
         status: quote.status, notes: notesToSave, theme_id: themeId || null,
         quote_date: quoteDate || null, expires_at: expiresAt || null,
         attachment_ids: attachmentIds,
+        // Blank means follow the theme, which is what the server stores.
+        terms_and_conditions: ownTerms,
       });
       setQuote(q => ({ ...q, ...data }));
       // Records what was actually sent, not the values as they stand now — the
@@ -548,6 +662,14 @@ export default function QuoteDetail() {
 
               <label className={styles.fieldLabel}>Description</label>
               <RichTextEditor value={notes} onChange={setNotes} placeholder="Add a description to appear on the quote PDF…" />
+
+              <QuoteTerms
+                value={ownTerms}
+                onChange={setOwnTerms}
+                themeTerms={selectedTheme?.termsAndConditions ?? quote.theme_terms ?? ''}
+                themeName={selectedTheme?.name || quote.theme_name || 'the theme'}
+                locked={isLocked}
+              />
             </div>
           </div>
 

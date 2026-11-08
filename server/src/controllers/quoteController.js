@@ -196,6 +196,19 @@ async function list(req, res) {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
+// Which terms this document goes out under.
+//
+// The theme's, unless somebody wrote this quote its own. Everything that
+// shows terms to a customer — the PDF, the page they accept on, the copy
+// snapshotted at acceptance — reads them through here, so the two can never
+// disagree about what was agreed to.
+// An editor left empty still sends markup — <div><br></div> and the like — so
+// whether anything was written is a question about words, not about length.
+const hasWords = html => /[a-z0-9]/i.test(String(html || '').replace(/<[^>]*>/g, ''));
+
+const termsFor = (quote, docTheme) =>
+  (quote?.terms_and_conditions ?? docTheme?.termsAndConditions) || '';
+
 async function get(req, res) {
   if (await denyUnreachable(req, res)) return;
   try {
@@ -224,7 +237,16 @@ async function get(req, res) {
       'SELECT * FROM line_items WHERE quote_id = $1 ORDER BY created_at',
       [q.id]
     );
-    res.json({ ...q, line_items: items.rows, attachment_ids: await getQuoteAttachmentIds(q.id) });
+    // The theme's wording travels with the quote so the editor can show what
+    // it would say if left alone, and offer it back after a customisation.
+    const docTheme = await getThemeById(q.theme_id);
+    res.json({
+      ...q,
+      line_items: items.rows,
+      attachment_ids: await getQuoteAttachmentIds(q.id),
+      theme_terms: docTheme.termsAndConditions || '',
+      theme_name: docTheme.name,
+    });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 }
 
@@ -334,6 +356,16 @@ async function update(req, res) {
   const sync_line_items = req.body?.sync_line_items;
   const sync_materials = req.body?.sync_materials;
   const { status, notes, theme_id, quote_date, expires_at, attachment_ids } = req.body;
+  // Three states, and the difference matters: the field left out of the
+  // request changes nothing, blank puts the quote back on the theme's terms,
+  // and text is this quote's own. Blank rather than empty terms, because a
+  // textarea cleared by accident should not quietly strip the conditions off
+  // a quote — the way to have none is to have none on the theme.
+  const editsTerms = Object.prototype.hasOwnProperty.call(req.body, 'terms_and_conditions');
+  // Sanitised like the description is: this goes onto a public page, and the
+  // editor is the only thing that should be deciding what markup it carries.
+  const typedTerms = String(req.body.terms_and_conditions ?? '').trim();
+  const ownTerms = editsTerms && hasWords(typedTerms) ? sanitizeHtml(typedTerms) : null;
   if (await denyUnreachable(req, res)) return;
   try {
     // Totals always come from the quote's own line items
@@ -343,9 +375,11 @@ async function update(req, res) {
     const { subtotal, gst, total } = calcTotals(items.rows);
     const { rows } = await pool.query(
       `UPDATE quotes SET status=$1, subtotal=$2, gst=$3, total=$4, notes=$5, updated_at=NOW(),
-              theme_id=COALESCE($6, theme_id), quote_date=COALESCE($7, quote_date), expires_at=COALESCE($8, expires_at)
-       WHERE id=$9 RETURNING *`,
-      [status, subtotal, gst, total, notes != null ? sanitizeHtml(notes) : null, theme_id || null, quote_date || null, expires_at || null, req.params.id]
+              theme_id=COALESCE($6, theme_id), quote_date=COALESCE($7, quote_date), expires_at=COALESCE($8, expires_at),
+              terms_and_conditions=CASE WHEN $9 THEN $10 ELSE terms_and_conditions END
+       WHERE id=$11 RETURNING *`,
+      [status, subtotal, gst, total, notes != null ? sanitizeHtml(notes) : null, theme_id || null, quote_date || null, expires_at || null,
+       editsTerms, ownTerms, req.params.id]
     );
     // Sent as the full selection, so replace rather than merge. Restricted to
     // attachments actually on this quote's job.
@@ -936,7 +970,7 @@ async function downloadPdf(req, res) {
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: docTheme.termsAndConditions || '',
+      status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: termsFor(q, docTheme),
       issuedAt: q.quote_date || q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
       appendixPdfs,
@@ -1014,7 +1048,7 @@ async function sendEmail(req, res) {
       customer: { name: q.customer_name, company: q.customer_company, email: q.customer_email, phone: q.customer_phone, address: formatCustomerAddress(q) },
       jobNumber: formatJobNumberDisplay(q), jobAddress: formatJobAddress(q),
       items: enrichedItems, subtotal: q.subtotal, gst: q.gst, total: q.total,
-      status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: docTheme.termsAndConditions || '',
+      status: q.status, notes: q.notes, paymentTerms: docTheme.paymentTerms || '', terms: termsFor(q, docTheme),
       issuedAt: q.quote_date || q.created_at, expiresAt: q.expires_at, theme: docTheme,
       appendixImages,
       appendixPdfs,
@@ -1183,7 +1217,7 @@ async function publicGet(req, res) {
       job_address: formatJobAddress(q),
       notes: q.notes,
       payment_terms: docTheme.paymentTerms || '',
-      terms: docTheme.termsAndConditions || '',
+      terms: termsFor(q, docTheme),
       subtotal: q.subtotal, gst: q.gst, total: q.total,
       created_at: q.created_at,
       quote_date: q.quote_date,
@@ -1305,7 +1339,8 @@ async function publicAccept(req, res) {
   try {
     // Snapshot the terms in force right now, so a later edit to the theme
     // can't rewrite what the customer appears to have agreed to.
-    const { rows: [current] } = await pool.query('SELECT theme_id FROM quotes WHERE public_token=$1', [req.params.token]);
+    const { rows: [current] } = await pool.query(
+      'SELECT theme_id, terms_and_conditions FROM quotes WHERE public_token=$1', [req.params.token]);
     const docTheme = current ? await getThemeById(current.theme_id) : null;
 
     const { rows } = await pool.query(
@@ -1314,7 +1349,7 @@ async function publicAccept(req, res) {
        WHERE public_token=$3 AND status IN ${OPEN_FOR_CUSTOMER}
        AND (expires_at IS NULL OR expires_at >= CURRENT_DATE)
        RETURNING id, job_id, status, accepted_at, accepted_name`,
-      [name.trim(), docTheme?.termsAndConditions || null, req.params.token]
+      [name.trim(), termsFor(current, docTheme) || null, req.params.token]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Quote not found, expired, or already actioned' });
     await syncJobLineItemsFromQuote(rows[0].id, rows[0].job_id);
