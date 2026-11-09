@@ -202,8 +202,49 @@ async function removeItem(req, res) {
 
 async function listSuppliers(req, res) {
   try {
-    const { rows } = await pool.query('SELECT * FROM suppliers ORDER BY name');
+    // Scanned documents counted alongside, so the Settings page can say which
+    // suppliers the scanner is actually meeting and which it cannot name.
+    const { rows } = await pool.query(
+      `SELECT s.*,
+              (SELECT COUNT(*)::int FROM job_cost_scans c
+                WHERE LOWER(TRIM(c.supplier)) = LOWER(TRIM(s.name))) AS document_count
+         FROM suppliers s ORDER BY s.name`);
     res.json(rows);
+  } catch (err) { console.error('[materials]', err.message); res.status(500).json({ error: 'Server error' }); }
+}
+
+// What the scanner could not name, and whether anything can be done about it.
+//
+// A document with no supplier but a GST number on it is one entry in Settings
+// away from being named. One with neither is not: nothing on it says who sent
+// it, and only a person reading it can say. Worth telling the two apart
+// rather than leaving somebody to guess why the count will not come down.
+async function unnamedDocuments(req, res) {
+  try {
+    const { rows: [counts] } = await pool.query(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE supplier_gst_number IS NOT NULL
+                                 AND TRIM(supplier_gst_number) <> '')::int AS with_gst
+         FROM job_cost_scans
+        WHERE supplier IS NULL OR TRIM(supplier) = ''`);
+    // The numbers themselves, so a person can see what to enter against whom.
+    const { rows: numbers } = await pool.query(
+      `SELECT supplier_gst_number AS gst_number, COUNT(*)::int AS documents,
+              MAX(created_at) AS last_seen
+         FROM job_cost_scans
+        WHERE (supplier IS NULL OR TRIM(supplier) = '')
+          AND supplier_gst_number IS NOT NULL AND TRIM(supplier_gst_number) <> ''
+        GROUP BY supplier_gst_number
+        ORDER BY COUNT(*) DESC
+        LIMIT 20`);
+    res.json({ ...counts, without_gst: counts.total - counts.with_gst, numbers });
+  } catch (err) { console.error('[materials]', err.message); res.status(500).json({ error: 'Server error' }); }
+}
+
+// Apply what is known now to the documents already in.
+async function nameExistingDocuments(req, res) {
+  try {
+    res.json(await supplierMemory.applyToExisting());
   } catch (err) { console.error('[materials]', err.message); res.status(500).json({ error: 'Server error' }); }
 }
 
@@ -228,7 +269,9 @@ async function saveSupplier(req, res) {
   // there really does clear it.
   const sent = {};
   if (req.body?.email !== undefined) sent.email = email || null;
-  for (const k of ['phone', 'account_ref', 'notes', 'contact_name']) {
+  // gst_number is how the scanner recognises this supplier's documents when
+  // the name on them is only a logo — see migration 124.
+  for (const k of ['phone', 'account_ref', 'notes', 'contact_name', 'gst_number']) {
     if (req.body?.[k] !== undefined) sent[k] = String(req.body[k] ?? '').trim() || null;
   }
   if (req.body?.order_emails !== undefined) sent.order_emails = orderEmails;
@@ -620,5 +663,6 @@ async function previewOrder(req, res) {
 module.exports = {
   list, regenerate, addItem, updateItem, removeItem,
   listSuppliers, saveSupplier, removeSupplier, mergeSuppliers,
+  unnamedDocuments, nameExistingDocuments,
   createOrder, previewOrder, undoOrder,
 };

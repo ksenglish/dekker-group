@@ -19,6 +19,10 @@ router.delete('/supplier-contacts/:supplierId', requireRole('admin', 'office'), 
 // Folding three spellings of one supplier into one. Admin only: it rewrites
 // the name on every product, order and scanned invoice that used the others.
 router.post('/supplier-contacts/merge', requireRole('admin'), supplierContacts.mergeSuppliers);
+// What the scanner could not put a name to, and putting names to it.
+router.get('/supplier-contacts/unnamed', supplierContacts.unnamedDocuments);
+router.post('/supplier-contacts/name-existing', requireRole('admin', 'office'),
+  supplierContacts.nameExistingDocuments);
 router.get('/taxonomy', c.taxonomy);
 
 // Building the price list out of what has actually been bought, and watching

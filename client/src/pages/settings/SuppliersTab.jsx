@@ -18,7 +18,7 @@ import styles from './Settings.module.css';
 // offered when adding one.
 
 const blank = {
-  name: '', email: '', order_emails: '', account_ref: '',
+  name: '', email: '', order_emails: '', account_ref: '', gst_number: '',
   contact_name: '', phone: '', notes: '',
 };
 
@@ -27,6 +27,7 @@ const toForm = s => ({
   email: s.email || '',
   order_emails: (s.order_emails || []).join('\n'),
   account_ref: s.account_ref || '',
+  gst_number: s.gst_number || '',
   contact_name: s.contact_name || '',
   phone: s.phone || '',
   notes: s.notes || '',
@@ -54,6 +55,9 @@ export default function SuppliersTab() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
+  // What the scanner met and could not name.
+  const [unnamed, setUnnamed] = useState(null);
+  const [naming, setNaming] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +67,8 @@ export default function SuppliersTab() {
       ]);
       setRows(suppliers);
       setKnown(tax?.supplier || []);
+      api.get('/products/supplier-contacts/unnamed')
+        .then(r => setUnnamed(r.data)).catch(() => {});
     } catch {
       setError('Could not load the suppliers');
     } finally { setLoading(false); }
@@ -102,6 +108,21 @@ export default function SuppliersTab() {
     } catch (e) {
       setError(e.response?.data?.error || 'Could not save that');
     } finally { setBusy(false); }
+  }
+
+  // Teaching the scanner only helps the next document. This is the same
+  // knowledge applied backwards, to the ones already filed under nothing.
+  async function nameExisting() {
+    setNaming(true); setError('');
+    try {
+      const { data } = await api.post('/products/supplier-contacts/name-existing');
+      setSaved(data.named
+        ? `${data.named} document${data.named === 1 ? '' : 's'} named`
+        : 'Nothing could be named from what is entered so far');
+      setTimeout(() => setSaved(''), 6000);
+      await load();
+    } catch { setError('Could not go back over those documents'); }
+    finally { setNaming(false); }
   }
 
   async function remove(s) {
@@ -183,6 +204,51 @@ export default function SuppliersTab() {
       {error && <div className={styles.errorBanner}>{error}</div>}
       {saved && <div className={styles.successMsg}>Saved {saved}</div>}
 
+      {/* What the scanner is meeting and cannot name. A GST number printed on
+          a document is one entry away from fixing every document carrying it;
+          a document with no GST number on it at all is not, and saying which
+          is which beats leaving somebody to wonder why the count will not
+          come down. */}
+      {unnamed?.total > 0 && (
+        <div className={styles.warnBanner}>
+          <div className={styles.unnamedHead}>
+            <span>
+              <strong>{unnamed.total} scanned document{unnamed.total === 1 ? '' : 's'}</strong>
+              {' '}filed under no supplier.
+              {unnamed.with_gst > 0 && (
+                <> {unnamed.with_gst} of them carry a GST number, so entering it below
+                names {unnamed.with_gst === 1 ? 'it' : 'them all'} at once.</>
+              )}
+              {unnamed.without_gst > 0 && (
+                <> {unnamed.without_gst} have no GST number on them that could be read —
+                nothing on those says who sent them, so they have to be named
+                by hand on the job.</>
+              )}
+            </span>
+            {unnamed.with_gst > 0 && (
+              <button className={styles.btnSmall} onClick={nameExisting} disabled={naming}>
+                {naming ? 'Going back over them…' : 'Name them now'}
+              </button>
+            )}
+          </div>
+
+          {unnamed.numbers?.length > 0 && (
+            <div className={styles.unnamedList}>
+              {unnamed.numbers.map(n => (
+                <div key={n.gst_number} className={styles.unnamedRow}>
+                  <code>{n.gst_number}</code>
+                  <span>{n.documents} document{n.documents === 1 ? '' : 's'}</span>
+                  <button className={styles.btnSmall}
+                    onClick={() => { startNew(); set('gst_number', n.gst_number); }}>
+                    Whose is this?
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {editing !== null && (
         <div className={styles.card} style={{ marginBottom: 18 }}>
           <div className={styles.cardHeader}>
@@ -205,6 +271,18 @@ export default function SuppliersTab() {
                 <input value={form.account_ref} onChange={e => set('account_ref', e.target.value)}
                   placeholder="e.g. DEK1042" />
                 <span className={styles.hint}>Quoted on every order to them.</span>
+              </div>
+
+              <div className={styles.field}>
+                <label>Their GST number</label>
+                <input value={form.gst_number} onChange={e => set('gst_number', e.target.value)}
+                  placeholder="e.g. 51-558-531" />
+                <span className={styles.hint}>
+                  How the scanner recognises their invoices. A supplier&rsquo;s name is
+                  often only a logo, which cannot be read back — their GST number is
+                  printed as text on every document they send. Enter it once and
+                  their receipts stop arriving as <em>Unknown supplier</em>.
+                </span>
               </div>
 
               <div className={styles.field}>
@@ -355,6 +433,11 @@ export default function SuppliersTab() {
               <div>
                 <div className={styles.templateName}>{s.name}</div>
                 <div className={styles.templateMeta}>
+                  {s.gst_number
+                    ? `GST ${s.gst_number}`
+                    : 'No GST number — their invoices cannot be recognised'}
+                  {s.document_count > 0 && ` · ${s.document_count} document${s.document_count === 1 ? '' : 's'}`}
+                  {' · '}
                   {s.account_ref ? `Account ${s.account_ref}` : 'No account number'}
                   {' · '}
                   {s.email || 'No order email'}

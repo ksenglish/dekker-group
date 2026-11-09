@@ -46,9 +46,35 @@ async function knownSuppliers(limit = 60) {
   }
 }
 
+// A GST number somebody entered against a supplier in Settings.
+//
+// Waiting to be taught by correction only works when a document arrives with
+// both a readable GST number and a wrong name. A receipt whose logo is an
+// image and whose GST number the scan missed teaches nothing, so correcting
+// it changes nothing about the next one. Typing the number in once breaks
+// that circle.
+async function bySuppliersTable(gstNumber) {
+  const want = foldGst(gstNumber);
+  if (!want) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT name FROM suppliers
+        WHERE gst_number IS NOT NULL
+          AND LOWER(REGEXP_REPLACE(gst_number, '[^0-9A-Za-z]', '', 'g')) = $1
+        LIMIT 1`,
+      [want]
+    );
+    return rows[0]?.name || null;
+  } catch { return null; }
+}
+
 // What a document says it is from, turned into the name already in use.
 // Returns null when nothing is recognised, leaving what the scan read alone.
 async function resolve({ supplier, gstNumber } = {}) {
+  // Typed by a person beats anything inferred, so it is asked first.
+  const typed = await bySuppliersTable(gstNumber);
+  if (typed) return typed;
+
   const keys = [];
   if (foldGst(gstNumber)) keys.push(['gst_number', foldGst(gstNumber)]);
   if (foldAlias(supplier)) keys.push(['alias', foldAlias(supplier)]);
@@ -91,7 +117,51 @@ async function learn({ supplier, gstNumber, readAs } = {}) {
       learned++;
     } catch { /* never let remembering a name break saving the costs */ }
   }
+
+  // And put the number on the supplier itself where that row has none, so
+  // Settings shows what the scanner has worked out rather than looking empty
+  // beside a scanner that plainly knows. Never overwrites a number somebody
+  // typed: a person correcting one document is weaker evidence than a person
+  // sitting down and entering the supplier's details.
+  if (foldGst(gstNumber)) {
+    try {
+      await pool.query(
+        `UPDATE suppliers SET gst_number = $1, updated_at = NOW()
+          WHERE LOWER(TRIM(name)) = LOWER(TRIM($2)) AND gst_number IS NULL`,
+        [String(gstNumber).trim(), name]
+      );
+    } catch { /* same again: a name is not worth a failed save */ }
+  }
   return learned;
 }
 
-module.exports = { knownSuppliers, resolve, learn, fold };
+// Put what is known now against the documents already in.
+//
+// Teaching the scanner only helps the next document. The ones already filed
+// under no supplier at all stay that way, and on a busy month that is most
+// of the Costs report. So everything it has learned since — a GST number
+// typed in Settings included — can be applied backwards in one go.
+//
+// Only ever fills a blank. A name already on a document was put there by
+// somebody or read off the page, and neither is ours to overwrite.
+async function applyToExisting() {
+  const out = { named: 0, no_gst_number: 0, still_unknown: 0 };
+  const { rows } = await pool.query(
+    `SELECT id, supplier_gst_number FROM job_cost_scans
+      WHERE (supplier IS NULL OR TRIM(supplier) = '')`
+  );
+  for (const row of rows) {
+    if (!foldGst(row.supplier_gst_number)) { out.no_gst_number++; continue; }
+    const name = await resolve({ gstNumber: row.supplier_gst_number });
+    if (!name) { out.still_unknown++; continue; }
+    await pool.query(
+      `UPDATE job_cost_scans SET supplier = $1 WHERE id = $2
+         AND (supplier IS NULL OR TRIM(supplier) = '')`,
+      [name, row.id]);
+    out.named++;
+  }
+  out.looked = rows.length;
+  return out;
+}
+
+module.exports = { knownSuppliers, resolve, learn, applyToExisting, fold };

@@ -48,10 +48,20 @@ for any you cannot find.
 
 The supplier is who SENT this document, not who it was sent to. Their name is
 often only in the logo at the top rather than written out, so read the logo. If
-the logo is the only place it appears, use it. Also return their GST number as
-"supplier_gst_number" exactly as printed (e.g. "24-882-403"), or null — it is
-usually near the top or in the footer, and it is how this supplier is
-recognised next time.
+the logo is the only place it appears, use it.
+
+Their GST number matters as much as their name, and more often than not it is
+the only part of "who sent this" printed as plain text — a logo cannot be read
+back later, a GST number can. Look for it everywhere before giving up: the
+header, the footer, the small print beside the address, and the line near the
+total on a till receipt. It is labelled "GST No", "GST Number", "GST Reg",
+"GST Registration", "IRD", "IRD No" or sometimes nothing at all, and in New
+Zealand it is 8 or 9 digits, usually written 00-000-000 or 000-000-000. Return
+it as "supplier_gst_number" exactly as printed, dashes and all, or null if it
+genuinely is not on the document. Do not return the customer's GST number, an
+account number, an invoice number, a phone number or a store number — if the
+document shows numbers for both parties, the supplier's is the one beside the
+name and address of whoever SENT it.
 
 STEP 4 — Decide what kind of document this is and set "document_type":
 - "credit_note" if the document calls itself a CREDIT NOTE, CREDIT, REFUND,

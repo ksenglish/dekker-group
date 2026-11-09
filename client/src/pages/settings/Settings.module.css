@@ -282,3 +282,30 @@
 .chooseRow input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--color-primary); flex: none; }
 .chooseName { font-weight: 500; }
 .chooseWhat { color: var(--color-text-muted); font-size: 12px; }
+
+/* ── What the scanner met and could not name ─────────────────────────────────
+   A supplier's name is often only a logo, which cannot be read back off the
+   page. Their GST number is printed as text on every document they send, so
+   it is the thing worth entering — once, here, rather than by correcting the
+   same receipt every week. */
+
+.warnBanner {
+  margin-bottom: 18px; padding: 13px 15px;
+  border: 1px solid #fcd34d; border-radius: 9px; background: #fffbeb;
+  font-size: 13px; color: #78350f; line-height: 1.6;
+}
+.unnamedHead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.unnamedHead > span { flex: 1; min-width: 260px; }
+
+.unnamedList {
+  margin-top: 11px; padding-top: 10px; border-top: 1px solid #fde68a;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.unnamedRow {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12.5px;
+}
+.unnamedRow code {
+  font-size: 12.5px; font-weight: 600; padding: 2px 8px; border-radius: 5px;
+  background: #fef3c7; border: 1px solid #fcd34d; color: #78350f;
+}
+.unnamedRow > span { flex: 1; min-width: 90px; color: #92400e; }
