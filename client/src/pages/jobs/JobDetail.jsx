@@ -589,6 +589,8 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  // The diary's answer on a manual entry typed from the job itself.
+  const [outsideSchedule, setOutsideSchedule] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const mountedRef = useRef(false);
 
@@ -607,6 +609,13 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
   async function submit(e) {
     e.preventDefault();
     if (!form.hours || parseFloat(form.hours) <= 0) return setErr('Hours must be greater than 0');
+    await send(false);
+  }
+
+  // Hours typed on the job go past the diary like any other. Until
+  // acknowledged is true the server writes nothing and emails nobody, so
+  // cancelling the warning leaves them looking at what they typed.
+  async function send(acknowledged) {
     setSaving(true); setErr('');
     try {
       const payload = {
@@ -617,12 +626,19 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
         start_time: form.start_time ? new Date(`${form.date}T${form.start_time}:00`).toISOString() : null,
         end_time: form.end_time ? new Date(`${form.date}T${form.end_time}:00`).toISOString() : null,
         billing_rate_id: form.billing_rate_id || null,
+        acknowledged,
       };
       const { data } = isNew
         ? await api.post('/timesheets', { ...payload, source: 'manual' })
         : await api.put(`/timesheets/${entry.id}`, payload);
+      setOutsideSchedule('');
       onSave(data);
-    } catch (err) { setErr(err.response?.data?.error || 'Save failed'); setSaving(false); }
+    } catch (err) {
+      const body = err.response?.data;
+      if (body?.needs_confirmation) { setOutsideSchedule(body.warning); setSaving(false); return; }
+      setErr(body?.error || 'Save failed');
+      setSaving(false);
+    }
   }
 
   async function handleDelete() {
@@ -636,6 +652,14 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
 
   return (
     <div className={styles.overlay} {...overlayClose(onClose)}>
+      {outsideSchedule && (
+        <OutsideScheduleDialog
+          warning={outsideSchedule}
+          busy={saving}
+          onCancel={() => { setOutsideSchedule(''); setSaving(false); }}
+          onConfirm={() => send(true)}
+        />
+      )}
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHeader}>
           <h2>{isNew ? 'New Timesheet Entry' : 'Edit Timesheet Entry'}</h2>

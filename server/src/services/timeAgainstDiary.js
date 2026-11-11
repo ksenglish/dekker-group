@@ -19,22 +19,38 @@ const pool = require('../db/pool');
 const GRACE_MINUTES = Number(process.env.TIMESHEET_GRACE_MINUTES || 15);
 
 
+// The zone the business works in, which is the one the diary's TIMEs were
+// typed in and the one a tech reads off their phone. Not the server's: that
+// runs in UTC, and reading an instant with getHours() there turned a timer
+// stopped at 21:55 into "08:55" in the warning — thirteen hours out, and
+// thirteen hours is the difference between a late finish and a nonsense.
+const ZONE = process.env.BUSINESS_TIMEZONE || 'Pacific/Auckland';
+
+// Intl does the daylight-saving arithmetic, which is the whole reason not to
+// do this with a fixed offset: Auckland is +12 for half the year and +13 for
+// the other half, and the changeover lands mid-timesheet-week.
+const inZone = new Intl.DateTimeFormat('en-NZ', {
+  timeZone: ZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+
 // Minutes from midnight, for whichever of the two shapes a time arrives in:
 // a TIME column out of the diary ("07:30:00"), or a full timestamp off an
-// entry. Local time either way — the diary is written in the time the person
-// is standing in, not UTC.
+// entry. Both end up as the time somebody standing in Tauranga would read.
 function minutesOf(value) {
   if (!value) return null;
   const s = String(value);
+  // A TIME has no zone and never did: it was typed as wall-clock time.
   if (/^\d{2}:\d{2}/.test(s)) {
     const [h, m] = s.split(':').map(Number);
     return h * 60 + m;
   }
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
-  // An entry's start and end are stored as instants. Read back in the
-  // server's own zone, which is the one the diary's TIMEs were typed in.
-  return d.getHours() * 60 + d.getMinutes();
+  const parts = inZone.formatToParts(d);
+  const h = Number(parts.find(p => p.type === 'hour')?.value);
+  const m = Number(parts.find(p => p.type === 'minute')?.value);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
 }
 
 // A date as the diary stores it. The column comes back from the driver as a

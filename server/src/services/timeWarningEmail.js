@@ -13,8 +13,14 @@ const esc = s => String(s ?? '')
 const jobRef = e => e.external_ref
   || (e.job_number != null ? `JB${String(e.job_number).padStart(5, '0')}` : 'a job');
 
+// In the time the work happened, not the server's. Render runs in UTC, and a
+// 21:55 start printed as 08:55 in the office's email is worse than useless —
+// it reads as a different day's work.
+const ZONE = process.env.BUSINESS_TIMEZONE || 'Pacific/Auckland';
+
 const when = t => (t
-  ? new Date(t).toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' })
+  ? new Date(t).toLocaleTimeString('en-NZ',
+    { timeZone: ZONE, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
   : null);
 
 // Never throws, and never holds the save up. A time entry that is recorded and
