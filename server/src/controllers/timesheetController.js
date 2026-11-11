@@ -421,23 +421,44 @@ async function jobSummary(req, res) {
 
 // Started. One row per person — starting one on another job moves them,
 // which is what has actually happened.
+// When a timer says it started.
+//
+// A timer that is already running tells us so when the phone next has a
+// signal — which may be long after it started — so it sends its own start
+// time rather than being recorded as starting now. Clamped at both ends,
+// because a clock on a phone is not evidence: nothing in the future, and
+// nothing older than a week, which is longer than any real timer and short
+// enough that a wrong one is obvious rather than absurd.
+const A_WEEK = 7 * 24 * 3600 * 1000;
+function startedAtFrom(value) {
+  if (!value) return null;
+  const t = new Date(value).getTime();
+  if (!Number.isFinite(t)) return null;
+  const now = Date.now();
+  if (t > now) return new Date(now).toISOString();
+  if (t < now - A_WEEK) return null;
+  return new Date(t).toISOString();
+}
+
 async function startTimer(req, res) {
   const { job_id, billing_rate_id } = req.body || {};
   if (!job_id) return res.status(400).json({ error: 'Which job?' });
+  const startedAt = startedAtFrom(req.body?.started_at);
   try {
     const { rows } = await pool.query(
-      `INSERT INTO active_timers (user_id, job_id, billing_rate_id)
-       VALUES ($1,$2,$3)
+      `INSERT INTO active_timers (user_id, job_id, billing_rate_id, started_at)
+       VALUES ($1,$2,$3,COALESCE($4::timestamptz, NOW()))
        ON CONFLICT (user_id) DO UPDATE
           SET job_id = EXCLUDED.job_id,
               billing_rate_id = EXCLUDED.billing_rate_id,
               -- Moving to another job restarts the clock; carrying on with
-              -- the same one keeps it, so a page reload is not a reset.
+              -- the same one keeps the start already recorded, so neither a
+              -- page reload nor a timer re-announcing itself is a reset.
               started_at = CASE WHEN active_timers.job_id = EXCLUDED.job_id
-                                THEN active_timers.started_at ELSE NOW() END,
+                                THEN active_timers.started_at ELSE EXCLUDED.started_at END,
               updated_at = NOW()
        RETURNING *`,
-      [req.user.id, job_id, billing_rate_id || null]
+      [req.user.id, job_id, billing_rate_id || null, startedAt]
     );
     res.status(201).json(rows[0]);
   } catch (err) {

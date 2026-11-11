@@ -132,6 +132,43 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
 
   // Clear any stale save state on mount
   useEffect(() => { setShowSave(false); setEndTs(null); }, []);
+
+  // A running timer keeps saying so.
+  //
+  // The timer itself lives in this browser's storage, and it was announced to
+  // the server once, when the Start button was pressed. That missed every
+  // timer that was already running — one started before this existed, one
+  // whose phone had no signal on site, one on a tab that had not reloaded the
+  // new app yet — and those stayed invisible to the office for as long as they
+  // ran, which is exactly the case this was built for.
+  //
+  // So it is said on mount, and again every few minutes while it runs. The
+  // start time goes with it, so a timer that has been going since 08:31 is
+  // recorded as having started at 08:31 rather than whenever the phone
+  // managed to get the message out.
+  const toldRef = useRef(null);
+  // Held in a ref so the reminder below does not restart its interval every
+  // time the job page re-renders and hands down a new arrow.
+  const onTimerChangeRef = useRef(onTimerChange);
+  onTimerChangeRef.current = onTimerChange;
+  useEffect(() => {
+    if (!startTs || endTs) return undefined;
+    let stopped = false;
+    const tell = () => api.post('/timesheets/timer', {
+      job_id: jobId,
+      billing_rate_id: billingRateId || null,
+      started_at: new Date(startTs).toISOString(),
+    }).then(() => {
+      // The parent is told once per timer, not once per reminder.
+      if (!stopped && toldRef.current !== startTs) {
+        toldRef.current = startTs;
+        onTimerChangeRef.current?.();
+      }
+    }).catch(() => {});
+    tell();
+    const again = setInterval(tell, 5 * 60 * 1000);
+    return () => { stopped = true; clearInterval(again); };
+  }, [startTs, endTs, jobId, billingRateId]);
   const tickRef = useRef(null);
 
   useEffect(() => {
@@ -148,12 +185,8 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
     setStartTs(ts);
     setEndTs(null);
     setShowSave(false);
-    // Recorded where everyone else can see it: the job’s Time tab and the
-    // office dashboard. Failing to reach the server does not stop the timer —
-    // the hours are still being counted here and still save.
-    api.post('/timesheets/timer', { job_id: jobId, billing_rate_id: billingRateId || null })
-      .then(() => onTimerChange?.())
-      .catch(() => {});
+    // Telling the server is the effect below's job, not this one's — see the
+    // comment there for why it has to keep saying it rather than say it once.
     // Only a job sitting on Scheduled - Installation starts running. Timers get
     // used on site visits, callbacks and warranty work too, and none of those
     // should quietly reclassify the job.
