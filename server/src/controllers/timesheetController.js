@@ -36,24 +36,29 @@ async function rateAllowsNoJob(rateId) {
   } catch { return false; }
 }
 
-// The diary check, the warning kept on the entry, and the office told.
+// What the diary makes of an entry that has not been written yet.
 //
-// Never refuses the entry and never fails the request: the hours are the
-// thing worth keeping, and a check that could lose them would be worse than
-// no check at all.
-async function checkAgainstDiary(entry) {
-  if (!entry?.job_id) return null;
-  let warning = null;
+// Asked before the insert, not after, because the person is given the
+// choice to drop it: hours they think better of should never have reached
+// the office's inbox, and an email saying "ignore the last one" is worse
+// than no email.
+//
+// A check that falls over is not allowed to stop anybody working. It comes
+// back as "nothing to say", the entry saves as it always did, and the error
+// goes to the log for somebody else to deal with.
+async function askTheDiary({ jobId, userId, date, startTime, endTime, hours }) {
+  if (!jobId) return null;
   try {
-    warning = await diary.check({
-      jobId: entry.job_id, userId: entry.user_id, date: entry.date,
-      startTime: entry.start_time, endTime: entry.end_time, hours: entry.hours,
-    });
+    return await diary.check({ jobId, userId, date, startTime, endTime, hours });
   } catch (err) {
     console.error('[timesheets] diary check failed:', err.message);
     return null;
   }
+}
 
+// Said out loud, once the entry exists and the person has chosen to keep it:
+// kept on the row so it can be found later, and emailed to the office.
+async function recordWarning(entry, warning) {
   try {
     await pool.query(
       `UPDATE timesheets SET schedule_warning = $1,
@@ -73,6 +78,14 @@ async function checkAgainstDiary(entry) {
   }
   return warning;
 }
+
+// The 409 that asks. Nothing has been written at this point, and nothing has
+// been sent — saying yes is what does both.
+const askFirst = (res, warning) => res.status(409).json({
+  needs_confirmation: true,
+  warning,
+  error: warning,
+});
 
 async function list(req, res) {
   const { job_id, user_id, from, to } = req.query;
@@ -117,11 +130,20 @@ async function create(req, res) {
       needs_job: true,
     });
   }
+  const day = date || new Date().toISOString().slice(0, 10);
+  const warning = await askTheDiary({
+    jobId: job_id, userId: user_id, date: day,
+    startTime: start_time, endTime: end_time, hours,
+  });
+  // Offered back before it is written. Saying no leaves no entry, no warning
+  // on anything, and nothing in the office's inbox.
+  if (warning && req.body?.acknowledged !== true) return askFirst(res, warning);
+
   try {
     const { rows } = await pool.query(
       `INSERT INTO timesheets (job_id, user_id, date, hours, description, start_time, end_time, source, billing_rate_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [job_id || null, user_id, date || new Date().toISOString().slice(0,10), hours, description || null, start_time || null, end_time || null, source === 'timer' ? 'timer' : 'manual', billing_rate_id || null]
+      [job_id || null, user_id, day, hours, description || null, start_time || null, end_time || null, source === 'timer' ? 'timer' : 'manual', billing_rate_id || null]
     );
     // Fetch with joins
     const { rows: full } = await pool.query(
@@ -129,9 +151,8 @@ async function create(req, res) {
        FROM timesheets t LEFT JOIN users u ON u.id=t.user_id LEFT JOIN jobs j ON j.id=t.job_id
        WHERE t.id=$1`, [rows[0].id]
     );
-    // Checked against the diary as it is saved, so whoever typed it finds out
-    // now rather than when the job is invoiced.
-    const warning = await checkAgainstDiary(full[0]);
+    // Kept and told, now that it exists and they have said to keep it.
+    await recordWarning(full[0], warning);
     res.status(201).json({ ...full[0], schedule_warning: warning, warning });
   } catch (err) { console.error('Timesheet create error:', err); res.status(500).json({ error: err.message }); }
 }
@@ -155,6 +176,12 @@ async function update(req, res) {
         needs_job: true,
       });
     }
+    const warning = await askTheDiary({
+      jobId: job_id, userId: newUserId, date,
+      startTime: start_time, endTime: end_time, hours,
+    });
+    if (warning && req.body?.acknowledged !== true) return askFirst(res, warning);
+
     const { rows } = await pool.query(
       `UPDATE timesheets SET job_id=$1, user_id=$2, date=$3, hours=$4, description=$5,
          start_time=$6, end_time=$7, billing_rate_id=$8, updated_at=NOW()
@@ -167,8 +194,9 @@ async function update(req, res) {
        WHERE t.id=$1`, [rows[0].id]
     );
     // Moved to another job, or its times amended, is exactly when an entry
-    // stops or starts matching the diary — so it is checked again.
-    const warning = await checkAgainstDiary(full[0]);
+    // stops or starts matching the diary — so the answer is written back,
+    // which is also how correcting one clears the warning off it.
+    await recordWarning(full[0], warning);
     res.json({ ...full[0], schedule_warning: warning, warning });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }

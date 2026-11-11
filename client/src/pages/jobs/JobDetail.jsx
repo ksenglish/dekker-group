@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
+import OutsideScheduleDialog from '../../components/time/OutsideScheduleDialog';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin, canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
@@ -112,6 +113,9 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
   const [elapsed, setElapsed] = useState(0);
   const [saving, setSaving] = useState(false);
   const [desc, setDesc] = useState('');
+  // The diary's answer, when it has one. Nothing is recorded until this is
+  // cleared one way or the other.
+  const [outsideSchedule, setOutsideSchedule] = useState('');
   const [showSave, setShowSave] = useState(false);
   const [billingRates, setBillingRates] = useState([]);
   const [billingRateId, setBillingRateId] = useState(() => {
@@ -199,30 +203,35 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
 
   async function save(e) {
     e.preventDefault();
+    await send(false);
+  }
+
+  // The same request twice. Until acknowledged is true the server writes
+  // nothing and emails nobody, so cancelling the warning leaves the timer
+  // exactly as it was — the hours still on the bar, ready to be put on
+  // another job rather than deleted off this one afterwards.
+  async function send(acknowledged) {
     const hours = elapsed < 60 ? 0.25 : Math.max(0.25, Math.round(elapsed / 900) * 0.25);
     const startTime = new Date(endTs - elapsed * 1000).toISOString();
     const endTime = new Date(endTs).toISOString();
     setSaving(true);
     try {
-      const { data } = await api.post('/timesheets', {
+      await api.post('/timesheets', {
         job_id: jobId, hours, description: desc || 'Time tracked via timer',
         date: toLocalDateStr(new Date(endTs)),
         start_time: startTime, end_time: endTime,
         source: 'timer', billing_rate_id: billingRateId || null,
+        acknowledged,
       });
       localStorage.removeItem(RATE_STORAGE_KEY);
+      setOutsideSchedule('');
       setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
-      // Saved either way. The diary not agreeing is worth a word before the
-      // bar clears — this is the moment the person still knows where they were.
-      if (data?.warning) {
-        alert('Time saved, but it does not match the diary.\n\n' + data.warning
-          + '\n\nThe office has been emailed. If these hours belong on another job,'
-          + ' they can be moved on the Timesheets page.');
-      }
       onTimeSaved && onTimeSaved(hours);
     } catch (err) {
-      console.error('Timer save error:', err?.response?.data || err?.message || err);
-      alert('Failed to save time entry: ' + (err?.response?.data?.error || err?.message || 'Unknown error'));
+      const body = err?.response?.data;
+      if (body?.needs_confirmation) { setOutsideSchedule(body.warning); return; }
+      console.error('Timer save error:', body || err?.message || err);
+      alert('Failed to save time entry: ' + (body?.error || err?.message || 'Unknown error'));
     }
     finally { setSaving(false); }
   }
@@ -239,6 +248,14 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
 
   return (
     <div className={styles.timerBar}>
+      {outsideSchedule && (
+        <OutsideScheduleDialog
+          warning={outsideSchedule}
+          busy={saving}
+          onCancel={() => setOutsideSchedule('')}
+          onConfirm={() => send(true)}
+        />
+      )}
       {prompt === 'complete' && completionStatus && (
         <div className={styles.completePrompt}>
           <span className={styles.completePromptText}>Has this job been completed?</span>

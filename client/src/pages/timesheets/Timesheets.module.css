@@ -256,21 +256,7 @@
   .formGrid { grid-template-columns: 1fr; }
 }
 
-/* ── Time that does not match the diary ──────────────────────────────────────
-   Shown rather than thrown. The entry saved — stopping somebody's day over a
-   booking that was never made would be worse than the mistake — but they are
-   standing where the work happened and are the only person who can say which
-   job it really was. */
-
-.diaryWarning {
-  margin-bottom: 14px; padding: 12px 14px;
-  border: 1px solid #fcd34d; border-radius: 9px; background: #fffbeb;
-  font-size: 13.5px; line-height: 1.6; color: #78350f;
-}
-.diaryWarning p { margin: 6px 0 0; }
-.diaryWarningNote { color: #92400e; font-size: 12.5px; }
-.diaryWarning button { margin-top: 10px; }
-
+/* Said under the Job field when the rate chosen needs one. */
 .fieldHint {
   display: block; margin-top: 5px;
   font-size: 12px; line-height: 1.5; color: var(--color-text-muted);

@@ -7,6 +7,7 @@ import { toLocalDateStr } from '../../lib/date';
 import { htmlToText } from '../../lib/richText';
 import { isBillable } from '../../lib/billing';
 import { axisWindow, hourMarks, packLanes, pctFor, fmtHourMark, fmtTimeAmPm, hasOverlap } from '../../lib/timeline';
+import OutsideScheduleDialog from '../../components/time/OutsideScheduleDialog';
 import styles from './Timesheets.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 
@@ -136,10 +137,9 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
-  // What the diary made of it. Shown rather than thrown: the entry saved,
-  // and the person needs to read why it looked wrong before the modal goes.
+  // What the diary makes of it, asked before anything is written. Holding
+  // the answer here is what lets Cancel mean cancel: no entry, no email.
   const [warning, setWarning] = useState('');
-  const [savedEntry, setSavedEntry] = useState(null);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   // Recompute Hours whenever the user amends Start/Finish time (both set).
@@ -164,21 +164,32 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
     if (!form.job_id && !jobFreeRate(billingRates, form.billing_rate_id)) {
       return setErr('Pick the job these hours were worked on.');
     }
+    await send(false);
+  }
+
+  // acknowledged says the person has read the warning and wants it recorded
+  // anyway. Until then the server writes nothing and emails nobody, so this
+  // is the same request twice rather than a save and an undo.
+  async function send(acknowledged) {
     setSaving(true); setErr('');
     try {
       const payload = {
         ...form,
         start_time: toIso(form.date, form.start_time),
         end_time: toIso(form.date, form.end_time),
+        acknowledged,
       };
       const { data } = entry
         ? await api.put(`/timesheets/${entry.id}`, payload)
         : await api.post('/timesheets', payload);
-      // Saved either way. A warning holds the modal open so it is read,
-      // instead of flashing past as the list redraws.
-      if (data?.warning) { setWarning(data.warning); setSavedEntry(data); setSaving(false); return; }
+      setWarning('');
       onSave(data);
-    } catch (e) { setErr(e.response?.data?.error || 'Save failed'); setSaving(false); }
+    } catch (e) {
+      const body = e.response?.data;
+      if (body?.needs_confirmation) { setWarning(body.warning); setSaving(false); return; }
+      setErr(body?.error || 'Save failed');
+      setSaving(false);
+    }
   }
 
   async function handleDelete() {
@@ -192,6 +203,16 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
 
   return (
     <div className={styles.overlay} {...overlayClose(onClose)}>
+      {/* Over the form, not instead of it — cancelling leaves them looking at
+          the entry they were making, with the job still there to change. */}
+      {warning && (
+        <OutsideScheduleDialog
+          warning={warning}
+          busy={saving}
+          onCancel={() => { setWarning(''); setSaving(false); }}
+          onConfirm={() => send(true)}
+        />
+      )}
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <h2>{entry ? 'Edit Time Entry' : 'Log Time'}</h2>
@@ -199,18 +220,7 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
         </div>
         <form onSubmit={save} className={styles.modalBody}>
           {err && <div className={styles.error}>{err}</div>}
-          {warning && (
-            <div className={styles.diaryWarning}>
-              <strong>Saved — but it does not match the diary.</strong>
-              <p>{warning}</p>
-              <p className={styles.diaryWarningNote}>
-                The office has been emailed. If the hours belong on another job,
-                change the job above and save again.
-              </p>
-              <button type="button" className={styles.btnSecondary}
-                onClick={() => onSave(savedEntry)}>I&rsquo;ll leave it</button>
-            </div>
-          )}
+
           <div className={styles.formGrid}>
             {isAdmin && (
               <div className={styles.field}>

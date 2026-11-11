@@ -1,0 +1,57 @@
+/* Sits above the Log Time modal, which is itself an overlay — and above the
+   timer bar on a job, which is not. The z-index is the one number here that
+   has to be bigger than everything it can appear over. */
+.overlay {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(15, 23, 42, 0.55);
+}
+
+.dialog {
+  width: 100%; max-width: 420px; max-height: 90vh; overflow-y: auto;
+  background: var(--color-surface); border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+}
+
+.head {
+  padding: 16px 20px; border-bottom: 1px solid #fcd34d; background: #fffbeb;
+  border-radius: 12px 12px 0 0;
+}
+.title {
+  margin: 0; font-size: 14.5px; font-weight: 700; line-height: 1.4;
+  letter-spacing: 0.01em; color: #92400e;
+}
+
+.body { padding: 18px 20px; }
+.warning {
+  margin: 0 0 12px; font-size: 15px; line-height: 1.55; font-weight: 600;
+  color: var(--color-text);
+}
+.note {
+  margin: 0 0 8px; font-size: 13px; line-height: 1.6; color: var(--color-text-muted);
+}
+.note:last-child { margin-bottom: 0; }
+
+.foot {
+  display: flex; gap: 10px; padding: 0 20px 18px;
+}
+.cancel, .confirm {
+  flex: 1; padding: 12px 14px; border-radius: 8px; cursor: pointer;
+  font-family: inherit; font-size: 14px; font-weight: 600;
+}
+.cancel {
+  border: 1px solid var(--color-border); background: var(--color-surface);
+  color: var(--color-text);
+}
+.cancel:hover:not(:disabled) { background: var(--color-bg); }
+.confirm {
+  border: 1px solid #b45309; background: #b45309; color: #fff;
+}
+.confirm:hover:not(:disabled) { background: #92400e; }
+.cancel:disabled, .confirm:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* On a phone the two are stacked, with Cancel under the thumb rather than
+   beside the button that sends the email. */
+@media (max-width: 420px) {
+  .foot { flex-direction: column-reverse; }
+}
