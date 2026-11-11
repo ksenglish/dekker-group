@@ -59,7 +59,7 @@ function jobLabel(j) {
 }
 
 // Search/pick-a-job combobox — filters the pre-loaded job list as you type
-function JobPicker({ jobs, value, onChange }) {
+function JobPicker({ jobs, value, onChange, allowNone = true }) {
   const selectedJob = jobs.find(j => j.id === value);
   const [query, setQuery] = useState(jobLabel(selectedJob));
   const [open, setOpen] = useState(false);
@@ -92,9 +92,14 @@ function JobPicker({ jobs, value, onChange }) {
       />
       {open && (
         <div className={styles.jobDropdown}>
-          <div className={styles.jobOption} onMouseDown={() => pick(null)}>
-            <span className={styles.jobOptionMuted}>No job / general</span>
-          </div>
+          {/* Only where the rate allows it. Leaving this on the list while
+              the form refuses to save without a job is an invitation to a
+              dead end. */}
+          {allowNone && (
+            <div className={styles.jobOption} onMouseDown={() => pick(null)}>
+              <span className={styles.jobOptionMuted}>No job / general</span>
+            </div>
+          )}
           {matches.length === 0 && <div className={styles.jobOptionEmpty}>No jobs match "{query}"</div>}
           {matches.map(j => (
             <div key={j.id} className={styles.jobOption} onMouseDown={() => pick(j)}>
@@ -106,6 +111,15 @@ function JobPicker({ jobs, value, onChange }) {
       )}
     </div>
   );
+}
+
+// Rates that may be logged with no job on them — travel between sites, yard
+// time, leave. Everything else is work done for somebody, and belongs on
+// their job. The server decides the same thing again; this is only so the
+// form can say so before it is submitted.
+function jobFreeRate(rates, id) {
+  if (!id) return false;
+  return (rates || []).find(r => r.id === id)?.requires_job === false;
 }
 
 function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates, currentUser, onSave, onClose }) {
@@ -122,6 +136,10 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  // What the diary made of it. Shown rather than thrown: the entry saved,
+  // and the person needs to read why it looked wrong before the modal goes.
+  const [warning, setWarning] = useState('');
+  const [savedEntry, setSavedEntry] = useState(null);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   // Recompute Hours whenever the user amends Start/Finish time (both set).
@@ -141,6 +159,11 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
   async function save(e) {
     e.preventDefault();
     if (!form.hours || parseFloat(form.hours) <= 0) return setErr('Hours must be greater than 0');
+    // Hours belong to a job. The server decides which rates are exempt — this
+    // only saves a round trip on the ordinary case.
+    if (!form.job_id && !jobFreeRate(billingRates, form.billing_rate_id)) {
+      return setErr('Pick the job these hours were worked on.');
+    }
     setSaving(true); setErr('');
     try {
       const payload = {
@@ -151,6 +174,9 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
       const { data } = entry
         ? await api.put(`/timesheets/${entry.id}`, payload)
         : await api.post('/timesheets', payload);
+      // Saved either way. A warning holds the modal open so it is read,
+      // instead of flashing past as the list redraws.
+      if (data?.warning) { setWarning(data.warning); setSavedEntry(data); setSaving(false); return; }
       onSave(data);
     } catch (e) { setErr(e.response?.data?.error || 'Save failed'); setSaving(false); }
   }
@@ -173,6 +199,18 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
         </div>
         <form onSubmit={save} className={styles.modalBody}>
           {err && <div className={styles.error}>{err}</div>}
+          {warning && (
+            <div className={styles.diaryWarning}>
+              <strong>Saved — but it does not match the diary.</strong>
+              <p>{warning}</p>
+              <p className={styles.diaryWarningNote}>
+                The office has been emailed. If the hours belong on another job,
+                change the job above and save again.
+              </p>
+              <button type="button" className={styles.btnSecondary}
+                onClick={() => onSave(savedEntry)}>I&rsquo;ll leave it</button>
+            </div>
+          )}
           <div className={styles.formGrid}>
             {isAdmin && (
               <div className={styles.field}>
@@ -200,8 +238,15 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
               <input type="time" value={form.end_time} onChange={e => set('end_time', e.target.value)} />
             </div>
             <div className={styles.field} style={{ gridColumn: '1/-1' }}>
-              <label>Job (optional)</label>
-              <JobPicker jobs={jobs} value={form.job_id} onChange={v => set('job_id', v)} />
+              <label>Job</label>
+              <JobPicker jobs={jobs} value={form.job_id} onChange={v => set('job_id', v)}
+                allowNone={jobFreeRate(billingRates, form.billing_rate_id)} />
+              {!form.job_id && !jobFreeRate(billingRates, form.billing_rate_id) && (
+                <span className={styles.fieldHint}>
+                  Labour belongs to a job. Travel, yard time and leave can be logged
+                  without one by picking the billing rate set up for it.
+                </span>
+              )}
             </div>
             <div className={styles.field} style={{ gridColumn: '1/-1' }}>
               <label>Billing Rate (optional)</label>

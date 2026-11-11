@@ -964,6 +964,15 @@ function BillingRatesTab() {
     setSaved(false);
   }
 
+  // Whether hours on this rate have to name a job. On for everything unless
+  // somebody says otherwise, because labour is work done for somebody and
+  // belongs on their job — the exceptions are travel between sites, yard
+  // time and leave, which are real hours that belong to no customer.
+  function setNeedsJob(id, needs) {
+    setRates(rs => rs.map(r => r.id === id ? { ...r, requires_job: needs } : r));
+    setSaved(false);
+  }
+
   function addRate() {
     setRates(rs => [...rs, { id: newRateId(), label: '', rate: 0 }]);
     setSaved(false);
@@ -996,6 +1005,12 @@ function BillingRatesTab() {
             Set hourly charge-out rates for each billing category. These are used to calculate job costs in timesheets and reports,
             and are offered as options when logging time on a job.
           </p>
+          <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 20 }}>
+            Hours have to name a job unless the rate is ticked <strong>Can be logged
+            without a job</strong>. Leave that off for labour — work done for
+            somebody belongs on their job, and hours against nothing are hours
+            nobody can bill or check. Tick it for travel, yard time and leave.
+          </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {rates.map(r => (
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '1fr 160px 1fr 32px', alignItems: 'center', gap: 16, padding: '12px 16px', background: '#f8fafc', borderRadius: 8 }}>
@@ -1017,7 +1032,15 @@ function BillingRatesTab() {
                   <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>/hr</span>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
-                  {r.rate > 0 ? `$${(r.rate * 1.15).toFixed(2)}/hr incl. GST` : ''}
+                  {r.rate > 0 && <div>${(r.rate * 1.15).toFixed(2)}/hr incl. GST</div>}
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', marginTop: r.rate > 0 ? 4 : 0 }}>
+                    <input
+                      type="checkbox"
+                      checked={r.requires_job === false}
+                      onChange={e => setNeedsJob(r.id, e.target.checked ? false : undefined)}
+                    />
+                    Can be logged without a job
+                  </label>
                 </div>
                 <button onClick={() => deleteRate(r.id)} title="Delete rate" style={{
                   background: 'none', border: 'none', cursor: 'pointer', fontSize: 16,

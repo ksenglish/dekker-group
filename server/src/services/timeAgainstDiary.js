@@ -1,0 +1,129 @@
+// Does this time entry match what the diary says?
+//
+// The diary says who is on which job and when. The timesheet says where the
+// hours went. Nothing compared the two, so a tech picking the wrong job off
+// the list — the one above the right one, or the last job they were on — put
+// hours on it and nobody found out until the job was invoiced and the hours
+// were already on a customer's bill.
+//
+// The check never refuses an entry. Somebody standing on a roof at 4pm with a
+// job that was never booked needs their time recorded, not an argument; and a
+// booking that was never made is the office's mistake as often as theirs. So
+// it saves, says so plainly, and tells the office the same minute.
+const pool = require('../db/pool');
+
+// How far outside the booked hours is still the same day's work. Fifteen
+// minutes covers arriving early, finishing late, and the rounding the timer
+// does to the nearest quarter hour, without letting a whole wrong afternoon
+// through.
+const GRACE_MINUTES = Number(process.env.TIMESHEET_GRACE_MINUTES || 15);
+
+
+// Minutes from midnight, for whichever of the two shapes a time arrives in:
+// a TIME column out of the diary ("07:30:00"), or a full timestamp off an
+// entry. Local time either way — the diary is written in the time the person
+// is standing in, not UTC.
+function minutesOf(value) {
+  if (!value) return null;
+  const s = String(value);
+  if (/^\d{2}:\d{2}/.test(s)) {
+    const [h, m] = s.split(':').map(Number);
+    return h * 60 + m;
+  }
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  // An entry's start and end are stored as instants. Read back in the
+  // server's own zone, which is the one the diary's TIMEs were typed in.
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+// A date as the diary stores it. The column comes back from the driver as a
+// Date, and String()ing one of those gives "Tue Nov 10 2026 …" — which the
+// next query refuses, quietly, as a failed check rather than a warning.
+function dayOf(value) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`
+      + `-${String(value.getDate()).padStart(2, '0')}`;
+  }
+  return String(value).slice(0, 10);
+}
+
+const clock = mins => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+const hoursWord = h => `${Number(h) % 1 === 0 ? Number(h) : Number(h).toFixed(2)} hour${Number(h) === 1 ? '' : 's'}`;
+
+// What the diary has for this person on this day.
+async function bookingsFor({ userId, date }, client = pool) {
+  const { rows } = await client.query(
+    `SELECT s.job_id, s.start_time, s.end_time,
+            j.job_number, j.external_ref, j.description AS job_title
+       FROM schedules s
+       LEFT JOIN jobs j ON j.id = s.job_id
+      WHERE s.user_id = $1 AND s.scheduled_date = $2
+      ORDER BY s.start_time NULLS FIRST`,
+    [userId, dayOf(date)]
+  );
+  return rows;
+}
+
+const jobRef = b => b.external_ref || (b.job_number != null ? `JB${String(b.job_number).padStart(5, '0')}` : 'a job');
+
+// The check itself. Returns null when the entry matches the diary, or a
+// sentence saying what does not — written to be read by the person who typed
+// it, not by whoever wrote this.
+async function check({ jobId, userId, date, startTime, endTime, hours }, client = pool) {
+  if (!jobId) return null;
+  const day = await bookingsFor({ userId, date }, client);
+  const mine = day.filter(b => b.job_id === jobId);
+
+  // Nothing booked on this job for this person today. The common case, and the
+  // one the whole thing exists for.
+  if (!mine.length) {
+    const elsewhere = day.filter(b => b.job_id);
+    if (!elsewhere.length) {
+      return 'There is nothing in the diary for you on this day, so this job has not been checked against it.';
+    }
+    const names = [...new Set(elsewhere.map(jobRef))];
+    return `The diary has you on ${names.join(' and ')} this day, not on this job.`
+      + ' If the work really was on this job, the office needs to know so the diary matches.';
+  }
+
+  // Booked, but with no times against it — a whole day on site. Nothing to
+  // compare the clock to, so the day itself is the answer.
+  const timed = mine.filter(b => b.start_time && b.end_time);
+  if (!timed.length) return null;
+
+  const from = Math.min(...timed.map(b => minutesOf(b.start_time)));
+  const to = Math.max(...timed.map(b => minutesOf(b.end_time)));
+  const booked = `${clock(from)}–${clock(to)}`;
+
+  const started = minutesOf(startTime);
+  const finished = minutesOf(endTime);
+
+  if (started != null && finished != null) {
+    const early = started < from - GRACE_MINUTES;
+    const late = finished > to + GRACE_MINUTES;
+    if (early && late) {
+      return `You are booked on this job ${booked}, and this runs ${clock(started)}–${clock(finished)}.`;
+    }
+    if (early) {
+      return `You are booked on this job from ${clock(from)}, and this starts at ${clock(started)}.`;
+    }
+    if (late) {
+      return `You are booked on this job until ${clock(to)}, and this runs to ${clock(finished)}.`;
+    }
+    return null;
+  }
+
+  // Hours with no clock on them. All that can be said is whether there are
+  // more of them than the day was booked for.
+  const bookedHours = (to - from) / 60;
+  const logged = Number(hours) || 0;
+  if (logged > bookedHours + GRACE_MINUTES / 60) {
+    return `You are booked on this job for ${hoursWord(bookedHours)} (${booked}),`
+      + ` and this logs ${hoursWord(logged)}.`;
+  }
+  return null;
+}
+
+module.exports = { check, bookingsFor, GRACE_MINUTES };

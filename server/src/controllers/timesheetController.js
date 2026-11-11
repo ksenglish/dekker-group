@@ -1,5 +1,8 @@
 const pool = require('../db/pool');
 const { can } = require('../utils/permissions');
+const diary = require('../services/timeAgainstDiary');
+const timeWarning = require('../services/timeWarningEmail');
+const { appUrl } = require('../utils/appUrl');
 
 // Raw roles (deliberately not normaliseRole — that would elevate sales/
 // operations back to office-equivalent, which is exactly what this scoping
@@ -10,6 +13,65 @@ const SELF_ONLY_ROLES = ['field_tech', 'sales', 'operations', 'subcontractor'];
 // time, which is the one thing that lifts it.
 function selfOnly(user) {
   return SELF_ONLY_ROLES.includes(user.role) && !can(user, 'timesheets.all');
+}
+
+// Hours that have to belong to a job.
+//
+// Labour is work done for somebody, and work done for somebody belongs on
+// their job — hours logged against nothing are hours nobody can bill, check
+// or explain, and they are where the wrong-job problem hides. So a rate
+// requires a job unless it has been marked otherwise in Settings → Billing
+// Rates, which is for the handful that genuinely are not job work: travel
+// between sites, yard time, leave.
+//
+// Required by default, including for an entry with no rate chosen at all. A
+// rate added later and never thought about should ask for a job rather than
+// quietly become the way round this.
+async function rateAllowsNoJob(rateId) {
+  if (!rateId) return false;
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key='billing_rates'`);
+    const rate = (rows[0]?.value || []).find(r => r.id === rateId);
+    return rate?.requires_job === false;
+  } catch { return false; }
+}
+
+// The diary check, the warning kept on the entry, and the office told.
+//
+// Never refuses the entry and never fails the request: the hours are the
+// thing worth keeping, and a check that could lose them would be worse than
+// no check at all.
+async function checkAgainstDiary(entry) {
+  if (!entry?.job_id) return null;
+  let warning = null;
+  try {
+    warning = await diary.check({
+      jobId: entry.job_id, userId: entry.user_id, date: entry.date,
+      startTime: entry.start_time, endTime: entry.end_time, hours: entry.hours,
+    });
+  } catch (err) {
+    console.error('[timesheets] diary check failed:', err.message);
+    return null;
+  }
+
+  try {
+    await pool.query(
+      `UPDATE timesheets SET schedule_warning = $1,
+              schedule_warned_at = CASE WHEN $1::text IS NULL THEN NULL ELSE NOW() END
+        WHERE id = $2`,
+      [warning, entry.id]);
+  } catch (err) { console.error('[timesheets] could not record the warning:', err.message); }
+
+  if (warning) {
+    const bookings = await diary
+      .bookingsFor({ userId: entry.user_id, date: entry.date })
+      .catch(() => []);
+    // Not awaited into the response: the person has already been told on
+    // screen, and the office being emailed is not something they wait for.
+    timeWarning.notify({ entry, warning, bookings, appUrl: appUrl() })
+      .catch(err => console.error('[timesheets] notify failed:', err.message));
+  }
+  return warning;
 }
 
 async function list(req, res) {
@@ -47,6 +109,14 @@ async function create(req, res) {
   const { job_id, date, hours, description, start_time, end_time, source, billing_rate_id } = req.body;
   const user_id = selfOnly(req.user) ? req.user.id : (req.body.user_id || req.user.id);
   if (!hours || hours <= 0) return res.status(400).json({ error: 'Hours must be greater than 0' });
+  if (!job_id && !await rateAllowsNoJob(billing_rate_id)) {
+    return res.status(400).json({
+      error: 'Pick the job these hours were worked on. Hours that are not job'
+        + ' work — travel, yard time, leave — need a billing rate set up for'
+        + ' that in Settings → Billing Rates.',
+      needs_job: true,
+    });
+  }
   try {
     const { rows } = await pool.query(
       `INSERT INTO timesheets (job_id, user_id, date, hours, description, start_time, end_time, source, billing_rate_id)
@@ -59,7 +129,10 @@ async function create(req, res) {
        FROM timesheets t LEFT JOIN users u ON u.id=t.user_id LEFT JOIN jobs j ON j.id=t.job_id
        WHERE t.id=$1`, [rows[0].id]
     );
-    res.status(201).json(full[0]);
+    // Checked against the diary as it is saved, so whoever typed it finds out
+    // now rather than when the job is invoiced.
+    const warning = await checkAgainstDiary(full[0]);
+    res.status(201).json({ ...full[0], schedule_warning: warning, warning });
   } catch (err) { console.error('Timesheet create error:', err); res.status(500).json({ error: err.message }); }
 }
 
@@ -74,6 +147,14 @@ async function update(req, res) {
       return res.status(403).json({ error: 'Forbidden' });
 
     const newUserId = selfOnly(req.user) ? req.user.id : (user_id || existing.user_id);
+    if (!job_id && !await rateAllowsNoJob(billing_rate_id)) {
+      return res.status(400).json({
+        error: 'Pick the job these hours were worked on. Hours that are not job'
+          + ' work — travel, yard time, leave — need a billing rate set up for'
+          + ' that in Settings → Billing Rates.',
+        needs_job: true,
+      });
+    }
     const { rows } = await pool.query(
       `UPDATE timesheets SET job_id=$1, user_id=$2, date=$3, hours=$4, description=$5,
          start_time=$6, end_time=$7, billing_rate_id=$8, updated_at=NOW()
@@ -85,7 +166,10 @@ async function update(req, res) {
        FROM timesheets t LEFT JOIN users u ON u.id=t.user_id LEFT JOIN jobs j ON j.id=t.job_id
        WHERE t.id=$1`, [rows[0].id]
     );
-    res.json(full[0]);
+    // Moved to another job, or its times amended, is exactly when an entry
+    // stops or starts matching the diary — so it is checked again.
+    const warning = await checkAgainstDiary(full[0]);
+    res.json({ ...full[0], schedule_warning: warning, warning });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 

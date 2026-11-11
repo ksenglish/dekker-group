@@ -204,7 +204,7 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
     const endTime = new Date(endTs).toISOString();
     setSaving(true);
     try {
-      await api.post('/timesheets', {
+      const { data } = await api.post('/timesheets', {
         job_id: jobId, hours, description: desc || 'Time tracked via timer',
         date: toLocalDateStr(new Date(endTs)),
         start_time: startTime, end_time: endTime,
@@ -212,6 +212,13 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
       });
       localStorage.removeItem(RATE_STORAGE_KEY);
       setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
+      // Saved either way. The diary not agreeing is worth a word before the
+      // bar clears — this is the moment the person still knows where they were.
+      if (data?.warning) {
+        alert('Time saved, but it does not match the diary.\n\n' + data.warning
+          + '\n\nThe office has been emailed. If these hours belong on another job,'
+          + ' they can be moved on the Timesheets page.');
+      }
       onTimeSaved && onTimeSaved(hours);
     } catch (err) {
       console.error('Timer save error:', err?.response?.data || err?.message || err);
