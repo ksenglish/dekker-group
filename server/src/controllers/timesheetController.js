@@ -87,6 +87,19 @@ const askFirst = (res, warning) => res.status(409).json({
   error: warning,
 });
 
+// The day a person may log time for.
+//
+// Hours typed in days later are hours remembered rather than recorded, and
+// they are what turn up on a job after it has been invoiced. So the field is
+// today for everyone except the people whose job it is to fix the others'
+// mistakes — who need every date there is, including the ones in the past.
+const BACKDATE_ROLES = ['admin', 'office'];
+const mayBackdate = user => BACKDATE_ROLES.includes(user?.role) || can(user, 'timesheets.all');
+
+// Today where the work happens, not where the server is.
+const todayHere = () => new Intl.DateTimeFormat('en-CA',
+  { timeZone: process.env.BUSINESS_TIMEZONE || 'Pacific/Auckland' }).format(new Date());
+
 async function list(req, res) {
   const { job_id, user_id, from, to } = req.query;
   const conditions = [];
@@ -130,7 +143,14 @@ async function create(req, res) {
       needs_job: true,
     });
   }
-  const day = date || new Date().toISOString().slice(0, 10);
+  const day = date || todayHere();
+  if (day !== todayHere() && !mayBackdate(req.user)) {
+    return res.status(403).json({
+      error: 'Time can only be logged for today. Ask the office to add hours'
+        + ' for another day.',
+      today_only: true,
+    });
+  }
   const warning = await askTheDiary({
     jobId: job_id, userId: user_id, date: day,
     startTime: start_time, endTime: end_time, hours,
@@ -168,6 +188,14 @@ async function update(req, res) {
       return res.status(403).json({ error: 'Forbidden' });
 
     const newUserId = selfOnly(req.user) ? req.user.id : (user_id || existing.user_id);
+    // The same rule on an edit, or yesterday is one amendment away.
+    if (date && String(date).slice(0, 10) !== todayHere() && !mayBackdate(req.user)) {
+      return res.status(403).json({
+        error: 'Time can only be logged for today. Ask the office to change'
+          + ' hours on another day.',
+        today_only: true,
+      });
+    }
     if (!job_id && !await rateAllowsNoJob(billing_rate_id)) {
       return res.status(400).json({
         error: 'Pick the job these hours were worked on. Hours that are not job'
@@ -358,4 +386,83 @@ async function jobSummary(req, res) {
   }
 }
 
-module.exports = { list, create, update, remove, summary, jobSummary };
+// ── Timers running right now ────────────────────────────────────────────────
+//
+// The timer used to live entirely in one browser's storage, so nobody else
+// could see it: not the office, not the next phone the same person picked
+// up. A timer left running over a weekend was invisible until it produced
+// sixty hours on the Monday.
+
+// Started. One row per person — starting one on another job moves them,
+// which is what has actually happened.
+async function startTimer(req, res) {
+  const { job_id, billing_rate_id } = req.body || {};
+  if (!job_id) return res.status(400).json({ error: 'Which job?' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO active_timers (user_id, job_id, billing_rate_id)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (user_id) DO UPDATE
+          SET job_id = EXCLUDED.job_id,
+              billing_rate_id = EXCLUDED.billing_rate_id,
+              -- Moving to another job restarts the clock; carrying on with
+              -- the same one keeps it, so a page reload is not a reset.
+              started_at = CASE WHEN active_timers.job_id = EXCLUDED.job_id
+                                THEN active_timers.started_at ELSE NOW() END,
+              updated_at = NOW()
+       RETURNING *`,
+      [req.user.id, job_id, billing_rate_id || null]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('[timers] start failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// Stopped — saved or discarded, both of which end the running timer. The
+// hours themselves are a timesheet entry and go in separately.
+async function stopTimer(req, res) {
+  try {
+    await pool.query('DELETE FROM active_timers WHERE user_id = $1', [req.user.id]);
+    res.json({ stopped: true });
+  } catch (err) {
+    console.error('[timers] stop failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// Who is on the clock. Scoped like everything else here: somebody who only
+// sees their own timesheet sees only their own timer, unless they are
+// asking about one job, where knowing who else is on site is the point.
+async function listTimers(req, res) {
+  const { job_id } = req.query;
+  const where = [];
+  const params = [];
+  if (job_id) { params.push(job_id); where.push(`t.job_id = $${params.length}`); }
+  else if (selfOnly(req.user)) { params.push(req.user.id); where.push(`t.user_id = $${params.length}`); }
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.user_id, t.job_id, t.started_at, t.billing_rate_id,
+              u.name AS user_name,
+              j.job_number, j.external_ref, j.description AS job_title,
+              c.name AS customer_name
+         FROM active_timers t
+         JOIN users u ON u.id = t.user_id
+         JOIN jobs j ON j.id = t.job_id
+         LEFT JOIN customers c ON c.id = j.customer_id
+        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+        ORDER BY t.started_at`,
+      params
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[timers] list failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+module.exports = {
+  list, create, update, remove, summary, jobSummary,
+  startTimer, stopTimer, listTimers,
+};

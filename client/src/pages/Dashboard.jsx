@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { htmlToText } from '../lib/richText';
 import api from '../lib/api';
 import { formatJobNumber } from '../lib/formatJobNumber';
+import { isAdmin } from '../lib/permissions';
+import RunningTimers from '../components/time/RunningTimers';
 import styles from './Dashboard.module.css';
 
 const STATUS_COLOURS = {
@@ -70,6 +72,11 @@ export default function Dashboard() {
           </p>
         </div>
       </div>
+
+      {/* Who is working, right now. The office’s first question of the
+          morning, and the one the timer could never answer because it lived
+          in one phone’s own storage. */}
+      {isAdmin(user?.role) && <RunningTimers />}
 
       <div className={styles.statsGrid}>
         <Link to="/jobs" className={styles.statCard}>

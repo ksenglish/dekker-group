@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import api from '../../lib/api';
 import OutsideScheduleDialog from '../../components/time/OutsideScheduleDialog';
+import RunningTimers from '../../components/time/RunningTimers';
 import { useAuth } from '../../context/AuthContext';
 import { isAdmin, canAct } from '../../lib/permissions';
 import { formatJobNumber } from '../../lib/formatJobNumber';
@@ -82,7 +83,7 @@ function statusMenuPosition(rect) {
   };
 }
 
-function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusChange }) {
+function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatuses, onStatusChange }) {
   const [prompt, setPrompt] = useState(null); // 'complete' | 'quote-sent' | null
   const [checkingQuote, setCheckingQuote] = useState(false);
   const [quoteWarning, setQuoteWarning] = useState('');
@@ -147,6 +148,12 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
     setStartTs(ts);
     setEndTs(null);
     setShowSave(false);
+    // Recorded where everyone else can see it: the job’s Time tab and the
+    // office dashboard. Failing to reach the server does not stop the timer —
+    // the hours are still being counted here and still save.
+    api.post('/timesheets/timer', { job_id: jobId, billing_rate_id: billingRateId || null })
+      .then(() => onTimerChange?.())
+      .catch(() => {});
     // Only a job sitting on Scheduled - Installation starts running. Timers get
     // used on site visits, callbacks and warranty work too, and none of those
     // should quietly reclassify the job.
@@ -198,7 +205,10 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
   function discard() {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(RATE_STORAGE_KEY);
+    // Nobody is on the clock any more, so nothing should say they are.
+    api.delete('/timesheets/timer').catch(() => {});
     setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
+    onTimerChange?.();
   }
 
   async function save(e) {
@@ -224,8 +234,10 @@ function JobTimer({ jobId, onTimeSaved, user, jobStatus, jobStatuses, onStatusCh
         acknowledged,
       });
       localStorage.removeItem(RATE_STORAGE_KEY);
+      api.delete('/timesheets/timer').catch(() => {});
       setOutsideSchedule('');
       setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
+      onTimerChange?.();
       onTimeSaved && onTimeSaved(hours);
     } catch (err) {
       const body = err?.response?.data;
@@ -579,6 +591,10 @@ function toHHMM(iso) {
 // Add/edit popup for a single timesheet entry — click a bar in the timeline to edit
 function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDelete, onClose }) {
   const isNew = !entry;
+  // Office and admin fix other people’s mistakes, which means reaching the
+  // days those mistakes are on. Everybody else logs today.
+  const canBackdate = ['admin', 'office'].includes(currentUser?.role);
+  const today = toLocalDateStr();
   const [form, setForm] = useState({
     date: entry?.date ? entry.date.slice(0, 10) : toLocalDateStr(),
     start_time: toHHMM(entry?.start_time),
@@ -676,7 +692,19 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
             <div className={styles.formGrid}>
               <div className={styles.field}>
                 <label>Date</label>
-                <input type="date" value={form.date} onChange={e => set('date', e.target.value)} />
+                {/* Hours typed in days later are hours remembered rather than
+                    recorded, and they are what turn up on a job after it has
+                    been invoiced. The office can still put them anywhere. */}
+                <input type="date" value={form.date}
+                  disabled={!canBackdate}
+                  min={canBackdate ? undefined : today}
+                  max={canBackdate ? undefined : today}
+                  onChange={e => set('date', e.target.value)} />
+                {!canBackdate && (
+                  <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 5 }}>
+                    Time is logged for today. Ask the office to add hours for another day.
+                  </div>
+                )}
               </div>
               <div className={styles.field}>
                 <label>Hours</label>
@@ -913,7 +941,7 @@ function TimeSummary({ summary }) {
   );
 }
 
-function JobTimesheets({ jobId, user }) {
+function JobTimesheets({ jobId, user, timerKey }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [billingRates, setBillingRates] = useState([]);
@@ -950,6 +978,9 @@ function JobTimesheets({ jobId, user }) {
     loadSummary();
   }
 
+  const running = <RunningTimers jobId={jobId} refreshKey={timerKey} showJob={false}
+    title="On the clock on this job" />;
+
   const byDate = {};
   entries.forEach(e => {
     const key = e.date ? e.date.slice(0, 10) : 'unknown';
@@ -963,6 +994,7 @@ function JobTimesheets({ jobId, user }) {
   return (
     <div className={styles.card}>
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)' }}>
+        {running}
         <button className={styles.btnPrimary} onClick={() => setModalEntry(null)}>+ New Timesheet Entry</button>
       </div>
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
@@ -1276,6 +1308,9 @@ export default function JobDetail() {
   // Supports deep-linking to a tab, e.g. /jobs/:id?tab=line_items from the "Edit" button on a quote
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'details');
   const [emailFlash, setEmailFlash] = useState('');
+  // Bumped when a timer starts or stops here, so the Time tab re-reads who is
+  // on the clock rather than waiting for its own poll.
+  const [timerKey, setTimerKey] = useState(0);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [syncingArcSite, setSyncingArcSite] = useState(false);
   const [pullingDrawings, setPullingDrawings] = useState(false);
@@ -1613,6 +1648,7 @@ export default function JobDetail() {
               jobId={id}
               user={user}
               onTimeSaved={() => setEmailFlash('Time entry saved!')}
+              onTimerChange={() => setTimerKey(k => k + 1)}
               jobStatus={job.status}
               jobStatuses={jobStatuses}
               onStatusChange={handleTimerStatusChange}
@@ -1758,7 +1794,7 @@ export default function JobDetail() {
             </div>
           )}
 
-          {activeTab === 'timesheets' && <JobTimesheets jobId={id} user={user} />}
+          {activeTab === 'timesheets' && <JobTimesheets jobId={id} user={user} timerKey={timerKey} />}
           {activeTab === 'photos' && (
             <>
               <JobFormsTab jobId={id} job={job} user={user} stage="pre_install" />

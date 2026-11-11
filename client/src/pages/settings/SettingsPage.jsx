@@ -947,11 +947,15 @@ function WebsitePricingTab() {
 
 function BillingRatesTab() {
   const [rates, setRates] = useState([]);
+  // How far outside a booking still counts as that booking, before the
+  // office is emailed about it.
+  const [grace, setGrace] = useState(45);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api.get('/settings/billing-rates').then(r => setRates(r.data));
+    api.get('/settings/timesheet-grace').then(r => setGrace(r.data.minutes)).catch(() => {});
   }, []);
 
   function setLabel(id, val) {
@@ -988,6 +992,7 @@ function BillingRatesTab() {
     setSaving(true);
     try {
       await api.put('/settings/billing-rates', rates.filter(r => r.label.trim()));
+      await api.put('/settings/timesheet-grace', { minutes: Number(grace) || 0 });
       setSaved(true); setTimeout(() => setSaved(false), 3000);
     } catch { alert('Save failed'); }
     finally { setSaving(false); }
@@ -1049,6 +1054,30 @@ function BillingRatesTab() {
               </div>
             ))}
           </div>
+          {/* Time against the diary. The rates above decide what an hour is
+              worth; this decides when an hour in the wrong place is worth an
+              email, and the right number is a thing a business learns. */}
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--color-border)' }}>
+            <label style={{ display: 'block', fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+              Allowance outside scheduled hours
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="number" min="0" max="240" step="5"
+                value={grace}
+                onChange={e => { setGrace(e.target.value); setSaved(false); }}
+                style={{ width: 90, padding: '7px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
+              />
+              <span style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>minutes either side</span>
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 8, lineHeight: 1.6 }}>
+              Time logged this far before or after someone&rsquo;s booking on a job
+              still counts as that booking — they are warned and the office is
+              emailed only beyond it. Staying on to finish a run is not an
+              incident; an afternoon on the wrong job is.
+            </p>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
             <button onClick={addRate} style={{
               padding: '8px 16px', background: 'none', color: 'var(--color-primary)',

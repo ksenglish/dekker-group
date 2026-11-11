@@ -1,0 +1,55 @@
+.panel {
+  margin-bottom: 16px; padding: 12px 14px;
+  border: 1px solid #86efac; border-radius: 10px; background: #f0fdf4;
+}
+
+.head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13.5px; color: #166534; margin-bottom: 8px;
+}
+.count {
+  margin-left: auto; font-size: 12px; font-weight: 700;
+  background: #166534; color: #fff; border-radius: 99px; padding: 1px 8px;
+}
+
+/* A running timer is the one thing on these screens that is happening right
+   now, so it is the one thing that moves. */
+.dot {
+  width: 8px; height: 8px; border-radius: 50%; background: #16a34a;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot { animation: none; }
+}
+
+.list { display: flex; flex-direction: column; gap: 7px; }
+
+.row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+  padding-top: 7px; border-top: 1px solid #bbf7d0;
+}
+.row:first-child { padding-top: 0; border-top: none; }
+
+.who { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.name { font-size: 13.5px; font-weight: 600; color: var(--color-text); }
+.job { font-size: 12.5px; color: #166534; text-decoration: none; }
+.job:hover { text-decoration: underline; }
+
+.timing { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.from { font-size: 12.5px; color: var(--color-text-muted); }
+.elapsed {
+  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: #166534;
+}
+/* Longer than anybody's day — almost always a timer somebody forgot, and the
+   reason for showing these at all. */
+.longElapsed {
+  font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: #b45309; background: #fffbeb; border: 1px solid #fcd34d;
+  padding: 1px 8px; border-radius: 99px;
+}

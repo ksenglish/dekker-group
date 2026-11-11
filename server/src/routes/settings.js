@@ -383,6 +383,7 @@ router.delete('/job-templates/:id', authenticate, requireRole('admin', 'office')
 });
 
 // Billing rates
+const { DEFAULT_GRACE_MINUTES: DEFAULT_GRACE } = require('../services/timeAgainstDiary');
 const DEFAULT_BILLING_RATES = [
   { id: 'standard',     label: 'Standard',        rate: 0 },
   { id: 'overtime',     label: 'Overtime',         rate: 0 },
@@ -390,6 +391,32 @@ const DEFAULT_BILLING_RATES = [
   { id: 'public_hol',   label: 'Public Holiday',   rate: 0 },
   { id: 'subcontractor',label: 'Subcontractor',    rate: 0 },
 ];
+
+// How many minutes either side of a booking still count as that booking.
+// Lives next to the rates because it is read on the same screen.
+router.get('/timesheet-grace', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT value FROM settings WHERE key = 'timesheet_grace_minutes'`);
+    const set = Number(rows[0]?.value);
+    res.json({ minutes: Number.isFinite(set) && set >= 0 ? set : DEFAULT_GRACE });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/timesheet-grace', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const minutes = Number(req.body?.minutes);
+  if (!Number.isFinite(minutes) || minutes < 0 || minutes > 240) {
+    return res.status(400).json({ error: 'Give it a number of minutes between 0 and 240' });
+  }
+  try {
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('timesheet_grace_minutes', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+      [JSON.stringify(Math.round(minutes))]
+    );
+    res.json({ minutes: Math.round(minutes) });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
 
 router.get('/billing-rates', authenticate, async (req, res) => {
   try {

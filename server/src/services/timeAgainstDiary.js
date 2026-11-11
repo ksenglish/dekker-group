@@ -16,7 +16,23 @@ const pool = require('../db/pool');
 // minutes covers arriving early, finishing late, and the rounding the timer
 // does to the nearest quarter hour, without letting a whole wrong afternoon
 // through.
-const GRACE_MINUTES = Number(process.env.TIMESHEET_GRACE_MINUTES || 15);
+// How far outside the booked hours is still the same day's work.
+//
+// Forty-five minutes: a tech who stays to finish a run, or starts before
+// the booking because they were passing, is not an incident and the office
+// does not want an email about it. Set in Settings → Billing Rates, because
+// the right number is a thing a business learns rather than something that
+// should need a deploy.
+const DEFAULT_GRACE_MINUTES = Number(process.env.TIMESHEET_GRACE_MINUTES || 45);
+
+async function graceMinutes(client = pool) {
+  try {
+    const { rows } = await client.query(
+      `SELECT value FROM settings WHERE key = 'timesheet_grace_minutes'`);
+    const set = Number(rows[0]?.value);
+    return Number.isFinite(set) && set >= 0 ? set : DEFAULT_GRACE_MINUTES;
+  } catch { return DEFAULT_GRACE_MINUTES; }
+}
 
 
 // The zone the business works in, which is the one the diary's TIMEs were
@@ -89,6 +105,7 @@ const jobRef = b => b.external_ref || (b.job_number != null ? `JB${String(b.job_
 // it, not by whoever wrote this.
 async function check({ jobId, userId, date, startTime, endTime, hours }, client = pool) {
   if (!jobId) return null;
+  const GRACE_MINUTES = await graceMinutes(client);
   const day = await bookingsFor({ userId, date }, client);
   const mine = day.filter(b => b.job_id === jobId);
 
@@ -142,4 +159,4 @@ async function check({ jobId, userId, date, startTime, endTime, hours }, client 
   return null;
 }
 
-module.exports = { check, bookingsFor, GRACE_MINUTES };
+module.exports = { check, bookingsFor, graceMinutes, DEFAULT_GRACE_MINUTES };

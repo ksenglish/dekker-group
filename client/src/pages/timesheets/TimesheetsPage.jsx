@@ -125,6 +125,10 @@ function jobFreeRate(rates, id) {
 
 function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates, currentUser, onSave, onClose }) {
   const isAdmin = isAdminRole(currentUser.role);
+  // Office and admin fix other people's mistakes, which means reaching the
+  // days those mistakes are on. Everybody else logs today.
+  const canBackdate = isAdmin || currentUser.role === 'office';
+  const today = toLocalDateStr();
   const [form, setForm] = useState({
     job_id: entry?.job_id || '',
     user_id: entry?.user_id || prefillUser || currentUser.id,
@@ -232,7 +236,19 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
             )}
             <div className={styles.field}>
               <label>Date</label>
-              <input type="date" value={form.date} onChange={e => set('date', e.target.value)} />
+              {/* Hours typed in days later are hours remembered rather than
+                  recorded, and they are what turn up on a job after it has
+                  been invoiced. The office can still put them anywhere. */}
+              <input type="date" value={form.date}
+                disabled={!canBackdate}
+                min={canBackdate ? undefined : today}
+                max={canBackdate ? undefined : today}
+                onChange={e => set('date', e.target.value)} />
+              {!canBackdate && (
+                <span className={styles.fieldHint}>
+                  Time is logged for today. Ask the office to add hours for another day.
+                </span>
+              )}
             </div>
             <div className={styles.field}>
               <label>Hours</label>
