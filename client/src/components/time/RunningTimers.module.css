@@ -53,3 +53,11 @@
   color: #b45309; background: #fffbeb; border: 1px solid #fcd34d;
   padding: 1px 8px; border-radius: 99px;
 }
+
+/* What they are on the clock for — travelling or on site — which is the
+   difference between an hour that is charged and one that is not. */
+.rate {
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  color: #166534; background: #dcfce7; border: 1px solid #86efac;
+  padding: 1px 8px; border-radius: 99px;
+}

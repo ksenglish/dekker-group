@@ -70,6 +70,11 @@ export default function RunningTimers({ jobId, title = 'On the clock now', refre
                   {t.customer_name ? ` · ${t.customer_name}` : ''}
                 </Link>
               )}
+              {/* Which rate they are on, so travelling and being on site are
+                  told apart at a glance rather than at the end of the week. */}
+              {t.billing_rate_label && (
+                <span className={styles.rate}>{t.billing_rate_label}</span>
+              )}
             </div>
             <div className={styles.timing}>
               <span className={styles.from}>from {startedWhen(t.started_at)}</span>

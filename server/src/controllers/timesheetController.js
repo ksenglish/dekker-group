@@ -27,13 +27,29 @@ function selfOnly(user) {
 // Required by default, including for an entry with no rate chosen at all. A
 // rate added later and never thought about should ask for a job rather than
 // quietly become the way round this.
-async function rateAllowsNoJob(rateId) {
-  if (!rateId) return false;
+async function allRates() {
   try {
     const { rows } = await pool.query(`SELECT value FROM settings WHERE key='billing_rates'`);
-    const rate = (rows[0]?.value || []).find(r => r.id === rateId);
-    return rate?.requires_job === false;
-  } catch { return false; }
+    return Array.isArray(rows[0]?.value) ? rows[0].value : [];
+  } catch { return []; }
+}
+
+async function rateAllowsNoJob(rateId) {
+  if (!rateId) return false;
+  return (await allRates()).find(r => r.id === rateId)?.requires_job === false;
+}
+
+// Whether one person may log against one rate. Nothing on their list means
+// every rate, which is what people have until somebody says otherwise.
+async function mayUseRate(userId, rateId) {
+  if (!rateId) return true;
+  try {
+    const { rows } = await pool.query(
+      'SELECT billing_rate_ids FROM users WHERE id = $1', [userId]);
+    const allowed = rows[0]?.billing_rate_ids;
+    if (!Array.isArray(allowed) || allowed.length === 0) return true;
+    return allowed.includes(rateId);
+  } catch { return true; }
 }
 
 // What the diary makes of an entry that has not been written yet.
@@ -144,6 +160,10 @@ async function create(req, res) {
     });
   }
   const day = date || todayHere();
+  // A rate that may be logged without a job is not job work — travel between
+  // sites, yard time, leave. None of it is in anybody's diary, so measuring
+  // it against the diary only ever produces a warning about nothing.
+  const offDiary = await rateAllowsNoJob(billing_rate_id);
   if (day !== todayHere() && !mayBackdate(req.user)) {
     return res.status(403).json({
       error: 'Time can only be logged for today. Ask the office to add hours'
@@ -151,7 +171,10 @@ async function create(req, res) {
       today_only: true,
     });
   }
-  const warning = await askTheDiary({
+  if (!await mayUseRate(user_id, billing_rate_id)) {
+    return res.status(403).json({ error: 'That billing rate is not one you can log time against.' });
+  }
+  const warning = offDiary ? null : await askTheDiary({
     jobId: job_id, userId: user_id, date: day,
     startTime: start_time, endTime: end_time, hours,
   });
@@ -204,7 +227,10 @@ async function update(req, res) {
         needs_job: true,
       });
     }
-    const warning = await askTheDiary({
+    if (!await mayUseRate(newUserId, billing_rate_id)) {
+      return res.status(403).json({ error: 'That billing rate is not one you can log time against.' });
+    }
+    const warning = await rateAllowsNoJob(billing_rate_id) ? null : await askTheDiary({
       jobId: job_id, userId: newUserId, date,
       startTime: start_time, endTime: end_time, hours,
     });
@@ -455,7 +481,12 @@ async function listTimers(req, res) {
         ORDER BY t.started_at`,
       params
     );
-    res.json(rows);
+    // Labelled here rather than in the browser: the rates live in a settings
+    // row, and two screens working out the same label is two chances to
+    // disagree about what somebody is doing.
+    const rates = await allRates();
+    const label = id => rates.find(r => r.id === id)?.label || null;
+    res.json(rows.map(r => ({ ...r, billing_rate_label: label(r.billing_rate_id) })));
   } catch (err) {
     console.error('[timers] list failed:', err.message);
     res.status(500).json({ error: 'Server error' });

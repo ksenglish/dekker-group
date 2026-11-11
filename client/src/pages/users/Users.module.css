@@ -137,3 +137,19 @@
   background: #f0f7ff;
 }
 @media (max-width: 640px) { .navChoice { grid-template-columns: 1fr; } }
+
+/* Which rates a person may log against. Ticking none means all of them —
+   the state everybody is in until somebody decides otherwise. */
+.rateGrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 7px 14px;
+}
+.rateChoice {
+  display: flex; align-items: center; gap: 7px; cursor: pointer;
+  font-size: 13.5px; color: var(--color-text);
+}
+.rateNote {
+  font-size: 11px; color: var(--color-text-muted);
+  background: var(--color-bg); border: 1px solid var(--color-border);
+  padding: 0 6px; border-radius: 99px; white-space: nowrap;
+}

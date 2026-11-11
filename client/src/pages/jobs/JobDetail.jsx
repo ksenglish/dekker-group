@@ -124,7 +124,7 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
   });
 
   useEffect(() => {
-    api.get('/settings/billing-rates').then(r => {
+    api.get('/settings/billing-rates/available').then(r => {
       setBillingRates(r.data);
       setBillingRateId(cur => cur || user?.default_billing_rate_id || r.data[0]?.id || '');
     }).catch(() => {});
@@ -963,7 +963,7 @@ function JobTimesheets({ jobId, user, timerKey }) {
   useEffect(() => { loadSummary(); }, [loadSummary]);
 
   useEffect(() => {
-    api.get('/settings/billing-rates').then(r => setBillingRates(r.data)).catch(() => {});
+    api.get('/settings/billing-rates/available').then(r => setBillingRates(r.data)).catch(() => {});
   }, []);
 
   function handleSaved(saved) {

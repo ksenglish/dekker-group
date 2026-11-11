@@ -48,6 +48,9 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
     role: user?.role || 'operations',
     diaries: user ? (user.diaries || []) : diariesFromRole('operations'),
     default_billing_rate_id: user?.default_billing_rate_id || '',
+    // Empty means every rate — which is what everybody has until somebody
+    // ticks a box, so turning this on is not the day the team cannot log time.
+    billing_rate_ids: Array.isArray(user?.billing_rate_ids) ? user.billing_rate_ids : [],
     cost_rate: user?.cost_rate != null ? String(user.cost_rate) : '',
     licence_number: user?.licence_number || '',
     mobile: user?.mobile || '',
@@ -104,6 +107,7 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
       const payload = {
         name: form.name, email: form.email, role: form.role, diaries: form.diaries,
         default_billing_rate_id: form.default_billing_rate_id || null, is_active: form.is_active,
+        billing_rate_ids: form.billing_rate_ids,
         // Sent as '' when cleared, which the server stores as "not set" rather
         // than zero — zero would read as free labour in the job profit figures.
         cost_rate: form.cost_rate === '' ? '' : form.cost_rate,
@@ -203,6 +207,40 @@ function UserModal({ user, currentUserId, onSave, onClose }) {
                 <option value="">No default</option>
                 {billingRates.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
               </select>
+            </div>
+            <div className={styles.field} style={{ gridColumn: '1/-1' }}>
+              <label>Billing Rates They Can Use</label>
+              <p className={styles.hint}>
+                Which rates this person is offered when they log time. Every rate
+                was offered to everybody, so an Operations user could pick Admin and
+                a landscaper could pick Builder — and the job came out charged wrong
+                in a way nobody notices until the invoice. Tick none to allow all.
+              </p>
+              <div className={styles.rateGrid}>
+                {billingRates.map(r => {
+                  const on = form.billing_rate_ids.includes(r.id);
+                  return (
+                    <label key={r.id} className={styles.rateChoice}>
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => set('billing_rate_ids', on
+                          ? form.billing_rate_ids.filter(x => x !== r.id)
+                          : [...form.billing_rate_ids, r.id])}
+                      />
+                      <span>{r.label}</span>
+                      {r.requires_job === false && (
+                        <span className={styles.rateNote}>no job needed</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+              {form.billing_rate_ids.length === 0 && (
+                <p className={styles.hint} style={{ marginTop: 6 }}>
+                  Nothing ticked — they can use all {billingRates.length} rates.
+                </p>
+              )}
             </div>
             <div className={styles.field} style={{ gridColumn: '1/-1' }}>
               <label>Hourly Cost</label>

@@ -418,6 +418,26 @@ router.put('/timesheet-grace', authenticate, requireRole('admin', 'office'), asy
   } catch { res.status(500).json({ error: 'Server error' }); }
 });
 
+// The rates this person may log time against — which is not the same list as
+// the one above. That one is the configuration and belongs to whoever sets
+// the rates up; this one is what a picker should offer, and offering an
+// Operations user the Admin rate is how a job ends up charged wrong.
+router.get('/billing-rates/available', authenticate, async (req, res) => {
+  try {
+    const [{ rows: setting }, { rows: me }] = await Promise.all([
+      pool.query(`SELECT value FROM settings WHERE key='billing_rates'`),
+      pool.query('SELECT billing_rate_ids FROM users WHERE id = $1', [req.user.id]),
+    ]);
+    const all = Array.isArray(setting[0]?.value) ? setting[0].value : DEFAULT_BILLING_RATES;
+    const allowed = me[0]?.billing_rate_ids;
+    // Nothing set means everything, so turning this on is not the day the
+    // whole team cannot log time.
+    if (!Array.isArray(allowed) || allowed.length === 0) return res.json(all);
+    const may = new Set(allowed);
+    res.json(all.filter(r => may.has(r.id)));
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 router.get('/billing-rates', authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(`SELECT value FROM settings WHERE key='billing_rates'`);

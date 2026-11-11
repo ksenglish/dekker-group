@@ -476,7 +476,7 @@ export default function TimesheetsPage() {
       setUsers(uRes.data);
     };
     init();
-    api.get('/settings/billing-rates').then(r => setBillingRates(r.data)).catch(() => {});
+    api.get('/settings/billing-rates/available').then(r => setBillingRates(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => { load(); }, [weekFrom]);
