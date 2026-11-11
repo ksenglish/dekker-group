@@ -699,4 +699,9 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
   return Buffer.from(await merged.save());
 }
 
-module.exports = { buildPDF };
+// renderDescriptionHtml and its companions are shared with the Job Form
+// builder, which prints the same rich-text quote description. Exported rather
+// than copied: a second parser would drift from this one, and the first
+// anybody would hear of it is a subbie reading a scope that differs from the
+// quote the customer signed.
+module.exports = { buildPDF, renderDescriptionHtml, isHtml, stripDiacritics };

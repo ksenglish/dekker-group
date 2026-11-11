@@ -1,0 +1,312 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  background: #f1f5f9;
+  /* dvh, not vh: on a phone vh is the height with the address bar hidden, so
+     the bottom of the panel would sit under it until you scrolled. */
+  height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #0f172a;
+  flex-shrink: 0;
+}
+.barTitle { color: white; font-size: 15px; font-weight: 600; }
+
+.barBtn {
+  background: rgb(255 255 255 / 0.12);
+  color: white;
+  border: none;
+  border-radius: 7px;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.barBtn:hover { background: rgb(255 255 255 / 0.2); }
+
+/* The only thing that scrolls, so the bar stays put. */
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 20px 16px 48px;
+}
+
+.sheet {
+  background: white;
+  max-width: 760px;
+  margin: 0 auto;
+  border-radius: 8px;
+  padding: 26px 30px 34px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.12);
+}
+
+.head { border-bottom: 2px solid var(--color-border); padding-bottom: 14px; }
+.title { font-size: 20px; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
+.sub { font-size: 13.5px; color: var(--color-text-muted); margin-top: 5px; line-height: 1.5; }
+
+.intro {
+  font-size: 13.5px;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  margin: 14px 0 0;
+}
+
+.sectionTitle {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  margin: 26px 0 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Each line says whether that part of the pack has anything in it. Green for
+   present, amber for empty — empty is not an error, but it is the thing worth
+   noticing before the form goes out. */
+.checks { list-style: none; margin: 0; padding: 0; }
+.checks li {
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 9px 0 9px 26px;
+  position: relative;
+  border-bottom: 1px solid #f1f5f9;
+}
+.checks li:last-child { border-bottom: none; }
+.ok::before {
+  content: '✓';
+  position: absolute;
+  left: 2px;
+  color: #16a34a;
+  font-weight: 700;
+}
+.warn::before {
+  content: '!';
+  position: absolute;
+  left: 6px;
+  color: #b45309;
+  font-weight: 700;
+}
+.warn { color: #92400e; }
+
+.notice {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 7px;
+  padding: 10px 12px;
+  margin: 12px 0 0;
+}
+
+/* ── The diary ── */
+.days { display: flex; flex-direction: column; gap: 2px; }
+.day {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.day:last-child { border-bottom: none; }
+.dayName { font-size: 13.5px; font-weight: 700; padding-top: 1px; }
+.dayPeople { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.booking {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13.5px;
+  flex-wrap: wrap;
+}
+.bookingTime { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.bookingWho { font-weight: 600; overflow-wrap: anywhere; }
+
+.tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5b21b6;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* ── The files ── */
+.files { list-style: none; margin: 0; padding: 0; }
+.files li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+.files li:last-child { border-bottom: none; }
+.fileName { overflow-wrap: anywhere; min-width: 0; }
+.fileKind { color: var(--color-text-muted); font-size: 12px; white-space: nowrap; }
+
+/* ── Options ── */
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  flex-shrink: 0;
+  accent-color: var(--color-primary, #1e40af);
+}
+.toggle span { display: block; min-width: 0; }
+.toggle strong { display: block; font-size: 14px; font-weight: 600; }
+.toggleOff {
+  composes: toggle;
+  cursor: default;
+  opacity: 0.55;
+}
+
+.toggle em {
+  display: block;
+  font-style: normal;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin-top: 3px;
+}
+
+/* ── Sending ── */
+.sendBox {
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 14px 16px 16px;
+}
+
+.field { display: block; margin-bottom: 12px; }
+.field > span {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 5px;
+}
+.field select,
+.field input,
+.field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 11px;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--color-text);
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+}
+.field textarea { resize: vertical; line-height: 1.5; }
+
+.toLine {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  margin: -6px 0 12px;
+  overflow-wrap: anywhere;
+}
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.primary {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 11px 18px;
+  font-size: 14.5px;
+  font-weight: 600;
+  font-family: inherit;
+  color: white;
+  background: var(--color-primary, #1e40af);
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.primary:disabled { opacity: 0.5; cursor: default; }
+
+.secondary {
+  min-height: 44px;
+  padding: 11px 18px;
+  font-size: 14.5px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text);
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.secondary:disabled { opacity: 0.5; cursor: default; }
+
+.sent {
+  margin-top: 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #15803d;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 7px;
+  padding: 10px 12px;
+}
+.lastSent {
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.error {
+  margin-top: 14px;
+  font-size: 13.5px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  padding: 10px 12px;
+}
+.muted { font-size: 13.5px; color: var(--color-text-muted); line-height: 1.6; margin: 0 0 12px; }
+
+@media (max-width: 768px) {
+  .scroll { padding: 0 0 40px; }
+  /* Edge to edge on a phone: a floating sheet inside 16px gutters wastes width
+     the details need. */
+  .sheet {
+    border-radius: 0;
+    box-shadow: none;
+    padding: 20px 16px 30px;
+    max-width: none;
+  }
+  .title { font-size: 18px; }
+  /* The day and its people stack: 108px for a date plus a name and a time does
+     not fit across a phone. */
+  .day { grid-template-columns: 1fr; gap: 4px; }
+  .actions { flex-direction: column-reverse; }
+  .primary, .secondary { width: 100%; flex: none; }
+}

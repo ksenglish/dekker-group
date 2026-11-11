@@ -3,6 +3,7 @@ import api from '../../lib/api';
 import ElectricalCocForm from './ElectricalCocForm';
 import FormRenderer from './FormRenderer';
 import FormReader from './FormReader';
+import JobPackPanel from './JobPackPanel';
 import styles from './Jobs.module.css';
 import formStyles from './JobFormsTab.module.css';
 
@@ -16,6 +17,15 @@ const BUILT_IN = {
   stage: 'post_install',
 };
 
+// The Job Form is generated from what the job already holds rather than filled
+// in, so it has no template, no submission and no completion state. It sits
+// under Post Install alongside the Electrical COC for the same reason that one
+// does: it is built in, not something an admin assembled in the Form Builder.
+const JOB_PACK = {
+  name: 'Job Form',
+  description: 'Customer, site, scope, the diary and every pre-install photo and plan — one PDF to email a team member or subcontractor',
+};
+
 function statusLabel(sub) {
   if (sub.status === 'completed') {
     return `✅ Completed ${new Date(sub.completed_at || sub.updated_at).toLocaleDateString('en-NZ')}`;
@@ -25,7 +35,7 @@ function statusLabel(sub) {
 }
 
 export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }) {
-  const [openForm, setOpenForm] = useState(null); // 'electrical_coc' | submission id
+  const [openForm, setOpenForm] = useState(null); // 'electrical_coc' | 'job_pack' | submission id
   // A completed form opens to be read; the same form can then be reopened to
   // edit, which is what drops it back into the renderer.
   const [reading, setReading] = useState(null);
@@ -110,6 +120,10 @@ export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }
     else setOpenForm(sub.id);
   }
 
+  if (openForm === 'job_pack') {
+    return <JobPackPanel jobId={jobId} user={user} onClose={() => setOpenForm(null)} />;
+  }
+
   if (openForm === 'electrical_coc') {
     return (
       <ElectricalCocForm
@@ -143,6 +157,18 @@ export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }
       ) : (
         <>
           <div className={formStyles.list}>
+            {/* Generated rather than filled in, so it has no submission row and no
+                completion state — it is current whenever somebody opens it. */}
+            {showCoc && (
+              <button type="button" className={formStyles.formCard} onClick={() => setOpenForm('job_pack')}>
+                <div className={formStyles.formInfo}>
+                  <div className={formStyles.formName}>{JOB_PACK.name}</div>
+                  <div className={formStyles.formDesc}>{JOB_PACK.description}</div>
+                </div>
+                <span className={`${formStyles.status} ${formStyles.statusPending}`}>Open</span>
+              </button>
+            )}
+
             {showCoc && (
               <button type="button" className={formStyles.formCard} onClick={() => setOpenForm('electrical_coc')}>
                 <div className={formStyles.formInfo}>

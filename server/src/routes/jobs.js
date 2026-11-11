@@ -251,6 +251,15 @@ router.get('/:id/forms/:submissionId/pdf', jobForms.downloadPdf);
 // controller decides. A field tech can delete the form they filled in.
 router.delete('/:id/forms/:submissionId', jobForms.remove);
 
+// The Job Form — one PDF with everything a team member or subcontractor needs
+// to work from, and nothing about what the job is worth. Generated, not filled
+// in, so it has no submission row behind it.
+const jobPack = require('../controllers/jobPackController');
+router.get('/:id/job-form', jobPack.preview);
+router.get('/:id/job-form/pdf', jobPack.downloadPdf);
+// Sending it reaches somebody outside the app, so it stays with the office.
+router.post('/:id/job-form/email', requireRole('admin', 'office'), jobPack.email);
+
 router.get('/:id/electrical-coc', c.getElectricalCoc);
 router.put('/:id/electrical-coc', c.saveElectricalCoc);
 router.delete('/:id/electrical-coc', c.deleteElectricalCoc);
