@@ -12,8 +12,7 @@
 // admin asking for it by name.
 const pool = require('../db/pool');
 const { buildPDF } = require('../utils/pdf');
-const { getThemeById, getDefaultTheme } = require('../utils/documentThemes');
-const { findJobType } = require('../services/jobTypes');
+const { getDefaultTheme, getThemeForJob } = require('../utils/documentThemes');
 
 const GST_RATE = 0.15;
 const DEFAULT_MARKUP_PCT = 30;
@@ -48,17 +47,12 @@ function jobRates(job) {
   };
 }
 
-// The branding a job documents itself with. A job type carries the theme its
-// quotes and invoices use, so the service report uses the same one and the
-// customer gets three documents that look like they came from one company.
-async function themeForJob(job) {
-  const type = await findJobType(job.type);
-  if (type?.theme_id) {
-    const theme = await getThemeById(type.theme_id);
-    if (theme) return theme;
-  }
-  return getDefaultTheme();
-}
+// The branding a job documents itself with now lives in documentThemes, so the
+// service report, the job form and anything else printed off a job cannot pick
+// differently and arrive looking like two companies. It prefers the theme on
+// the accepted quote — the document the customer already has — over the job
+// type's, which is where that quote got its theme from in the first place.
+const themeForJob = getThemeForJob;
 
 // The scope of works is rich text from the job description editor. The screen
 // renders it as markup; the PDF needs it flattened — but flattened with its

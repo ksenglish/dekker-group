@@ -7,6 +7,7 @@ import SetPasswordPage from './pages/auth/SetPasswordPage';
 import AppShell from './components/layout/AppShell';
 import PublicQuote from './pages/quotes/PublicQuote';
 import PublicServiceReport from './pages/jobs/PublicServiceReport';
+import PublicJobForm from './pages/jobs/PublicJobForm';
 import Dashboard from './pages/Dashboard';
 
 // Shown while the server is away — a deploy, a restart — rather than the login
@@ -51,6 +52,10 @@ export default function App() {
           <Route path="/q/:token" element={<PublicQuote />} />
           {/* The customer’s live job service report — no login, the token is the key */}
           <Route path="/sr/:token" element={<PublicServiceReport />} />
+          {/* A team member or subcontractor’s copy of the job form, on the
+              same terms: no login, the token is the key, and it reaches only
+              the files and days that share was given */}
+          <Route path="/jf/:token" element={<PublicJobForm />} />
           <Route path="/*" element={
             <PrivateRoute>
               <AppShell />

@@ -1,0 +1,131 @@
+/* The parts of the job form the service report has no equivalent of. Everything
+   else — the letterhead, the title row, the detail grid, the section headings
+   and the table frame — comes from ServiceReport.module.css, so the two
+   documents cannot drift into looking like different companies. */
+
+.provenance {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.notice {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+  padding: 9px 11px;
+}
+
+/* Said to this person only — the gate code, where to park. Sits above the
+   scope because it is the thing they most need to read. */
+.message {
+  margin: 0 0 22px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary, #1e40af);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+/* ── Photos and plans ─────────────────────────────────────────────────────── */
+
+.fileGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.tile { min-width: 0; }
+.imgLink { display: block; }
+
+.img {
+  width: 100%;
+  height: auto;
+  /* A portrait photo at full width is taller than the screen, so scrolling
+     past one becomes a chore. Capped and letterboxed instead — tap to open it
+     full size if the detail matters. */
+  max-height: 46vh;
+  object-fit: contain;
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  display: block;
+}
+
+.imgPlaceholder {
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 10px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+/* A PDF has no thumbnail to show, so it says what it is and where to find it
+   rather than sitting there as an empty grey box. */
+.pdfBox {
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  text-align: center;
+}
+.pdfMark {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #b91c1c;
+  border: 2px solid #b91c1c;
+  border-radius: 6px;
+  padding: 3px 9px;
+}
+.pdfNote { font-size: 12px; color: var(--color-text-muted); line-height: 1.45; }
+
+.tileName {
+  margin-top: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.tileMeta { font-size: 11.5px; color: var(--color-text-muted); margin-top: 1px; }
+
+/* ── The schedule table's second lines ────────────────────────────────────── */
+
+.sub { color: var(--color-text-muted); font-weight: 400; }
+
+.tag {
+  margin-left: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #5b21b6;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 5px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .fileGrid { grid-template-columns: 1fr; }
+}

@@ -23,7 +23,7 @@ const BUILT_IN = {
 // does: it is built in, not something an admin assembled in the Form Builder.
 const JOB_PACK = {
   name: 'Job Form',
-  description: 'Customer, site, scope, the diary and every pre-install photo and plan — one PDF to email a team member or subcontractor',
+  description: 'Customer, site, scope, pre-install photos and plans and the booked days — shared as a link or a PDF, picked per team member or subcontractor',
 };
 
 function statusLabel(sub) {

@@ -106,6 +106,14 @@ const publicServiceReport = require('../controllers/serviceReportController');
 router.get('/service-report/public/:token', publicServiceReport.publicGet);
 router.get('/service-report/public/:token/pdf', publicServiceReport.publicPdf);
 
+// A subcontractor's copy of the job form, on the same terms: the token is the
+// authentication, it is only minted when the office makes a share, and it
+// reaches nothing beyond the files and days that share was given.
+const publicJobForm = require('../controllers/jobPackController');
+router.get('/job-form/public/:token', publicJobForm.publicGet);
+router.get('/job-form/public/:token/pdf', publicJobForm.publicPdf);
+router.get('/job-form/public/:token/file/:attachmentId', publicJobForm.publicFile);
+
 router.use(authenticate);
 
 // Geocode an address using Nominatim (OpenStreetMap) — free, no API key required
@@ -257,8 +265,15 @@ router.delete('/:id/forms/:submissionId', jobForms.remove);
 const jobPack = require('../controllers/jobPackController');
 router.get('/:id/job-form', jobPack.preview);
 router.get('/:id/job-form/pdf', jobPack.downloadPdf);
-// Sending it reaches somebody outside the app, so it stays with the office.
-router.post('/:id/job-form/email', requireRole('admin', 'office'), jobPack.email);
+// One share is one person's copy: their own link, their own choice of files
+// and days. Making and sending them reaches people outside the app, so those
+// stay with the office; anyone on the job can still read and print one.
+router.get('/:id/job-form/shares', jobPack.listShares);
+router.post('/:id/job-form/shares', requireRole('admin', 'office'), jobPack.createShare);
+router.get('/:id/job-form/shares/:shareId', jobPack.getSharePreview);
+router.put('/:id/job-form/shares/:shareId', requireRole('admin', 'office'), jobPack.updateShare);
+router.delete('/:id/job-form/shares/:shareId', requireRole('admin', 'office'), jobPack.revokeShare);
+router.post('/:id/job-form/shares/:shareId/email', requireRole('admin', 'office'), jobPack.email);
 
 router.get('/:id/electrical-coc', c.getElectricalCoc);
 router.put('/:id/electrical-coc', c.saveElectricalCoc);
