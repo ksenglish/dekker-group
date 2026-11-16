@@ -1,4 +1,4 @@
-// The Job Form: everything a subcontractor needs to do the job, and nothing
+// The Work Programme: everything a subcontractor needs to do the job, and nothing
 // about what it is worth.
 //
 // The office was assembling this by hand — the address in one email, the scope
@@ -16,11 +16,13 @@
 // number, no terms of sale, no payment terms. That is not a filter applied at
 // the end — the queries below never ask for a price, so there is no figure in
 // hand to leak into the document by accident.
+const crypto = require('crypto');
 const pool = require('../db/pool');
 const fileStore = require('./fileStore');
 const { getThemeForJob } = require('../utils/documentThemes');
 const { shrinkForPage } = require('../utils/imageForPrint');
 const { toPdfImage } = require('../utils/pdfImage');
+const { parseDescriptionHtml, isHtml } = require('../utils/pdf');
 
 // sharp, used only to prove an image can be decoded at all. Optional, the same
 // way it is everywhere else here: without it the check is skipped rather than
@@ -186,11 +188,72 @@ function pick(items, ids) {
   return items.filter(i => want.has(String(i.id)));
 }
 
+// ── Whose part of the job is whose ───────────────────────────────────────────
+
+// The scope of works, cut into the blocks it was written in.
+//
+// The scope is one rich-text field, but it is read as a list: supply and
+// install the unit, run the ducting, make good the ceiling. A subcontractor is
+// on the hook for some of those lines and not others, and the only thing that
+// stops a roofer quoting for the ducting is being able to see which is which.
+// So it is split where the author split it — one block per paragraph, per
+// bullet, per list item — using the same parser that prints it, because two
+// parsers would disagree and the disagreement would be invisible.
+//
+// Each block is keyed on its own text rather than its position. Inserting a
+// line above somebody's must not hand them the one below it; a block whose
+// wording is edited stops matching and shows up as nobody's, which the office
+// can see on the panel rather than a subbie discovering on site.
+function blockKey(text, seen) {
+  const norm = String(text).toLowerCase().replace(/\s+/g, ' ').trim();
+  const base = crypto.createHash('sha1').update(norm).digest('hex').slice(0, 10);
+  // The same line twice in one scope is rare but legal, and two blocks sharing
+  // a key would be ticked and unticked together.
+  const n = (seen.get(base) || 0) + 1;
+  seen.set(base, n);
+  return n === 1 ? base : `${base}-${n}`;
+}
+
+function scopeBlocks(scope) {
+  if (!scope) return [];
+  // Plain text predates the rich text editor and arrives with real line
+  // breaks. Parsed as one run it would collapse into a single block, so each
+  // line is given the shape the parser expects.
+  const html = isHtml(scope)
+    ? scope
+    : String(scope).split(/\r?\n/).filter(l => l.trim())
+      .map(l => `<div>${l.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</div>`).join('');
+
+  const seen = new Map();
+  return parseDescriptionHtml(html)
+    .map(para => ({ ...para, text: (para.runs || []).map(r => r.text).join('').trim() }))
+    // A blank line is spacing in the editor, not a thing anybody can be
+    // responsible for, so it is not offered as one.
+    .filter(b => b.text)
+    .map(b => ({ key: blockKey(b.text, seen), bullet: b.bullet, align: b.align, runs: b.runs, text: b.text }));
+}
+
+// Marks what is this person's, and drops the rest when the share says to.
+//
+// Nothing marked reads as "all of it is theirs", which is the right answer for
+// a one-trade job and for every share made before any of this existed. An
+// empty list is a real choice and marks none of it — the office saying this
+// copy is for information.
+function ownership(items, keys, idOf, restMode) {
+  if (!Array.isArray(keys)) return items.map(i => ({ ...i, own: true }));
+  const mine = new Set(keys.map(String));
+  const marked = items.map(i => ({ ...i, own: mine.has(String(idOf(i))) }));
+  // "Hidden" has to mean not sent, not merely not drawn: a recipient reading
+  // the page source is not supposed to find the rest of the job in it.
+  return restMode === 'hide' ? marked.filter(i => i.own) : marked;
+}
+
 // The report, in the same shape the job service report uses, so one set of
 // components draws both and they cannot drift into looking like two documents.
 //
-// `selection` narrows it to one person's copy: which files, which bookings,
-// and whether the works list is on it.
+// `selection` narrows it to one person's copy: which files are on it, which
+// parts of the scope and which bookings are theirs, and what becomes of the
+// parts that are not.
 async function buildReport(jobId, selection = {}) {
   const job = await loadJob(jobId);
   if (!job) return null;
@@ -209,6 +272,10 @@ async function buildReport(jobId, selection = {}) {
   // empty heading — and the document says which it is reading.
   const scope = quote?.notes || job.description || '';
   const scopeSource = quote?.notes ? 'quote' : (job.description ? 'job' : null);
+  const restMode = selection.restMode === 'hide' ? 'hide' : 'grey';
+  const blocks = ownership(scopeBlocks(scope), selection.ownScopeKeys, b => b.key, restMode);
+  const bookings = ownership(
+    pick(schedule, null), selection.ownScheduleIds, b => b.id, restMode);
 
   return {
     job: {
@@ -216,8 +283,13 @@ async function buildReport(jobId, selection = {}) {
       number: jobRef(job),
       address: job.site_address_full || job.job_site_address || '',
       site_label: job.site_label || '',
-      scope,
+      // The scope only ever leaves here as blocks. Sending the raw field as
+      // well would put the lines somebody was deliberately not shown back into
+      // the page for them to read out of it — which is the one thing 'hidden'
+      // has to mean.
+      has_scope: !!scope,
       scope_source: scopeSource,
+      scope_blocks: blocks,
       type: job.type,
       status: job.status,
       priority: job.priority,
@@ -263,19 +335,25 @@ async function buildReport(jobId, selection = {}) {
     team,
     files: pick(files, selection.attachmentIds),
     files_available: files.length,
-    schedule: pick(schedule, selection.scheduleIds),
+    schedule: bookings,
     schedule_available: schedule.length,
+    rest_mode: restMode,
+    // True when any of it was actually marked, so the document knows whether
+    // to explain the bold at all. An unmarked copy is the whole job and needs
+    // no key to read it.
+    has_own: Array.isArray(selection.ownScopeKeys) || Array.isArray(selection.ownScheduleIds),
     generated_at: new Date().toISOString(),
   };
 }
 
 // Everything the office picks from, which is the whole job rather than one
-// person's copy of it.
+// person's copy of it. Nothing is marked as anybody's: the panel is choosing,
+// not reading somebody's copy.
 async function buildPicker(jobId) {
   const report = await buildReport(jobId, { includeWorks: true });
   if (!report) return null;
   const [files, schedule] = await Promise.all([loadFiles(jobId), loadSchedule(jobId)]);
-  return { ...report, files, schedule };
+  return { ...report, files, schedule: schedule.map(b => ({ ...b, own: true })) };
 }
 
 // ── The bytes behind the files ───────────────────────────────────────────────
@@ -326,7 +404,7 @@ async function loadFileBytes(list) {
     } catch (err) {
       // One file nobody can read is worth a line in the log and a mention on
       // the page, not a failed document.
-      console.error(`Could not load "${meta.filename}" for the job form:`, err.message);
+      console.error(`Could not load "${meta.filename}" for the work programme:`, err.message);
       skipped.push(meta.filename);
     }
   }
@@ -376,12 +454,14 @@ async function recipients() {
 const shareRow = r => ({
   id: r.id,
   token: r.token,
-  path: `/jf/${r.token}`,
+  path: `/wp/${r.token}`,
   recipient_name: r.recipient_name || '',
   recipient_email: r.recipient_email || '',
   message: r.message || '',
-  attachment_ids: r.attachment_ids,     // null means everything
-  schedule_ids: r.schedule_ids,
+  attachment_ids: r.attachment_ids,       // null means every file
+  own_schedule_ids: r.own_schedule_ids,   // null means the whole job is theirs
+  own_scope_keys: r.own_scope_keys,
+  rest_mode: r.rest_mode || 'grey',
   include_works: r.include_works,
   created_at: r.created_at,
   updated_at: r.updated_at,
@@ -392,7 +472,7 @@ const shareRow = r => ({
 async function listShares(jobId) {
   const { rows } = await pool.query(
     `SELECT s.*, u.name AS created_by_name
-       FROM job_form_shares s
+       FROM work_programme_shares s
        LEFT JOIN users u ON u.id = s.created_by
       WHERE s.job_id = $1 AND s.revoked_at IS NULL
       ORDER BY s.created_at DESC`,
@@ -404,37 +484,42 @@ async function listShares(jobId) {
 // An array of ids, or null for "everything". An empty array stays an empty
 // array: choosing nothing is a choice, and must not quietly become all of it.
 const idList = v => (Array.isArray(v) ? v.filter(Boolean).map(String) : null);
+const restModeOf = v => (v === 'hide' ? 'hide' : 'grey');
 
 async function createShare(jobId, body, userId) {
   const { rows: [row] } = await pool.query(
-    `INSERT INTO job_form_shares
+    `INSERT INTO work_programme_shares
        (job_id, recipient_name, recipient_email, message,
-        attachment_ids, schedule_ids, include_works, created_by)
-     VALUES ($1,$2,$3,$4,$5::uuid[],$6::uuid[],$7,$8)
+        attachment_ids, own_schedule_ids, own_scope_keys, rest_mode,
+        include_works, created_by)
+     VALUES ($1,$2,$3,$4,$5::uuid[],$6::uuid[],$7::text[],$8,$9,$10)
      RETURNING *`,
     [jobId, body.recipient_name || null, body.recipient_email || null, body.message || null,
-      idList(body.attachment_ids), idList(body.schedule_ids), !!body.include_works, userId || null]
+      idList(body.attachment_ids), idList(body.own_schedule_ids), idList(body.own_scope_keys),
+      restModeOf(body.rest_mode), !!body.include_works, userId || null]
   );
   return shareRow(row);
 }
 
 async function updateShare(jobId, shareId, body) {
   const { rows: [row] } = await pool.query(
-    `UPDATE job_form_shares SET
+    `UPDATE work_programme_shares SET
        recipient_name  = COALESCE($3, recipient_name),
        recipient_email = COALESCE($4, recipient_email),
        message         = COALESCE($5, message),
-       -- These three are the whole point of editing a share, so they are set
-       -- rather than coalesced: clearing a selection has to be possible.
-       attachment_ids  = $6::uuid[],
-       schedule_ids    = $7::uuid[],
-       include_works   = $8,
-       updated_at      = NOW()
+       -- These are the whole point of editing a copy, so they are set rather
+       -- than coalesced: clearing a selection has to be possible.
+       attachment_ids   = $6::uuid[],
+       own_schedule_ids = $7::uuid[],
+       own_scope_keys   = $8::text[],
+       rest_mode        = $9,
+       include_works    = $10,
+       updated_at       = NOW()
      WHERE id = $2 AND job_id = $1 AND revoked_at IS NULL
      RETURNING *`,
     [jobId, shareId, body.recipient_name ?? null, body.recipient_email ?? null,
-      body.message ?? null, idList(body.attachment_ids), idList(body.schedule_ids),
-      !!body.include_works]
+      body.message ?? null, idList(body.attachment_ids), idList(body.own_schedule_ids),
+      idList(body.own_scope_keys), restModeOf(body.rest_mode), !!body.include_works]
   );
   return row ? shareRow(row) : null;
 }
@@ -443,7 +528,7 @@ async function updateShare(jobId, shareId, body) {
 // the token is never reissued.
 async function revokeShare(jobId, shareId) {
   const { rowCount } = await pool.query(
-    `UPDATE job_form_shares SET revoked_at = NOW(), updated_at = NOW()
+    `UPDATE work_programme_shares SET revoked_at = NOW(), updated_at = NOW()
       WHERE id = $1 AND job_id = $2 AND revoked_at IS NULL`,
     [shareId, jobId]
   );
@@ -452,7 +537,7 @@ async function revokeShare(jobId, shareId) {
 
 async function getShare(jobId, shareId) {
   const { rows } = await pool.query(
-    `SELECT s.*, u.name AS created_by_name FROM job_form_shares s
+    `SELECT s.*, u.name AS created_by_name FROM work_programme_shares s
        LEFT JOIN users u ON u.id = s.created_by
       WHERE s.id = $1 AND s.job_id = $2 AND s.revoked_at IS NULL`,
     [shareId, jobId]
@@ -464,7 +549,7 @@ async function getShare(jobId, shareId) {
 // nothing to be learned by guessing tokens.
 async function shareByToken(token) {
   const { rows } = await pool.query(
-    `SELECT s.*, u.name AS created_by_name FROM job_form_shares s
+    `SELECT s.*, u.name AS created_by_name FROM work_programme_shares s
        LEFT JOIN users u ON u.id = s.created_by
       WHERE s.token = $1 AND s.revoked_at IS NULL`,
     [token]
@@ -474,18 +559,20 @@ async function shareByToken(token) {
 }
 
 async function markSent(shareId) {
-  await pool.query('UPDATE job_form_shares SET sent_at = NOW() WHERE id = $1', [shareId]);
+  await pool.query('UPDATE work_programme_shares SET sent_at = NOW() WHERE id = $1', [shareId]);
 }
 
 // What a share's copy of the report should contain.
 const selectionOf = share => ({
   attachmentIds: share?.attachment_ids ?? null,
-  scheduleIds: share?.schedule_ids ?? null,
+  ownScheduleIds: share?.own_schedule_ids ?? null,
+  ownScopeKeys: share?.own_scope_keys ?? null,
+  restMode: share?.rest_mode || 'grey',
   includeWorks: !!share?.include_works,
 });
 
 module.exports = {
-  buildReport, buildPicker, selectionOf,
+  buildReport, buildPicker, selectionOf, scopeBlocks,
   loadFileBytes, readFile, recipients,
   listShares, createShare, updateShare, revokeShare, getShare, shareByToken, markSent,
   dayOf, hhmm, jobRef,

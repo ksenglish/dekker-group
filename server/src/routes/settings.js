@@ -208,7 +208,7 @@ router.post('/email/test', authenticate, requireRole('admin'), async (req, res) 
 // Job Types (stored in settings table as JSON)
 const DEFAULT_JOB_TYPES = ['Installation', 'Service', 'Inspection', 'Repair', 'Quote Only'];
 
-// Names only — the job form, filters and lead intake all just want the list of
+// Names only — the job editor, filters and lead intake all just want the list of
 // type names, and predate types carrying defaults with them.
 router.get('/job-types', authenticate, async (req, res) => {
   try {

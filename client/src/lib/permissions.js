@@ -14,7 +14,7 @@ export function canAct(role) { return !VIEW_ONLY_ROLES.includes(role); }
 
 // Whoever the server lets through requireRole('admin', 'office'). Used to
 // decide whether to offer an action that reaches somebody outside the app, such
-// as emailing a job form to a subcontractor.
+// as emailing a work programme to a subcontractor.
 export function isOfficeLevel(role) { return OFFICE_LEVEL_ROLES.includes(role); }
 
 // Whoever can create a customer can also correct one. Deleting and merging

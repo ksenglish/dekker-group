@@ -3,7 +3,7 @@ import api from '../../lib/api';
 import ElectricalCocForm from './ElectricalCocForm';
 import FormRenderer from './FormRenderer';
 import FormReader from './FormReader';
-import JobPackPanel from './JobPackPanel';
+import WorkProgrammePanel from './WorkProgrammePanel';
 import styles from './Jobs.module.css';
 import formStyles from './JobFormsTab.module.css';
 
@@ -17,12 +17,12 @@ const BUILT_IN = {
   stage: 'post_install',
 };
 
-// The Job Form is generated from what the job already holds rather than filled
+// The Work Programme is generated from what the job already holds rather than filled
 // in, so it has no template, no submission and no completion state. It sits
 // under Post Install alongside the Electrical COC for the same reason that one
 // does: it is built in, not something an admin assembled in the Form Builder.
-const JOB_PACK = {
-  name: 'Job Form',
+const WORK_PROGRAMME = {
+  name: 'Work Programme',
   description: 'Customer, site, scope, pre-install photos and plans and the booked days — shared as a link or a PDF, picked per team member or subcontractor',
 };
 
@@ -121,7 +121,7 @@ export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }
   }
 
   if (openForm === 'job_pack') {
-    return <JobPackPanel jobId={jobId} user={user} onClose={() => setOpenForm(null)} />;
+    return <WorkProgrammePanel jobId={jobId} user={user} onClose={() => setOpenForm(null)} />;
   }
 
   if (openForm === 'electrical_coc') {
@@ -162,8 +162,8 @@ export default function JobFormsTab({ jobId, job, user, stage = 'post_install' }
             {showCoc && (
               <button type="button" className={formStyles.formCard} onClick={() => setOpenForm('job_pack')}>
                 <div className={formStyles.formInfo}>
-                  <div className={formStyles.formName}>{JOB_PACK.name}</div>
-                  <div className={formStyles.formDesc}>{JOB_PACK.description}</div>
+                  <div className={formStyles.formName}>{WORK_PROGRAMME.name}</div>
+                  <div className={formStyles.formDesc}>{WORK_PROGRAMME.description}</div>
                 </div>
                 <span className={`${formStyles.status} ${formStyles.statusPending}`}>Open</span>
               </button>

@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
-import { Letterhead, Scope } from './ServiceReportView';
+import { useState, useEffect, useRef } from 'react';
+import { Letterhead } from './ServiceReportView';
 import styles from './ServiceReport.module.css';
-import own from './JobFormView.module.css';
+import own from './WorkProgrammeView.module.css';
 
-// The job form itself, drawn the same way whether the office is looking at it
+// The work programme itself, drawn the same way whether the office is looking at it
 // on the job or a subcontractor is looking at it on a link. One component, so
 // the two cannot drift apart and nobody can be sent a page the office never
 // saw.
@@ -51,15 +51,24 @@ const fileSize = bytes => {
 function FileTile({ file, loadFile }) {
   const [url, setUrl] = useState(null);
   const [failed, setFailed] = useState(false);
+  // Held in a ref rather than listed as a dependency. A parent that passes an
+  // inline arrow hands over a new function on every render, which would tear
+  // the fetch down and start it again for ever — the tile sits on "Loading…"
+  // and the photo never arrives. The file is what decides when to fetch; how
+  // to fetch it is not.
+  const fetcher = useRef(loadFile);
+  fetcher.current = loadFile;
 
   useEffect(() => {
-    if (file.kind !== 'image' || !loadFile) return undefined;
+    if (file.kind !== 'image' || !fetcher.current) return undefined;
     let objectUrl;
     let live = true;
+    setUrl(null);
+    setFailed(false);
     // The id, not the whole row: the public page reloads the report every
     // couple of minutes, and a new object each time would re-download every
     // photo on a page somebody has open in a van.
-    loadFile(file.id)
+    fetcher.current(file.id)
       .then(blob => {
         if (!live) return;
         objectUrl = URL.createObjectURL(blob);
@@ -67,7 +76,7 @@ function FileTile({ file, loadFile }) {
       })
       .catch(() => { if (live) setFailed(true); });
     return () => { live = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [file.id, file.kind, loadFile]);
+  }, [file.id, file.kind]);
 
   const meta = [file.is_drawing ? 'Drawing' : file.kind === 'pdf' ? 'PDF' : 'Photo',
     fileSize(file.size_bytes)].filter(Boolean).join(' · ');
@@ -104,8 +113,47 @@ function FileTile({ file, loadFile }) {
   );
 }
 
-export default function JobFormView({ report, loadFile, heading = 'Job Form' }) {
+// One block of the scope of works — a paragraph, a bullet, a list item — drawn
+// from the runs the server parsed out of the quote's rich text. The same
+// structure the PDF prints from, so bold stays bold and a bullet stays a
+// bullet on both.
+//
+// `lift` is this person's own work; `dim` is somebody else's, kept on the page
+// so they can see what is going on around them without mistaking it for theirs.
+function ScopeBlock({ block, dim, lift }) {
+  const cls = [own.block, dim ? own.blockDim : '', lift ? own.blockMine : '']
+    .filter(Boolean).join(' ');
+  return (
+    <div className={cls}>
+      {block.bullet && <span className={own.bullet}>{block.bullet}</span>}
+      <span style={block.align && block.align !== 'left' ? { display: 'block', textAlign: block.align } : undefined}>
+        {(block.runs || []).map((run, i) => (
+          <span
+            key={i}
+            style={{
+              // Bold comes from the markup, except on a block that is this
+              // person's, where the whole thing is bold by definition.
+              fontWeight: lift || run.bold ? 700 : undefined,
+              fontStyle: run.italic ? 'italic' : undefined,
+              textDecoration: run.underline ? 'underline' : undefined,
+              // A colour chosen in the editor would fight the grey that says
+              // "not yours", so it is dropped on a dimmed block.
+              color: dim ? undefined : run.color || undefined,
+              fontSize: run.fontSize ? `${run.fontSize}px` : undefined,
+            }}
+          >{run.text}</span>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+export default function WorkProgrammeView({ report, loadFile, heading = 'Work Programme' }) {
   const { job, customer, company, quote, works, files, schedule } = report;
+  const blocks = job.scope_blocks || [];
+  // Nothing marked means the whole job is theirs, and then nothing is dimmed
+  // and there is no key to explain.
+  const hasOwn = !!report.has_own;
 
   return (
     <div className={styles.report}>
@@ -176,7 +224,7 @@ export default function JobFormView({ report, loadFile, heading = 'Job Form' }) 
 
       <section className={styles.section}>
         <h2>Scope of works</h2>
-        {!job.scope ? (
+        {!job.has_scope ? (
           <p className={styles.empty}>
             No quote on this job has been accepted and the job has no description,
             so there is no agreed scope to copy in.
@@ -195,7 +243,24 @@ export default function JobFormView({ report, loadFile, heading = 'Job Form' }) 
                 recent. Check with the office if work from an earlier one is also outstanding.
               </p>
             )}
-            <Scope html={job.scope} />
+            {hasOwn && blocks.some(b => !b.own) && (
+              <p className={own.key}>
+                The lines in <strong>bold</strong> are yours. The rest of the scope is on
+                this job but is somebody else’s — it is here so you know what else is
+                happening around you.
+              </p>
+            )}
+            {hasOwn && report.rest_mode === 'hide' && !blocks.some(b => !b.own) && (
+              <p className={own.key}>
+                This is your part of the scope. Other trades are on this job as well — ask
+                the office if you need to know what they are doing.
+              </p>
+            )}
+            {blocks.length === 0
+              ? <p className={styles.empty}>Nothing in the scope of works is marked as yours.</p>
+              : <div className={own.scope}>{blocks.map(b => (
+                <ScopeBlock key={b.key} block={b} dim={hasOwn && !b.own} lift={hasOwn && b.own} />
+              ))}</div>}
             {works.length > 0 && (
               <div className={`${styles.table} ${styles.worksTable}`}>
                 <div className={styles.thead}>
@@ -230,34 +295,50 @@ export default function JobFormView({ report, loadFile, heading = 'Job Form' }) 
         {schedule.length === 0 ? (
           <p className={styles.empty}>No days from the diary are on this copy.</p>
         ) : (
+          <>
+          {hasOwn && schedule.some(b => !b.own) && (
+            <p className={own.key}>
+              The days in <strong>bold</strong> are yours. The rest are other people on
+              this job, so you know who else will be on site.
+            </p>
+          )}
           <div className={`${styles.table} ${styles.schedTable}`}>
             <div className={styles.thead}>
               <span>Team member</span><span>Date</span><span>Times</span>
             </div>
-            {schedule.map(b => (
-              <div key={b.id} className={styles.row}>
-                <span>
-                  {b.person}
-                  {b.mobile && <span className={own.sub}> · {b.mobile}</span>}
-                </span>
-                <span>
-                  {fmtDay(b.date)}
-                  {b.appointment_type && b.appointment_type !== 'operations' && (
-                    <span className={own.tag}>{b.appointment_type}</span>
-                  )}
-                </span>
-                <span className={styles.times}>
-                  {times(b)}
-                  {b.notes && <span className={own.sub}> · {b.notes}</span>}
-                </span>
-              </div>
-            ))}
+            {schedule.map(b => {
+              // Somebody else's day is greyed and not bold. The reader's own
+              // is the only thing on the row they have to act on.
+              const mine = !hasOwn || b.own;
+              return (
+                <div key={b.id} className={mine ? styles.row : `${styles.row} ${own.dimRow}`}>
+                  <span className={mine && hasOwn ? own.mine : undefined}>
+                    {b.person}
+                    {b.mobile && <span className={own.sub}> · {b.mobile}</span>}
+                  </span>
+                  <span className={mine && hasOwn ? own.mine : undefined}>
+                    {fmtDay(b.date)}
+                    {b.appointment_type && b.appointment_type !== 'operations' && (
+                      <span className={own.tag}>{b.appointment_type}</span>
+                    )}
+                  </span>
+                  {/* The times on their own row read as dark as the rest of
+                      it: a bold name beside a grey time is a mixed signal. */}
+                  <span className={mine && hasOwn
+                    ? `${styles.times} ${own.mineTime}` : styles.times}>
+                    {times(b)}
+                    {b.notes && <span className={own.sub}> · {b.notes}</span>}
+                  </span>
+                </div>
+              );
+            })}
           </div>
+          </>
         )}
       </section>
 
       <p className={styles.footnote}>
-        This form carries site and scope information only. Prices, quote references,
+        This programme carries site and scope information only. Prices, quote references,
         terms of sale and payment terms are deliberately left out. Check with the office
         before any work outside the scope above.
       </p>

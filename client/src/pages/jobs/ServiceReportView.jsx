@@ -37,15 +37,13 @@ const LOGO_HEIGHTS = { small: 40, medium: 58, large: 76 };
 // The description is rich text from the job editor on anything recent, and
 // plain text on jobs that predate it. Rendering plain text as HTML would weld
 // its lines together, so each is handled as what it is.
-// Exported: the job form draws the same scope block off the same rich text,
-// and a second copy of this would drift from it.
-export function Scope({ html }) {
+function Scope({ html }) {
   if (!html) return null;
   if (!isHtml(html)) return <p className={styles.scope}>{html}</p>;
   return <div className={styles.scope} dangerouslySetInnerHTML={{ __html: safeHtml(html) }} />;
 }
 
-// Exported for the job form, so both documents carry one letterhead laid out
+// Exported for the work programme, so both documents carry one letterhead laid out
 // by one piece of code — the whole reason they used to disagree.
 export function Letterhead({ company }) {
   if (!company) return null;

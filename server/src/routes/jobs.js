@@ -106,13 +106,13 @@ const publicServiceReport = require('../controllers/serviceReportController');
 router.get('/service-report/public/:token', publicServiceReport.publicGet);
 router.get('/service-report/public/:token/pdf', publicServiceReport.publicPdf);
 
-// A subcontractor's copy of the job form, on the same terms: the token is the
+// A subcontractor's copy of the work programme, on the same terms: the token is the
 // authentication, it is only minted when the office makes a share, and it
 // reaches nothing beyond the files and days that share was given.
-const publicJobForm = require('../controllers/jobPackController');
-router.get('/job-form/public/:token', publicJobForm.publicGet);
-router.get('/job-form/public/:token/pdf', publicJobForm.publicPdf);
-router.get('/job-form/public/:token/file/:attachmentId', publicJobForm.publicFile);
+const publicWorkProgramme = require('../controllers/workProgrammeController');
+router.get('/work-programme/public/:token', publicWorkProgramme.publicGet);
+router.get('/work-programme/public/:token/pdf', publicWorkProgramme.publicPdf);
+router.get('/work-programme/public/:token/file/:attachmentId', publicWorkProgramme.publicFile);
 
 router.use(authenticate);
 
@@ -259,21 +259,21 @@ router.get('/:id/forms/:submissionId/pdf', jobForms.downloadPdf);
 // controller decides. A field tech can delete the form they filled in.
 router.delete('/:id/forms/:submissionId', jobForms.remove);
 
-// The Job Form — one PDF with everything a team member or subcontractor needs
+// The Work Programme — one PDF with everything a team member or subcontractor needs
 // to work from, and nothing about what the job is worth. Generated, not filled
 // in, so it has no submission row behind it.
-const jobPack = require('../controllers/jobPackController');
-router.get('/:id/job-form', jobPack.preview);
-router.get('/:id/job-form/pdf', jobPack.downloadPdf);
+const workProgramme = require('../controllers/workProgrammeController');
+router.get('/:id/work-programme', workProgramme.preview);
+router.get('/:id/work-programme/pdf', workProgramme.downloadPdf);
 // One share is one person's copy: their own link, their own choice of files
 // and days. Making and sending them reaches people outside the app, so those
 // stay with the office; anyone on the job can still read and print one.
-router.get('/:id/job-form/shares', jobPack.listShares);
-router.post('/:id/job-form/shares', requireRole('admin', 'office'), jobPack.createShare);
-router.get('/:id/job-form/shares/:shareId', jobPack.getSharePreview);
-router.put('/:id/job-form/shares/:shareId', requireRole('admin', 'office'), jobPack.updateShare);
-router.delete('/:id/job-form/shares/:shareId', requireRole('admin', 'office'), jobPack.revokeShare);
-router.post('/:id/job-form/shares/:shareId/email', requireRole('admin', 'office'), jobPack.email);
+router.get('/:id/work-programme/shares', workProgramme.listShares);
+router.post('/:id/work-programme/shares', requireRole('admin', 'office'), workProgramme.createShare);
+router.get('/:id/work-programme/shares/:shareId', workProgramme.getSharePreview);
+router.put('/:id/work-programme/shares/:shareId', requireRole('admin', 'office'), workProgramme.updateShare);
+router.delete('/:id/work-programme/shares/:shareId', requireRole('admin', 'office'), workProgramme.revokeShare);
+router.post('/:id/work-programme/shares/:shareId/email', requireRole('admin', 'office'), workProgramme.email);
 
 router.get('/:id/electrical-coc', c.getElectricalCoc);
 router.put('/:id/electrical-coc', c.saveElectricalCoc);

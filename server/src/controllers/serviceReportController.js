@@ -48,7 +48,7 @@ function jobRates(job) {
 }
 
 // The branding a job documents itself with now lives in documentThemes, so the
-// service report, the job form and anything else printed off a job cannot pick
+// service report, the work programme and anything else printed off a job cannot pick
 // differently and arrive looking like two companies. It prefers the theme on
 // the accepted quote — the document the customer already has — over the job
 // type's, which is where that quote got its theme from in the first place.

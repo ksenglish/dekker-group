@@ -213,6 +213,28 @@
 }
 .tickOff { composes: tick; cursor: default; opacity: 0.55; }
 
+/* A line of the scope, shown whole so it can be recognised. Clamped at three
+   lines: a scope written as one long paragraph would otherwise turn the
+   picker into a wall of text. */
+.scopeLine {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-weight: 500;
+}
+
+.warn {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--radius);
+  padding: 9px 11px;
+}
+
 .footnote {
   font-size: 12.5px;
   line-height: 1.55;

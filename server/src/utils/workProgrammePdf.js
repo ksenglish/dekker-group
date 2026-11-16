@@ -1,4 +1,4 @@
-// The Job Form as a printed document.
+// The Work Programme as a printed document.
 //
 // Laid out the way the job service report is — the theme's letterhead, the
 // document type and job number, then the three-column block of customer, job
@@ -11,7 +11,7 @@
 // the alternative is a subbie hunting for a page that was never there.
 const PDFDocument = require('pdfkit');
 const { PDFDocument: PdfLib } = require('pdf-lib');
-const { renderDescriptionHtml, isHtml, stripDiacritics } = require('./pdf');
+const { renderParagraphs, stripDiacritics } = require('./pdf');
 
 const TEXT = '#0f172a';
 const MID_GREY = '#64748b';
@@ -89,8 +89,9 @@ function fileSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] }) {
+async function buildWorkProgrammePDF({ report, images = [], pdfs = [], skipped = [] }) {
   const { job, customer, company, quote, works, schedule, files } = report;
+  const blocks = job.scope_blocks || [];
   const brand = company?.brandColour || '#1e40af';
   const theme = report._theme || {};
 
@@ -144,7 +145,7 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
 
     // ── Title row ─────────────────────────────────────────────────────
     doc.fontSize(11).font('Helvetica-Bold').fillColor(brand)
-      .text('JOB FORM', MARGIN, y + 6, { width: CONTENT_W / 2, characterSpacing: 1.2 });
+      .text('WORK PROGRAMME', MARGIN, y + 6, { width: CONTENT_W / 2, characterSpacing: 1.2 });
     doc.fontSize(20).font('Helvetica-Bold').fillColor(TEXT)
       .text(s(job.number), MARGIN + CONTENT_W / 2, y, { width: CONTENT_W / 2, align: 'right' });
     y += 34;
@@ -234,7 +235,7 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
 
     // ── Scope of works ────────────────────────────────────────────────
     section('Scope of works');
-    if (!job.scope) {
+    if (!job.has_scope) {
       note('No quote on this job has been accepted and the job has no description, '
         + 'so there is no agreed scope to copy in.');
     } else {
@@ -256,15 +257,32 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
         note('From the job description. No quote on this job has been accepted yet.');
       }
 
-      if (isHtml(job.scope)) {
-        y = renderDescriptionHtml(doc, job.scope, MARGIN, y, CONTENT_W, ensureSpace, { baseSize: 9.5 });
-      } else {
-        const text = s(job.scope);
-        doc.fontSize(9.5).font('Helvetica').fillColor(TEXT);
-        const h = doc.heightOfString(text, { width: CONTENT_W });
-        space(h + 6);
-        doc.text(text, MARGIN, y, { width: CONTENT_W });
-        y += h + 6;
+      // The key to the bold, before the bold. A subbie reading a half-grey
+      // page and no explanation would reasonably assume the grey was a
+      // printing fault rather than somebody else's work.
+      if (report.has_own && blocks.some(b => !b.own)) {
+        note('The lines in bold are yours. The rest of the scope is on this job but is '
+          + 'somebody else’s - it is here so you know what else is happening around you.');
+      } else if (report.has_own && report.rest_mode === 'hide') {
+        note('This is your part of the scope. Other trades are on this job as well; ask '
+          + 'the office if you need to know what they are doing.');
+      }
+
+      // Block by block, because whose each one is changes how it prints: the
+      // subcontractor's own in bold and black, everybody else's in grey. Drawn
+      // by the same layout code the quote uses, so the words wrap and the
+      // bullets number exactly as they do on the document the customer signed.
+      for (const block of blocks) {
+        const para = [{ runs: block.runs || [], bullet: block.bullet, align: block.align }];
+        y = renderParagraphs(doc, para, MARGIN, y, CONTENT_W, ensureSpace, {
+          baseSize: 9.5,
+          forceBold: !!(report.has_own && block.own),
+          forceColour: report.has_own && !block.own ? MID_GREY : undefined,
+          colour: report.has_own && !block.own ? MID_GREY : TEXT,
+        });
+      }
+      if (!blocks.length) {
+        note('Nothing in the scope of works is marked as yours.');
       }
     }
 
@@ -289,7 +307,7 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
           .strokeColor(RULE).lineWidth(0.5).stroke();
         y += 2;
       }
-      note('Quantities only. What any of it costs is not part of this form.');
+      note('Quantities only. What any of it costs is not part of this programme.');
     }
     y += 8;
 
@@ -322,6 +340,10 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
     if (!schedule.length) {
       note('No days from the diary are on this copy.');
     } else {
+      if (report.has_own && schedule.some(b => !b.own)) {
+        note('The days in bold are yours. The rest are other people on this job, so you '
+          + 'know who else will be on site.');
+      }
       space(18);
       doc.fontSize(7.5).font('Helvetica-Bold').fillColor(MID_GREY)
         .text('TEAM MEMBER', MARGIN, y, { width: 170 })
@@ -332,6 +354,11 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
       y += 6;
 
       for (const b of schedule) {
+        // Somebody else's day prints grey and light; the reader's own prints
+        // black and bold. Nothing is marked at all on a copy nobody has
+        // divided up, and then every row prints the same way it always did.
+        const mine = !report.has_own || b.own;
+        const ink = mine ? TEXT : MID_GREY;
         const who = s(b.person) + (b.mobile ? `  ${s(b.mobile)}` : '');
         doc.fontSize(9.5).font('Helvetica');
         const h = Math.max(
@@ -339,8 +366,9 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
           doc.heightOfString(dayLabel(b.date), { width: 150 })
         );
         space(h + 10);
-        doc.fillColor(TEXT).font('Helvetica-Bold').text(s(b.person), MARGIN, y, { width: 170 });
-        doc.font('Helvetica').fillColor(TEXT)
+        doc.fillColor(ink).font(mine ? 'Helvetica-Bold' : 'Helvetica')
+          .text(s(b.person), MARGIN, y, { width: 170 });
+        doc.font(mine ? 'Helvetica-Bold' : 'Helvetica').fillColor(ink)
           .text(dayLabel(b.date), MARGIN + 176, y, { width: 150 })
           .text(timeRange(b), MARGIN + 332, y, { width: CONTENT_W - 332, align: 'right' });
         y += h + 2;
@@ -365,7 +393,7 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
     }
     y += 10;
 
-    note('This form carries site and scope information only. Prices, quote references, '
+    note('This programme carries site and scope information only. Prices, quote references, '
       + 'terms of sale and payment terms are deliberately left out.');
 
     // ── The photos and plans themselves, one to a page ────────────────
@@ -401,7 +429,7 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
       const footY = PAGE_H - MARGIN + 8;
       doc.moveTo(MARGIN, footY - 8).lineTo(MARGIN + CONTENT_W, footY - 8)
         .strokeColor(RULE).lineWidth(0.5).stroke();
-      const left = [s(theme.footerLine1) || s(company?.name), 'Job Form', s(job.number)]
+      const left = [s(theme.footerLine1) || s(company?.name), 'Work Programme', s(job.number)]
         .filter(Boolean).join('  ·  ');
       doc.fontSize(7.5).font('Helvetica').fillColor(MID_GREY)
         .text(left, MARGIN, footY, { width: CONTENT_W / 2, lineBreak: false })
@@ -423,10 +451,10 @@ async function buildJobFormPDF({ report, images = [], pdfs = [], skipped = [] })
       const copied = await merged.copyPages(doc, doc.getPageIndices());
       copied.forEach(p => merged.addPage(p));
     } catch (err) {
-      console.error(`Could not merge "${f.filename}" into the job form:`, err.message);
+      console.error(`Could not merge "${f.filename}" into the work programme:`, err.message);
     }
   }
   return Buffer.from(await merged.save());
 }
 
-module.exports = { buildJobFormPDF };
+module.exports = { buildWorkProgrammePDF };

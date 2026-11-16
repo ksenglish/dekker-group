@@ -1,7 +1,43 @@
-/* The parts of the job form the service report has no equivalent of. Everything
+/* The parts of the work programme the service report has no equivalent of. Everything
    else — the letterhead, the title row, the detail grid, the section headings
    and the table frame — comes from ServiceReport.module.css, so the two
    documents cannot drift into looking like different companies. */
+
+/* ── Whose part of the job is whose ───────────────────────────────────────── */
+
+/* The key to the bold, printed before the bold. Half a page in grey with no
+   explanation reads as a printing fault, not as somebody else's work. */
+.key {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #1e3a8a;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  padding: 9px 11px;
+}
+
+.scope { margin: 0; }
+
+.block {
+  line-height: 1.55;
+  margin-bottom: 3px;
+  overflow-wrap: anywhere;
+}
+/* Somebody else's part of the job: still readable, plainly not theirs. Grey
+   rather than hidden by default — a subbie who can see the rest knows who else
+   is coming, and the bold is what says what they are on the hook for. */
+.blockDim { color: #94a3b8; }
+.blockMine { color: var(--color-text); }
+
+.bullet { display: inline-block; min-width: 16px; }
+
+/* A row in the diary that belongs to somebody else. */
+.dimRow { color: #94a3b8; }
+.dimRow .sub, .dimRow .tag { color: #cbd5e1; }
+.mine { font-weight: 700; }
+.mineTime { color: var(--color-text); font-weight: 600; }
 
 .provenance {
   margin: 0 0 8px;

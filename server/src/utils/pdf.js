@@ -132,16 +132,26 @@ function isHtml(value) {
   return typeof value === 'string' && /<(p|div|br|ul|ol|li|b|strong|i|em|u|span)\b[^>]*>/i.test(value);
 }
 
-function renderDescriptionHtml(doc, html, x, y, width, ensureSpace, options = {}) {
+// The laying-out half, taking paragraphs that have already been parsed.
+//
+// Split out for the Work Programme, which prints one block of a scope at a
+// time — the subcontractor's own part in bold and black, everybody else's in
+// grey — and so cannot hand the whole description over in one call.
+//
+// options.forceBold and options.forceColour override what the markup asked
+// for, which is the only way a block already written in bold can be told
+// apart from the block that is actually this person's.
+function renderParagraphs(doc, paragraphs, x, y, width, ensureSpace, options = {}) {
   const BASE_SIZE = options.baseSize || 9;
   const TEXT_COLOUR = options.colour || TEXT;
   const fontFor = (bold, italic) => {
+    if (options.forceBold) bold = true;
     if (bold && italic) return 'Helvetica-BoldOblique';
     if (bold) return 'Helvetica-Bold';
     if (italic) return 'Helvetica-Oblique';
     return 'Helvetica';
   };
-  const paragraphs = parseDescriptionHtml(html);
+  const colourFor = run => (options.forceColour || run.color || TEXT_COLOUR);
 
   for (const para of paragraphs) {
     if (!para.runs.length && !para.bullet) { y = ensureSpace(y, BASE_SIZE + 4) + BASE_SIZE + 4; continue; }
@@ -167,7 +177,7 @@ function renderDescriptionHtml(doc, html, x, y, width, ensureSpace, options = {}
     else if (fits && para.align === 'right') startX = x + width - totalW;
 
     if (para.bullet) {
-      doc.fontSize(BASE_SIZE).font('Helvetica').fillColor(TEXT_COLOUR)
+      doc.fontSize(BASE_SIZE).font(fontFor(false, false)).fillColor(TEXT_COLOUR)
         .text(para.bullet + ' ', startX, y, { continued: true, width: width - indent, lineBreak: !fits });
     }
     runs.forEach((run, i) => {
@@ -179,13 +189,17 @@ function renderDescriptionHtml(doc, html, x, y, width, ensureSpace, options = {}
         width: width - indent,
         lineBreak: !fits,
       };
-      doc.fontSize(size).font(fontFor(run.bold, run.italic)).fillColor(run.color || TEXT_COLOUR);
+      doc.fontSize(size).font(fontFor(run.bold, run.italic)).fillColor(colourFor(run));
       if (isFirst) doc.text(run.text, startX, y, opts);
       else doc.text(run.text, opts);
     });
     y = doc.y + 4;
   }
   return y;
+}
+
+function renderDescriptionHtml(doc, html, x, y, width, ensureSpace, options = {}) {
+  return renderParagraphs(doc, parseDescriptionHtml(html), x, y, width, ensureSpace, options);
 }
 
 const LOGO_SIZES = { small: 36, medium: 58, large: 78 };
@@ -699,9 +713,12 @@ async function buildPDF({ type, number, customer, jobNumber, jobAddress, items, 
   return Buffer.from(await merged.save());
 }
 
-// renderDescriptionHtml and its companions are shared with the Job Form
+// renderDescriptionHtml and its companions are shared with the Work Programme
 // builder, which prints the same rich-text quote description. Exported rather
 // than copied: a second parser would drift from this one, and the first
 // anybody would hear of it is a subbie reading a scope that differs from the
 // quote the customer signed.
-module.exports = { buildPDF, renderDescriptionHtml, isHtml, stripDiacritics };
+module.exports = {
+  buildPDF, renderDescriptionHtml, renderParagraphs, parseDescriptionHtml,
+  isHtml, stripDiacritics,
+};

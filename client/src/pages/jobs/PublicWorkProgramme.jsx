@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import JobFormView from './JobFormView';
+import WorkProgrammeView from './WorkProgrammeView';
 import styles from './ServiceReport.module.css';
 
 // The subcontractor's copy, opened from a link in an email. No login: the
@@ -17,7 +17,7 @@ const REFRESH_MS = 120_000;
 // origin, so a relative path reaches the API wherever it is deployed.
 const API = import.meta.env.VITE_API_BASE_URL ? `${import.meta.env.VITE_API_BASE_URL}/api` : '/api';
 
-export default function PublicJobForm() {
+export default function PublicWorkProgramme() {
   const { token } = useParams();
   const [report, setReport] = useState(null);
   const [state, setState] = useState('loading');   // loading | ok | gone | error
@@ -29,7 +29,7 @@ export default function PublicJobForm() {
 
     async function load() {
       try {
-        const { data } = await axios.get(`${API}/jobs/job-form/public/${token}`);
+        const { data } = await axios.get(`${API}/jobs/work-programme/public/${token}`);
         if (!live) return;
         setReport(data);
         setState('ok');
@@ -47,7 +47,7 @@ export default function PublicJobForm() {
   // The photos come from an endpoint keyed on the same token, and reach only
   // the files this share carries.
   const loadFile = useCallback(async fileId => {
-    const res = await axios.get(`${API}/jobs/job-form/public/${token}/file/${fileId}`,
+    const res = await axios.get(`${API}/jobs/work-programme/public/${token}/file/${fileId}`,
       { responseType: 'blob' });
     return res.data;
   }, [token]);
@@ -55,11 +55,11 @@ export default function PublicJobForm() {
   async function downloadPdf() {
     setDownloading(true);
     try {
-      const res = await axios.get(`${API}/jobs/job-form/public/${token}/pdf`, { responseType: 'blob' });
+      const res = await axios.get(`${API}/jobs/work-programme/public/${token}/pdf`, { responseType: 'blob' });
       const url = URL.createObjectURL(res.data);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `job-form-${(report?.job?.number || 'job').toLowerCase()}.pdf`;
+      a.download = `work-programme-${(report?.job?.number || 'job').toLowerCase()}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch { /* the button simply does nothing if it cannot be built */ }
@@ -67,13 +67,13 @@ export default function PublicJobForm() {
   }
 
   if (state === 'loading') {
-    return <div className={styles.publicPage}><div className={styles.publicState}>Loading the job form…</div></div>;
+    return <div className={styles.publicPage}><div className={styles.publicState}>Loading the work programme…</div></div>;
   }
   if (state === 'gone') {
     return (
       <div className={styles.publicPage}>
         <div className={styles.publicState}>
-          <h2>This job form is no longer available</h2>
+          <h2>This work programme is no longer available</h2>
           <p>The link may have been withdrawn. Please get in touch with us for an up-to-date copy.</p>
         </div>
       </div>
@@ -84,7 +84,7 @@ export default function PublicJobForm() {
       <div className={styles.publicPage}>
         <div className={styles.publicState}>
           <h2>Something went wrong</h2>
-          <p>We could not load this job form just now. Please try again in a moment.</p>
+          <p>We could not load this work programme just now. Please try again in a moment.</p>
         </div>
       </div>
     );
@@ -98,7 +98,7 @@ export default function PublicJobForm() {
         </button>
       </div>
       <div className={styles.publicSheet}>
-        <JobFormView report={report} loadFile={loadFile} />
+        <WorkProgrammeView report={report} loadFile={loadFile} />
       </div>
     </div>
   );
