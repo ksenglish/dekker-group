@@ -76,7 +76,7 @@ export default function Dashboard() {
       {/* Who is working, right now. The office’s first question of the
           morning, and the one the timer could never answer because it lived
           in one phone’s own storage. */}
-      {isAdmin(user?.role) && <RunningTimers />}
+      {isAdmin(user?.role) && <RunningTimers user={user} />}
 
       <div className={styles.statsGrid}>
         <Link to="/jobs" className={styles.statCard}>

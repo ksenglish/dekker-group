@@ -133,6 +133,51 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
   // Clear any stale save state on mount
   useEffect(() => { setShowSave(false); setEndTs(null); }, []);
 
+  // A stopped timer keeps saying so, too.
+  //
+  // Pressing Stop used to tell the server nothing at all: it only moved this
+  // bar on to the Save step, and the server was told the person was off the
+  // clock when — and only when — the hours were saved or discarded, by a
+  // fire-and-forget request whose failure nobody saw.
+  //
+  // Both halves of that went wrong on site. Somebody stops the timer, locks
+  // the phone and drives off without saving, and the server still has them on
+  // the clock; or they do save, but the request that clears the timer is cut
+  // off as iOS freezes the backgrounded page, and nothing ever retries. Either
+  // way the office finds them next morning showing twenty-six hours.
+  //
+  // So stopping is written down here the moment it happens, and kept until the
+  // server acknowledges it. Stopping is idempotent on the server, which is
+  // what makes a retry safe.
+  // Held in a ref so the retries below and the re-announcement further down
+  // both reach whatever the parent passed on this render, without either of
+  // them restarting every time it does.
+  const onTimerChangeRef = useRef(onTimerChange);
+  onTimerChangeRef.current = onTimerChange;
+
+  const STOP_KEY = 'timer_stop_pending';
+  const flushStop = useCallback(() => {
+    let pending;
+    try { pending = localStorage.getItem(STOP_KEY); } catch { pending = null; }
+    if (!pending) return;
+    api.delete('/timesheets/timer')
+      .then(() => {
+        try { localStorage.removeItem(STOP_KEY); } catch { /* nothing to clear */ }
+        onTimerChangeRef.current?.();
+      })
+      .catch(() => { /* still pending; the next pass tries again */ });
+  }, []);
+
+  useEffect(() => {
+    flushStop();
+    // Rarely, and on waking: the common case is that the first try worked, and
+    // this only exists for the phone that was out of range when it mattered.
+    const again = setInterval(flushStop, 60 * 1000);
+    const onWake = () => { if (!document.hidden) flushStop(); };
+    document.addEventListener('visibilitychange', onWake);
+    return () => { clearInterval(again); document.removeEventListener('visibilitychange', onWake); };
+  }, [flushStop]);
+
   // A running timer keeps saying so.
   //
   // The timer itself lives in this browser's storage, and it was announced to
@@ -149,8 +194,6 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
   const toldRef = useRef(null);
   // Held in a ref so the reminder below does not restart its interval every
   // time the job page re-renders and hands down a new arrow.
-  const onTimerChangeRef = useRef(onTimerChange);
-  onTimerChangeRef.current = onTimerChange;
   useEffect(() => {
     if (!startTs || endTs) return undefined;
     let stopped = false;
@@ -201,6 +244,12 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
     setEndTs(now);
     setStartTs(null);
     localStorage.removeItem(STORAGE_KEY);
+    // Off the clock from this moment, whatever happens to the hours next.
+    // Saving them is a separate decision and may never be made — the phone
+    // goes in a pocket and the van leaves — and none of that should leave
+    // somebody showing as working.
+    try { localStorage.setItem(STOP_KEY, String(now)); } catch { /* retried below anyway */ }
+    flushStop();
     setShowSave(true);
     setQuoteWarning('');
     // Each stop prompt belongs to exactly one stage of the job.
@@ -238,8 +287,10 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
   function discard() {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(RATE_STORAGE_KEY);
-    // Nobody is on the clock any more, so nothing should say they are.
-    api.delete('/timesheets/timer').catch(() => {});
+    // Nobody is on the clock any more, so nothing should say they are — and
+    // it keeps saying so until the server agrees.
+    try { localStorage.setItem(STOP_KEY, String(Date.now())); } catch { /* retried */ }
+    flushStop();
     setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
     onTimerChange?.();
   }
@@ -267,7 +318,8 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
         acknowledged,
       });
       localStorage.removeItem(RATE_STORAGE_KEY);
-      api.delete('/timesheets/timer').catch(() => {});
+      try { localStorage.setItem(STOP_KEY, String(Date.now())); } catch { /* retried */ }
+      flushStop();
       setOutsideSchedule('');
       setStartTs(null); setEndTs(null); setElapsed(0); setShowSave(false); setDesc('');
       onTimerChange?.();
@@ -1011,7 +1063,7 @@ function JobTimesheets({ jobId, user, timerKey }) {
     loadSummary();
   }
 
-  const running = <RunningTimers jobId={jobId} refreshKey={timerKey} showJob={false}
+  const running = <RunningTimers jobId={jobId} user={user} refreshKey={timerKey} showJob={false}
     title="On the clock on this job" />;
 
   const byDate = {};

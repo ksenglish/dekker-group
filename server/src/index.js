@@ -162,6 +162,7 @@ async function start() {
     startMemoryWatch();
     require('./services/siteVisitSweep').startSiteVisitSweep();
     require('./services/stalledJobSweep').startStalledJobSweep();
+    require('./services/longRunningTimers').startTimerNudge();
   });
   // A deploy or a restart should finish what it is serving first — being cut
   // off mid-response is what the team sees as the app "crashing".

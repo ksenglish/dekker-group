@@ -12,6 +12,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { formatJobNumber } from '../../lib/formatJobNumber';
+import { isAdmin } from '../../lib/permissions';
+import StopTimerDialog from './StopTimerDialog';
 import styles from './RunningTimers.module.css';
 
 // Counted from the start rather than ticked up, so a tab left open overnight
@@ -30,9 +32,14 @@ const startedWhen = t => new Date(t).toLocaleTimeString('en-NZ',
 const LONG_HOURS = 10;
 const isLong = (startedAt, now) => now - new Date(startedAt).getTime() > LONG_HOURS * 3600 * 1000;
 
-export default function RunningTimers({ jobId, title = 'On the clock now', refreshKey, showJob = true }) {
+export default function RunningTimers({ jobId, user, title = 'On the clock now', refreshKey, showJob = true }) {
   const [rows, setRows] = useState(null);
   const [now, setNow] = useState(Date.now());
+  // Which timer the office is in the middle of stopping, and the rates it can
+  // be recorded against.
+  const [stopping, setStopping] = useState(null);
+  const [rates, setRates] = useState([]);
+  const canStopOthers = isAdmin(user?.role);
 
   const load = useCallback(() => {
     api.get('/timesheets/timers', { params: jobId ? { job_id: jobId } : {} })
@@ -41,6 +48,13 @@ export default function RunningTimers({ jobId, title = 'On the clock now', refre
   }, [jobId]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
+
+  // Only fetched where somebody can actually act on it: the rate list is for
+  // the stop dialog, and nobody else is ever shown that.
+  useEffect(() => {
+    if (!canStopOthers) return;
+    api.get('/settings/billing-rates').then(r => setRates(r.data || [])).catch(() => {});
+  }, [canStopOthers]);
 
   // The clock on screen moves; the list is re-read far less often, because a
   // timer starting is not something anybody needs within the second.
@@ -81,10 +95,27 @@ export default function RunningTimers({ jobId, title = 'On the clock now', refre
               <span className={isLong(t.started_at, now) ? styles.longElapsed : styles.elapsed}>
                 {since(t.started_at, now)}
               </span>
+              {/* A timer only its owner could stop was the whole problem: when
+                  the stop never reached the server, or the person had gone
+                  home, the office had no way to clear it. */}
+              {canStopOthers && (
+                <button type="button" className={styles.stop} onClick={() => setStopping(t)}>
+                  Stop
+                </button>
+              )}
             </div>
           </div>
         ))}
       </div>
+
+      {stopping && (
+        <StopTimerDialog
+          timer={stopping}
+          rates={rates}
+          onClose={() => setStopping(null)}
+          onDone={load}
+        />
+      )}
     </div>
   );
 }

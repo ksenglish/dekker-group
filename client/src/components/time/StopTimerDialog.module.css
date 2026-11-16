@@ -1,0 +1,101 @@
+/* Above the dashboard and above a job page's own timer bar, the same way the
+   out-of-schedule warning sits above everything it can appear over. */
+.overlay {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgb(15 23 42 / 0.55);
+}
+
+.box {
+  width: 100%; max-width: 460px; max-height: 90vh; overflow-y: auto;
+  background: var(--color-surface); border-radius: 12px;
+  box-shadow: 0 20px 50px rgb(15 23 42 / 0.3);
+}
+
+.head {
+  padding: 16px 20px; border-bottom: 1px solid var(--color-border);
+}
+.head h2 { margin: 0; font-size: 16px; font-weight: 700; }
+.head p {
+  margin: 4px 0 0; font-size: 13px; color: var(--color-text-muted); line-height: 1.5;
+}
+
+.body { padding: 16px 20px 18px; }
+
+/* Started and finished side by side: they are read as a pair and compared
+   against each other, which is harder when one is above the other. */
+.fields {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;
+}
+
+.field { display: block; margin-bottom: 12px; }
+.fields .field { margin-bottom: 0; }
+.field > span {
+  display: block; font-size: 12.5px; font-weight: 600;
+  color: var(--color-text-muted); margin-bottom: 5px;
+}
+.field input, .field select {
+  width: 100%; box-sizing: border-box;
+  padding: 10px 11px; font-size: 15px; font-family: inherit;
+  color: var(--color-text); background: var(--color-surface);
+  border: 1px solid var(--color-border); border-radius: 7px;
+}
+
+/* What is about to be written, in words, before anybody presses anything. */
+.total {
+  font-size: 14px; line-height: 1.55; color: var(--color-text);
+  background: #f0fdf4; border: 1px solid #bbf7d0;
+  border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;
+}
+.totalBad {
+  composes: total;
+  color: #92400e; background: #fffbeb; border-color: #fde68a;
+}
+
+.warning {
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 14px;
+}
+.warning strong {
+  display: block; font-size: 14px; color: #92400e; margin-bottom: 6px;
+}
+.warning p { margin: 0; font-size: 14px; line-height: 1.55; }
+
+.error {
+  font-size: 13.5px; color: #b91c1c; background: #fef2f2;
+  border: 1px solid #fecaca; border-radius: 7px;
+  padding: 10px 12px; margin-bottom: 12px;
+}
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.primary, .secondary, .quiet {
+  min-height: 44px; padding: 11px 16px; border-radius: 8px; cursor: pointer;
+  font-family: inherit; font-size: 14px; font-weight: 600;
+}
+.primary {
+  flex: 1 1 auto;
+  border: 1px solid var(--color-primary, #1e40af);
+  background: var(--color-primary, #1e40af); color: #fff;
+}
+.secondary {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text);
+}
+/* Deliberately the plainest of the three: stopping without recording anything
+   throws the hours away, and it should not be the button the eye lands on. */
+.quiet {
+  border: 1px solid var(--color-border);
+  background: none; color: var(--color-text-muted);
+}
+.quiet:hover:not(:disabled) { background: var(--color-bg); color: var(--color-text); }
+.primary:disabled, .secondary:disabled, .quiet:disabled { opacity: 0.55; cursor: not-allowed; }
+
+@media (max-width: 460px) {
+  .fields { grid-template-columns: 1fr; }
+  /* Stacked, with the thing most likely to be wanted nearest the thumb and
+     the destructive one furthest from it. */
+  .actions { flex-direction: column; }
+  .actions button { width: 100%; }
+  .quiet { order: 3; }
+}

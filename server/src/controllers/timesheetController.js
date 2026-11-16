@@ -184,9 +184,13 @@ async function create(req, res) {
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO timesheets (job_id, user_id, date, hours, description, start_time, end_time, source, billing_rate_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [job_id || null, user_id, day, hours, description || null, start_time || null, end_time || null, source === 'timer' ? 'timer' : 'manual', billing_rate_id || null]
+      `INSERT INTO timesheets (job_id, user_id, date, hours, description, start_time, end_time, source, billing_rate_id, corrected_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [job_id || null, user_id, day, hours, description || null, start_time || null, end_time || null, source === 'timer' ? 'timer' : 'manual', billing_rate_id || null,
+        // Hours entered for somebody by somebody else. Worth keeping: a week
+        // that was corrected by the office reads differently from one the
+        // person entered themselves, and the only place to say so is here.
+        user_id === req.user.id ? null : req.user.id]
     );
     // Fetch with joins
     const { rows: full } = await pool.query(
@@ -456,6 +460,11 @@ async function startTimer(req, res) {
               -- page reload nor a timer re-announcing itself is a reset.
               started_at = CASE WHEN active_timers.job_id = EXCLUDED.job_id
                                 THEN active_timers.started_at ELSE EXCLUDED.started_at END,
+              -- Moving to another job is a fresh timer, so the evening nudge
+              -- starts again with it. Carrying on with the same one keeps
+              -- whatever has already been said about it.
+              last_warned_on = CASE WHEN active_timers.job_id = EXCLUDED.job_id
+                                    THEN active_timers.last_warned_on ELSE NULL END,
               updated_at = NOW()
        RETURNING *`,
       [req.user.id, job_id, billing_rate_id || null, startedAt]
@@ -469,12 +478,47 @@ async function startTimer(req, res) {
 
 // Stopped — saved or discarded, both of which end the running timer. The
 // hours themselves are a timesheet entry and go in separately.
+//
+// Idempotent on purpose. The phone keeps saying "stopped" until it is heard,
+// because the request that says so is the one most likely to be lost: it is
+// sent at the moment somebody puts their phone in their pocket and walks to
+// the van, and iOS freezes a backgrounded page mid-flight. Saying it twice has
+// to cost nothing, or the retry would be worse than the problem.
 async function stopTimer(req, res) {
   try {
-    await pool.query('DELETE FROM active_timers WHERE user_id = $1', [req.user.id]);
-    res.json({ stopped: true });
+    const { rowCount } = await pool.query(
+      'DELETE FROM active_timers WHERE user_id = $1', [req.user.id]);
+    res.json({ stopped: true, was_running: rowCount > 0 });
   } catch (err) {
     console.error('[timers] stop failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// Somebody else's timer, stopped by the office.
+//
+// The case this exists for: a timer that has been running since yesterday
+// morning because the person who started it is on another site, or has gone
+// home, or their phone never got the stop through. Until now the only way to
+// clear it was to ask them to open the job and press stop again.
+//
+// Stopping it is all this does. Recording the hours is a separate, ordinary
+// timesheet entry, so it goes through the same rules everything else does —
+// the diary check, the rate check, the lot — rather than a back door that
+// writes hours nobody checked.
+async function stopTimerFor(req, res) {
+  const { userId } = req.params;
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM active_timers WHERE user_id = $1
+       RETURNING user_id, job_id, started_at, billing_rate_id`,
+      [userId]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'That timer is no longer running' });
+    const { rows: [who] } = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
+    res.json({ stopped: true, timer: rows[0], user_name: who?.name || null });
+  } catch (err) {
+    console.error('[timers] admin stop failed:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 }
@@ -516,5 +560,5 @@ async function listTimers(req, res) {
 
 module.exports = {
   list, create, update, remove, summary, jobSummary,
-  startTimer, stopTimer, listTimers,
+  startTimer, stopTimer, stopTimerFor, listTimers,
 };

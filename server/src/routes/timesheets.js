@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireRole } = require('../middleware/auth');
 const c = require('../controllers/timesheetController');
 
 router.use(authenticate);
@@ -8,6 +8,10 @@ router.use(authenticate);
 router.get('/timers', c.listTimers);
 router.post('/timer', c.startTimer);
 router.delete('/timer', c.stopTimer);
+// Somebody else's — the office clearing a timer that was left running. The
+// hours, if there are any worth keeping, go in as an ordinary timesheet entry
+// against that person, through the same checks as anything else.
+router.delete('/timer/:userId', requireRole('admin'), c.stopTimerFor);
 
 router.get('/', c.list);
 router.get('/summary', c.summary);
