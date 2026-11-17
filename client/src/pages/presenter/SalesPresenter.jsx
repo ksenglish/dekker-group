@@ -1179,7 +1179,12 @@ const SELF_PICK_CALCULATORS = new Set([
   'urban_fence',
 ]);
 
-function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange, onRecommend }) {
+// Calculators that are drawn on. These get the whole screen rather than the
+// product drawer, because the drawing is the tool and 520px is not enough to
+// lay a boundary out in.
+const FULL_PAGE_CALCULATORS = new Set(['urban_fence']);
+
+function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange, onRecommend, fullPage }) {
   const type = product.calculator_type || 'unit';
   if (type === 'area') return <AreaCalculator product={product} jobId={jobId} onQuantityChange={onQuantityChange} />;
   if (type === 'linear') return <LinearCalculator product={product} onQuantityChange={onQuantityChange} />;
@@ -1190,7 +1195,7 @@ function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange,
   if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
   if (type === 'bdvair_positive_pressure') return <BDVAirPositivePressureCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
   if (type === 'composite_deck') return <CompositeDeckCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
-  if (type === 'urban_fence') return <UrbanFenceCalculator onRecommend={onRecommend} onPick={onPick} product={product} onQuantityChange={onQuantityChange} />;
+  if (type === 'urban_fence') return <UrbanFenceCalculator onRecommend={onRecommend} onPick={onPick} product={product} onQuantityChange={onQuantityChange} fullPage={fullPage} />;
   return <UnitCalculator product={product} />;
 }
 
@@ -1533,6 +1538,36 @@ function ProductPanel({ product, section, onClose, onPick, jobId, onSelectVarian
     : stillThisProduct && brochureSrc(product)
       ? { src: brochureSrc(product), name: product.name }
       : null;
+
+  // A calculator that is drawn on rather than filled in takes the whole
+  // screen instead of the 520px drawer. A boundary drawn with a finger in a
+  // column that narrow is the difference between the tool being used on site
+  // and not.
+  if (FULL_PAGE_CALCULATORS.has(product.calculator_type)) {
+    return (
+      <div className={styles.fullOverlay}>
+        <div className={styles.fullPage}>
+          <header className={styles.fullHeader}>
+            <div>
+              <span className={styles.panelTag}
+                style={{ background: section.color + '22', color: section.color }}>
+                {section.icon} {section.name}
+              </span>
+              <h2 className={styles.fullTitle}>{product.name}</h2>
+            </div>
+            <button className={styles.fullClose} onClick={onClose}>
+              ✕ <span>Close</span>
+            </button>
+          </header>
+          <div className={styles.fullBody}>
+            <Calculator product={product} onPick={pickWithDescription} jobId={jobId}
+              onSelectVariant={onSelectVariant} onQuantityChange={setCalcQuantity}
+              onRecommend={setRecommended} fullPage />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.panelOverlay} {...overlayClose(onClose)}>

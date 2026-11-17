@@ -121,7 +121,9 @@ function fenceOnPlan({ plan }) {
 
 // ── The calculator ──────────────────────────────────────────────────────────
 
-export default function UrbanFenceCalculator({ product, onPick, onQuantityChange, onRecommend }) {
+export default function UrbanFenceCalculator({
+  product, onPick, onQuantityChange, onRecommend, fullPage = false,
+}) {
   const [priceList, setPriceList] = useState([]);
   const [range, setRange] = useState('');
   const [heightMm, setHeightMm] = useState(0);
@@ -210,18 +212,34 @@ export default function UrbanFenceCalculator({ product, onPick, onQuantityChange
     () => postChoices.find(p => p.sku === postSku) || suggested,
     [postChoices, postSku, suggested]);
 
-  const gateChoices = useMemo(
-    () => cat.gates.filter(g => g.range === range
-      && (!g.heightMm || g.heightMm === heightMm || heights.length === 1)),
-    [cat, range, heightMm, heights]);
+  // Every gate in the range, the ones matching this height first.
+  //
+  // Not filtered down to the matching height, because that hid the only gate
+  // some ranges have: ColourFence sells one pedestrian gate kit, at 1800, and
+  // a 1500 fence with a 1800 gate in it is a conversation to have rather than
+  // a gate to hide. The height is in the name, so it is there to read.
+  const gateChoices = useMemo(() => cat.gates
+    .filter(g => g.range === range)
+    .sort((a, b) => (b.heightMm === heightMm) - (a.heightMm === heightMm)
+      || a.heightMm - b.heightMm),
+  [cat, range, heightMm]);
+
   const gate = useMemo(
     () => gateChoices.find(g => g.sku === gateSku) || null,
     [gateChoices, gateSku]);
+  // StabiFence and Maximus have no gate on the Price List at all, and that is
+  // most of what we sell. An opening is still a gate as far as the take-off is
+  // concerned — the panels come out of the run and two posts go in — so it can
+  // always be left, and whatever hangs in it goes on the quote separately.
+  const OPENING = 'opening';
+  const hasGate = gateSku !== '';
+
   // A gate kit sized by its stile rather than its opening leaves the opening to
   // be typed; everything else brings its own width.
   useEffect(() => {
     if (gate?.widthMm) setGateWidthMm(gate.widthMm);
-  }, [gate]);
+    else if (gateSku === OPENING) setGateWidthMm(w => w || 1000);
+  }, [gate, gateSku]);
 
   const runs = useMemo(() => runsFromPoints(points, closedLoop), [points, closedLoop]);
   const segs = useMemo(() => segmentsOf(points, closedLoop), [points, closedLoop]);
@@ -231,12 +249,12 @@ export default function UrbanFenceCalculator({ product, onPick, onQuantityChange
       runs,
       panelWidthMm: panel?.widthMm || 0,
       closedLoop,
-      gates: gate ? gateCount : 0,
-      gateWidthMm: gate ? gateWidthMm : 0,
+      gates: hasGate ? gateCount : 0,
+      gateWidthMm: hasGate ? gateWidthMm : 0,
       postsIncluded: !!panel?.includesPosts,
     });
     return got ? { ...got, gateWidthM: gateWidthMm / 1000 } : null;
-  }, [runs, panel, closedLoop, gate, gateCount, gateWidthMm]);
+  }, [runs, panel, closedLoop, hasGate, gateCount, gateWidthMm]);
 
   const total = useMemo(() => priceUp({
     plan,
@@ -286,12 +304,35 @@ export default function UrbanFenceCalculator({ product, onPick, onQuantityChange
   const hex = finish.toLowerCase().includes('white') ? '#94a3b8' : '#1f2937';
 
   return (
-    <div className={styles.calc}>
-      <h3 className={styles.calcTitle}>Urban Group Fence Calculator</h3>
-      <p className={own.sub}>
-        Panels, posts and gates off the Price List · end and corner posts counted
-      </p>
+    <div className={fullPage ? own.page : styles.calc}>
+      {!fullPage && (
+        <>
+          <h3 className={styles.calcTitle}>Urban Group Fence Calculator</h3>
+          <p className={own.sub}>
+            Panels, posts and gates off the Price List · end and corner posts counted
+          </p>
+        </>
+      )}
 
+      {/* ── The fence line ──
+          On a full page the drawing is the page: it takes the room, and
+          everything that describes the fence sits beside it. Drawing a
+          boundary with a finger wants space more than anything else here. */}
+      <div className={fullPage ? own.planPane : own.planInline}>
+        <RunPlanner
+          points={points}
+          closed={closedLoop}
+          onChange={planned}
+          colour={hex}
+          fill={fullPage}
+          labelFor={s => (plan?.panelsPerRun?.[s.i]
+            ? ` · ${plan.panelsPerRun[s.i]}` : '')}
+          overlay={fenceOnPlan({ plan })}
+          hint="Press and drag to pull out the first run of fence. Drag the next one off the end of it, and type over any measurement to make it exact."
+        />
+      </div>
+
+      <div className={fullPage ? own.sidePane : own.stacked}>
       {/* ── What fence ── */}
       <div className={`${styles.calcGrid} ${own.grid}`}>
         <div className={styles.calcField}>
@@ -321,21 +362,9 @@ export default function UrbanFenceCalculator({ product, onPick, onQuantityChange
         </p>
       )}
 
-      {/* ── The fence line ──
-          Drag it out on the plan, or type the runs underneath. The same fence
-          either way: a measurement typed below moves the corner on the plan,
-          and a wall dragged on the plan changes the number below it. */}
-      <RunPlanner
-        points={points}
-        closed={closedLoop}
-        onChange={planned}
-        colour={hex}
-        labelFor={s => (plan?.panelsPerRun?.[s.i]
-          ? ` · ${plan.panelsPerRun[s.i]}` : '')}
-        overlay={fenceOnPlan({ plan })}
-        hint="Press and drag to pull out the first run of fence. Drag the next one off the end of it, and type over any measurement to make it exact."
-      />
-
+      {/* The same fence as the drawing, written down: a measurement typed here
+          moves the corner on the plan, and a wall dragged on the plan changes
+          the number here. */}
       <div className={own.runs}>
         {segs.map(s => {
           // The last wall of a closed fence is whatever length and bearing
@@ -424,25 +453,38 @@ export default function UrbanFenceCalculator({ product, onPick, onQuantityChange
             {gateChoices.map(g => (
               <option key={g.sku} value={g.sku}>
                 {g.name.replace(`${range} `, '')}
+                {g.heightMm !== heightMm ? ' — other height' : ''}
               </option>
             ))}
+            <option value={OPENING}>Leave an opening — gate priced separately</option>
           </select>
         </div>
-        {gate && (
+        {hasGate && (
           <>
             <div className={styles.calcField}>
-              <label>How many gates</label>
+              <label>How many</label>
               <input type="number" min="0" step="1" value={gateCount}
                 onChange={e => setGateCount(Math.max(0, parseInt(e.target.value, 10) || 0))} />
             </div>
             <div className={styles.calcField}>
-              <label>Opening (mm){!gate.widthMm && ' — kit, so type it'}</label>
+              <label>
+                Opening (mm)
+                {!gate ? ' — type the width' : !gate.widthMm ? ' — kit, so type it' : ''}
+              </label>
               <input type="number" min="0" step="10" value={gateWidthMm}
                 onChange={e => setGateWidthMm(Math.max(0, parseInt(e.target.value, 10) || 0))} />
             </div>
           </>
         )}
       </div>
+
+      {!gateChoices.length && (
+        <p className={own.sub}>
+          There is no {range} gate on the Price List. Leave an opening and the take-off
+          still allows for it — the panels come out of the run and a post goes in each
+          side — and whatever hangs in it goes on the quote as its own line.
+        </p>
+      )}
 
       {!panel?.includesPosts && (
         <label className={own.toggle}>
@@ -542,10 +584,13 @@ export default function UrbanFenceCalculator({ product, onPick, onQuantityChange
               )}
             </>
           )}
-          {plan.gates > 0 && gate && (
+          {plan.gates > 0 && (
             <div className={styles.calcResultRow}>
-              <span>Gates</span>
-              <strong>{plan.gates} × {(gateWidthMm / 1000).toFixed(2)}m</strong>
+              <span>{gate ? 'Gates' : 'Openings left'}</span>
+              <strong>
+                {plan.gates} × {(gateWidthMm / 1000).toFixed(2)}m
+                {!gate && ' — gate not on the quote'}
+              </strong>
             </div>
           )}
 
@@ -603,9 +648,10 @@ export default function UrbanFenceCalculator({ product, onPick, onQuantityChange
         </div>
       ) : (
         <div className={own.empty}>
-          Draw the fence on the plan, or start it below, to see the take-off
+          Draw the fence on the plan to see the take-off
         </div>
       )}
+      </div>
     </div>
   );
 }

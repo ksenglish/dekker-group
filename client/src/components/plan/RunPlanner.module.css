@@ -4,6 +4,16 @@
 
 .wrap { margin-bottom: 14px; }
 
+/* Filling whatever it is put in, for the full-page layout where the drawing
+   is the page and the height comes from the window rather than from a ratio. */
+.wrapFill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.wrapFill > div:first-child { flex: 1; min-height: 0; }
+
 .plan {
   position: relative;
   width: 100%;

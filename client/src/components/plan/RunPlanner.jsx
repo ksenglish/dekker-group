@@ -190,7 +190,8 @@ export default function RunPlanner({
   snapM = 0.1,
   angleStepDeg = 45,
   minSpanM = 24,
-  shape = 0.625,            // the plan is 16 : 10
+  aspect = 1.6,             // the shape of the plan when it is not filling
+  fill = false,             // take the height of whatever it is sitting in
   colour = '#1f2937',
   labelFor,                 // (segment) => extra text after the measurement
   overlay,                  // (ctx) => svg nodes drawn under the walls
@@ -202,6 +203,22 @@ export default function RunPlanner({
   const [editing, setEditing] = useState(null); // segment index
   const [typed, setTyped] = useState('');
   const [snapAngles, setSnapAngles] = useState(true);
+
+  // The shape of the view has to be the shape of the box it is drawn in, or a
+  // square drawn on it comes out a rectangle and a right angle comes out bent.
+  // Measured rather than assumed, because on a full page the box takes its
+  // height from the window and nothing here knows what that is.
+  const [shape, setShape] = useState(1 / aspect);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setShape(height / width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const live = drag?.kind === 'vertex'
     ? points.map((p, i) => (i === drag.index ? drag.to : p))
@@ -387,11 +404,11 @@ export default function RunPlanner({
     ? Math.hypot(drag.to.x - drag.anchor.x, drag.to.y - drag.anchor.y) : 0;
 
   return (
-    <div className={styles.wrap}>
+    <div className={fill ? styles.wrapFill : styles.wrap}>
       <div
         ref={boxRef}
         className={readOnly ? styles.plan : styles.planLive}
-        style={{ aspectRatio: `${1} / ${shape}` }}
+        style={fill ? undefined : { aspectRatio: `${aspect} / 1` }}
         onPointerDown={pointerDown}
         onPointerMove={pointerMove}
         onPointerUp={pointerUp}

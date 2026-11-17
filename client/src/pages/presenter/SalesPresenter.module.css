@@ -116,6 +116,53 @@
 }
 .panelClose:hover { background: rgba(0,0,0,0.7); }
 
+/* ── A calculator that gets the whole screen ───────────────────────────────── */
+/* For the ones that are drawn on rather than filled in. The drawer is 520px,
+   which is fine for three dropdowns and no use at all for laying out a
+   boundary. */
+.fullOverlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+}
+.fullPage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fff;
+  animation: fadeUp 0.18s ease-out;
+}
+@keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.fullHeader {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.fullTitle { font-size: 20px; font-weight: 800; color: #0f172a; margin: 6px 0 0; }
+
+.fullClose {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px 14px;
+  border: 1px solid #e2e8f0; border-radius: 8px;
+  background: #fff; font: inherit; font-size: 13px; font-weight: 600;
+  color: #334155; cursor: pointer;
+}
+.fullClose:hover { background: #f8fafc; }
+
+/* The body scrolls as a whole below a tablet, where the plan sits on top of
+   the fields rather than beside them. */
+.fullBody { flex: 1; min-height: 0; overflow: hidden; }
+@media (max-width: 900px) {
+  .fullBody { overflow-y: auto; }
+}
+
 .panelImage { position: relative; width: 100%; height: 260px; flex-shrink: 0; background: #f1f5f9; display: flex; align-items: center; justify-content: center; }
 /* Names the model in the photo once the calculator has recommended one. */
 .panelImageCaption { position: absolute; left: 12px; bottom: 12px; max-width: calc(100% - 24px); padding: 4px 10px; border-radius: 999px; background: rgba(15, 23, 42, 0.72); color: white; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

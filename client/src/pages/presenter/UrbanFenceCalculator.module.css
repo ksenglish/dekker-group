@@ -15,6 +15,57 @@
   line-height: 1.5;
 }
 
+/* ── A page of its own ────────────────────────────────────────────────────── */
+
+/* Drawing a boundary wants room more than anything else on this calculator, so
+   given a whole page the plan takes it and everything that describes the fence
+   sits in a column beside it. The two scroll independently: the drawing should
+   not move off the screen while the take-off beside it is being read. */
+.page {
+  display: grid;
+  /* The fields take what they need and the drawing takes the rest, rather than
+     a fixed column eating half a laptop screen. */
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 30%, 420px);
+  gap: 18px;
+  height: 100%;
+  min-height: 0;
+  padding: 18px;
+}
+
+.planPane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.sidePane {
+  min-width: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  /* Room for a thumb to scroll past the last field on a tablet. */
+  padding-bottom: 24px;
+}
+
+.planInline { display: block; }
+.stacked { display: block; }
+
+@media (max-width: 900px) {
+  /* Below a tablet there is no room for two columns, so the plan goes on top
+     at a workable height and the rest runs underneath it. */
+  .page {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    height: auto;
+    padding: 14px;
+  }
+  /* A set height rather than a grid row that collapses: on a phone the plan
+     has no content to give it a size, and a drawing surface you cannot get a
+     finger across is no use. */
+  .planPane { height: 52vh; min-height: 300px; }
+  .sidePane { overflow: visible; }
+}
+
 /* The shared field grid is two equal columns, and a grid column's automatic
    minimum is its content — which for a dropdown is its longest option. "Urban
    Group Fence Panel 1200 x 2400mm Satin Black" is a long option, and on a phone
