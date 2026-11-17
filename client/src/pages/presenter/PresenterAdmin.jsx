@@ -17,6 +17,7 @@ const CALC_TYPES = [
   { value: 'area',           label: 'Area (m² × price/m²)' },
   { value: 'linear',         label: 'Linear (m × price/m)' },
   { value: 'heatpump',       label: 'Heat Pump Sizing' },
+  { value: 'composite_deck', label: 'Composite Deck (Ekodeck Designer Series)' },
   { value: 'smartvent_lite', label: 'SmartVent Lite+ (lookup table)' },
   { value: 'smartvent_positive_pressure', label: 'SmartVent Positive Pressure (all 3 systems)' },
   { value: 'smartvent_balanced_pressure', label: 'SmartVent Balanced Pressure (Synergy 3 / Balance)' },

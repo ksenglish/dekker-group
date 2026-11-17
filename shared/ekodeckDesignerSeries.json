@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "Ekodeck Designer Series composite decking, as sourced through Bunnings Trade.",
+    "",
+    "Figures are from Ekodeck's own published specifications and from calibrating",
+    "against their Deck Planner: a 5x5m deck with no frame comes back as 35 boards",
+    "of 5000mm, which is a 143mm pitch — a 137mm board with the 6mm gap the QuickFix",
+    "clip sets automatically. Joist spacing and ground clearance are theirs.",
+    "",
+    "The hex for each colour is the dominant colour of that board's own photograph,",
+    "so the deck drawn on screen and the swatch beside it agree."
+  ],
+  "range": "Ekodeck Designer Series",
+  "supplier": "Bunnings Trade",
+  "board": {
+    "widthMm": 137,
+    "gapMm": 6,
+    "pitchMm": 143,
+    "thicknessMm": 23,
+    "lengthMm": 5400,
+    "kgPerMetre": 3.64,
+    "_pitchNote": "137 + 6 = 143. The clip sets the gap, so it is not optional."
+  },
+  "install": {
+    "joistSpacingMm": 450,
+    "joistSpacingStairsMm": 400,
+    "groundClearanceDrainedMm": 40,
+    "groundClearanceUndrainedMm": 90,
+    "_joistNote": "450mm maximum centres for a residential deck, 400mm for stairs, landings and commercial. Minimum two spans."
+  },
+  "fixing": {
+    "name": "QuickFix Kit 6mm — timber joists",
+    "coversLinearMetres": 100,
+    "_note": "One kit per 100 linear metres of board, which is how Ekodeck's own planner counts them."
+  },
+  "allowance": {
+    "orderUpliftPct": 3,
+    "_note": "Ekodeck's planner orders about 3% over the cut list. Kept because a deck short of one board stops a crew for a day."
+  },
+  "colours": [
+    { "key": "alpine-ash",    "name": "Alpine Ash",    "tone": "Light grey",   "hex": "#888898" },
+    { "key": "backbeach",     "name": "Backbeach",     "tone": "Coastal",      "hex": "#988878" },
+    { "key": "leatherwood",   "name": "Leatherwood",   "tone": "Natural brown","hex": "#684838" },
+    { "key": "riverbank-red", "name": "Riverbank Red", "tone": "Red brown",    "hex": "#583828" },
+    { "key": "estate-brown",  "name": "Estate Brown",  "tone": "Dark brown",   "hex": "#382828" },
+    { "key": "ironwood",      "name": "Ironwood",      "tone": "Dark grey",    "hex": "#484848" }
+  ]
+}

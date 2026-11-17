@@ -1,0 +1,182 @@
+/* The deck calculator's own parts. Everything else — the field grid, the
+   result rows, the Add to Quote button — comes from SalesPresenter.module.css,
+   so this reads as one of the calculators rather than a visitor. */
+
+.sub {
+  margin: -6px 0 14px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+/* ── Colour ───────────────────────────────────────────────────────────────── */
+
+/* Photographs, not blobs of hex. A customer choosing Leatherwood over
+   Ironwood is choosing between two pieces of board, and the grain is most of
+   the difference. */
+.colours {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.colour {
+  position: relative;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  background: none;
+  font-family: inherit;
+  aspect-ratio: 1 / 1;
+  min-height: 72px;
+}
+.colour img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.colour:hover { border-color: var(--color-border); }
+
+.colourOn {
+  composes: colour;
+  border-color: var(--color-primary, #1e40af);
+  box-shadow: 0 0 0 3px rgb(30 64 175 / 0.18);
+}
+
+/* The name sits on the board, so the swatch is not covered by a caption under
+   it. Light boards take dark text and the other way round. */
+.chipLight, .chipDark {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.2;
+}
+.chipLight { color: #fff; background: rgb(15 23 42 / 0.5); }
+.chipDark { color: #0f172a; background: rgb(255 255 255 / 0.72); }
+
+/* ── Options ──────────────────────────────────────────────────────────────── */
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.toggle input {
+  width: 18px; height: 18px; margin: 1px 0 0;
+  flex-shrink: 0;
+  accent-color: var(--color-primary, #1e40af);
+}
+.toggle span { display: block; min-width: 0; }
+.toggle strong { display: block; font-size: 13.5px; font-weight: 600; }
+.toggle em {
+  display: block; font-style: normal;
+  font-size: 12px; color: var(--color-text-muted);
+  line-height: 1.45; margin-top: 2px;
+}
+
+/* ── The drawing and the board beside it ──────────────────────────────────── */
+
+.preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+.plan {
+  width: 100%;
+  height: auto;
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  display: block;
+}
+
+.previewEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  text-align: center;
+  padding: 16px;
+}
+
+.dims {
+  font-size: 13px;
+  fill: var(--color-text-muted);
+}
+.dims line {
+  stroke: #94a3b8;
+  stroke-width: 1;
+}
+
+.swatchPane { min-width: 0; }
+
+.swatchImg {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  display: block;
+}
+.swatchName { margin-top: 7px; font-size: 14px; font-weight: 700; }
+.swatchTone { font-size: 12px; color: var(--color-text-muted); }
+
+/* A real deck in that colour where there is one. In a sales conversation this
+   is worth more than everything above it. */
+.scene {
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  display: block;
+}
+
+.warn {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+@media (max-width: 640px) {
+  /* The board goes above the plan on a phone: the colour is what is being
+     discussed, and the plan wants the full width. */
+  .preview { grid-template-columns: 1fr; }
+  .swatchPane {
+    display: grid;
+    grid-template-columns: 84px 1fr;
+    gap: 10px;
+    align-items: center;
+  }
+  .swatchImg { grid-row: span 2; }
+  .scene { grid-column: 1 / -1; margin-top: 0; }
+  .colours { grid-template-columns: repeat(3, 1fr); }
+}

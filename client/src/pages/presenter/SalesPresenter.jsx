@@ -6,6 +6,7 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 import api from '../../lib/api';
 import styles from './SalesPresenter.module.css';
 import { overlayClose } from '../../lib/overlayClose';
+import CompositeDeckCalculator from './CompositeDeckCalculator';
 import ProductImage from '../../components/products/ProductImage';
 import { loadAuthedFile } from '../../components/products/authedFile';
 import {
@@ -1173,6 +1174,7 @@ const SELF_PICK_CALCULATORS = new Set([
   'smartvent_positive_pressure',
   'smartvent_balanced_pressure',
   'bdvair_positive_pressure',
+  'composite_deck',
 ]);
 
 function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange, onRecommend }) {
@@ -1185,6 +1187,7 @@ function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange,
   if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onRecommend={onRecommend} onPick={onPick} product={product} onQuantityChange={onQuantityChange} />;
   if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
   if (type === 'bdvair_positive_pressure') return <BDVAirPositivePressureCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'composite_deck') return <CompositeDeckCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
   return <UnitCalculator product={product} />;
 }
 
