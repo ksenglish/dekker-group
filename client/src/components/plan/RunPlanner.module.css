@@ -1,0 +1,164 @@
+/* Drawing a run of something on the ground. Used by the fence calculator and
+   meant for anything else measured along a line — a retaining wall, a deck
+   edge, a boundary. */
+
+.wrap { margin-bottom: 14px; }
+
+.plan {
+  position: relative;
+  width: 100%;
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.planLive {
+  composes: plan;
+  border-color: var(--color-primary, #1e40af);
+  box-shadow: 0 0 0 3px rgb(30 64 175 / 0.14);
+  cursor: crosshair;
+  /* The browser must not take the drag for a scroll or a pinch: a finger
+     pulling a wall across the plan is the whole interaction. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Marks are drawn in ground units, so the SVG must not letterbox or the
+     pointer maths and the drawing stop agreeing. */
+  position: absolute;
+  inset: 0;
+}
+
+/* ── Measurements ─────────────────────────────────────────────────────────── */
+
+/* Real buttons rather than text in the SVG, because they are tapped and typed
+   into, and a 44px touch target inside a scaled drawing is not a thing that
+   can be arranged. */
+.chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.92);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: #0f172a;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.1);
+}
+.chip:hover { border-color: var(--color-primary, #1e40af); }
+
+.chipFixed {
+  composes: chip;
+  cursor: default;
+  color: #64748b;
+  background: rgb(248 250 252 / 0.92);
+  box-shadow: none;
+}
+
+.chipEdit {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--color-primary, #1e40af);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.18);
+  font-size: 12.5px;
+}
+.chipEdit input {
+  width: 72px;
+  padding: 3px 4px;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: right;
+}
+.chipEdit span { color: #64748b; }
+
+/* What the wall measures while it is still being pulled out. Offset off the
+   cursor so a finger is not sitting on top of the number it is setting. */
+.readout {
+  position: absolute;
+  transform: translate(-50%, -190%);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 13.5px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+/* ── The bar underneath ───────────────────────────────────────────────────── */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+.spacer { flex: 1; min-width: 0; }
+
+.snap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.snap input {
+  width: 16px; height: 16px; margin: 0;
+  accent-color: var(--color-primary, #1e40af);
+}
+
+.bar button {
+  padding: 7px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.bar button:disabled { opacity: 0.45; cursor: default; }
+
+@media (max-width: 480px) {
+  /* The hint goes; Undo and Clear stay, because they are what a wrong stroke
+     needs and there is no room for both. */
+  .spacer { display: none; }
+  .bar { flex-wrap: wrap; }
+  .snap { flex: 1 1 100%; }
+}

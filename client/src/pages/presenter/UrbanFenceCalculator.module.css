@@ -29,36 +29,6 @@
   max-width: 100%;
 }
 
-/* ── Typed or drawn ───────────────────────────────────────────────────────── */
-
-.modes {
-  display: flex;
-  gap: 6px;
-  margin: 4px 0 12px;
-  padding: 4px;
-  background: #f1f5f9;
-  border-radius: 10px;
-}
-
-.mode {
-  flex: 1;
-  padding: 9px 10px;
-  border: none;
-  border-radius: 7px;
-  background: none;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-.modeOn {
-  composes: mode;
-  background: #fff;
-  color: var(--color-text, #0f172a);
-  box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
-}
-
 /* ── The runs, typed ─────────────────────────────────────────────────────── */
 
 .runs { margin-bottom: 12px; }
@@ -131,56 +101,6 @@
   color: var(--color-text-muted);
   cursor: pointer;
 }
-
-/* ── Drawing ─────────────────────────────────────────────────────────────── */
-
-.drawBar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-size: 12.5px;
-  color: var(--color-text-muted);
-}
-.drawBar span { flex: 1; min-width: 0; }
-.drawBar button {
-  padding: 7px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: #fff;
-  font: inherit;
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.drawBar button:disabled { opacity: 0.45; cursor: default; }
-
-.plan {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 10;
-  background: #f8fafc;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  display: block;
-  margin-bottom: 14px;
-}
-.planDrawing {
-  composes: plan;
-  border-color: var(--color-primary, #1e40af);
-  box-shadow: 0 0 0 3px rgb(30 64 175 / 0.14);
-  cursor: crosshair;
-  touch-action: manipulation;
-}
-
-.runLabel {
-  fill: #0f172a;
-  font-weight: 600;
-  paint-order: stroke;
-  stroke: #f8fafc;
-  stroke-width: 0.12;
-  stroke-linejoin: round;
-}
-.hint { fill: #64748b; }
 
 /* ── Options ─────────────────────────────────────────────────────────────── */
 
