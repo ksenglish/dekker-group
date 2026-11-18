@@ -212,14 +212,22 @@ export default function RunPlanner({
     return Math.hypot(at.x - points[0].x, at.y - points[0].y) < Math.max(0.3, unit * 3);
   }, [closed, points, unit]);
 
-  function addCorner(at) {
+  // `from` is where a drag started. On an empty plan that is the first corner
+  // and the release is the second, so one pull draws a whole wall — without
+  // it the press was thrown away, the release became a lone corner, and a
+  // single line could not be drawn without tapping again.
+  function addCorner(at, from) {
     if (closesHere(at)) {
       onChange?.({ points, closed: true, objects: held });
       setDrawing(false);
       setCursor(null);
       return;
     }
-    if (!points.length) { onChange?.({ points: [at], closed: false, objects: held }); return; }
+    if (!points.length) {
+      const started = from && Math.hypot(at.x - from.x, at.y - from.y) >= snapM;
+      onChange?.({ points: started ? [from, at] : [at], closed: false, objects: held });
+      return;
+    }
 
     // Carrying on in the same direction lengthens the wall rather than adding
     // a corner to the middle of it.
@@ -341,7 +349,7 @@ export default function RunPlanner({
       setCursor(null);
       return;
     }
-    addCorner(snapTo(drag.anchor, here, { snapM, angleStepDeg, snapAngles }));
+    addCorner(snapTo(drag.anchor, here, { snapM, angleStepDeg, snapAngles }), drag.anchor);
     setDrawing(true);
   }
 
@@ -500,8 +508,18 @@ export default function RunPlanner({
               <div key={s.i} className={styles.chipEdit} style={place(mid)}
                 onPointerDown={e => e.stopPropagation()}>
                 <input
-                  autoFocus type="number" min="0" step="0.1" inputMode="decimal"
+                  autoFocus
+                  // Text rather than a number field, because a number field
+                  // will not reliably select its own contents — on iOS it
+                  // does not at all, and that is where this is used. The
+                  // decimal keypad still comes up, and parseFloat does not
+                  // care which kind of input it came from.
+                  type="text" inputMode="decimal"
                   aria-label={`Length of wall ${s.i + 1} in metres`}
+                  // Picked out the moment it opens, so a measurement is typed
+                  // over rather than cleared first. Nobody tapping 12.47m
+                  // wants to delete five characters before they can say 12.
+                  onFocus={e => e.target.select()}
                   value={typed}
                   onChange={e => setTyped(e.target.value)}
                   onBlur={() => commitLength(s.i)}
