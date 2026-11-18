@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Hub.module.css';
@@ -25,10 +26,49 @@ function fmtTime(t) {
   return `${((hour + 11) % 12) + 1}:${m}${suffix}`;
 }
 
+// What the Hub takes. The server keeps the same list (HUB_TYPES in
+// routes/hub.js) and is the one that decides; this is so the file picker and
+// the message say so before anything is sent.
+const EXTENSIONS = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'xlsm', 'csv', 'ppt', 'pptx', 'txt',
+  'rtf', 'odt', 'ods', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'dwg', 'dxf', 'zip', 'msg', 'eml'];
+const ACCEPT = EXTENSIONS.map(e => `.${e}`).join(',');
+const extOf = name => String(name).split('.').pop().toLowerCase();
+const acceptsFile = name => EXTENSIONS.includes(extOf(name));
+// The upload goes as base64 in a JSON body the server caps at 15 MB, and
+// base64 is a third bigger than the file.
+const MAX_UPLOAD_MB = 10;
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+const showsInBrowser = doc =>
+  /^(application\/pdf|image\/(jpeg|png|gif|webp)|text\/plain)$/.test(doc.mime_type || 'application/pdf');
+function fileIcon(name) {
+  const e = extOf(name);
+  if (['doc', 'docx', 'rtf', 'odt', 'txt'].includes(e)) return '📝';
+  if (['xls', 'xlsx', 'xlsm', 'csv', 'ods'].includes(e)) return '📊';
+  if (['ppt', 'pptx'].includes(e)) return '📽️';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'].includes(e)) return '🖼️';
+  if (['dwg', 'dxf'].includes(e)) return '📐';
+  if (['msg', 'eml'].includes(e)) return '✉️';
+  if (e === 'zip') return '🗜️';
+  return '📄';
+}
+
+// The tab and the open folder live in the address, the way the Price List's
+// folders do: each step is a history entry, so the browser's (or the phone's)
+// Back goes up a folder or back a tab instead of leaving the Hub, and a reload
+// or a shared link lands in the same folder.
+const TAB_KEY = { Documents: null, Events: 'events', 'App Feedback': 'feedback' };
+
 export default function DekkerHub() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const [tab, setTab] = useState('Documents');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = TABS.find(t => TAB_KEY[t] === searchParams.get('tab')) || 'Documents';
+  const setTab = t => {
+    if (t === tab) return;
+    const params = new URLSearchParams();
+    if (TAB_KEY[t]) params.set('tab', TAB_KEY[t]);
+    setSearchParams(params);
+  };
 
   return (
     <div className={styles.page}>
@@ -56,7 +96,11 @@ export default function DekkerHub() {
 // ── Documents ────────────────────────────────────────────────────────────────
 function DocumentsTab({ isAdmin }) {
   const [folders, setFolders] = useState([]);
-  const [openFolder, setOpenFolder] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openId = searchParams.get('f');
+  // Looked up from the list rather than held, so a rename shows straight away
+  // and Back/Forward just change which one this is.
+  const openFolder = openId ? folders.find(f => f.id === openId) || null : null;
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -85,16 +129,38 @@ function DocumentsTab({ isAdmin }) {
     setter(next);
   };
 
-  async function openIt(folder) {
-    setOpenFolder(folder);
+  function loadDocuments(id) {
+    return api.get(`/hub/folders/${id}/documents`).then(r => setDocuments(r.data));
+  }
+
+  // Whatever the address says is open — by a click here, Back, Forward or a
+  // link — is what gets shown.
+  useEffect(() => {
     setErr(''); setNotice('');
     clearSelection();
     setDocuments([]);
-    const { data } = await api.get(`/hub/folders/${folder.id}/documents`);
-    setDocuments(data);
+    if (!openId) return;
+    let live = true;
+    api.get(`/hub/folders/${openId}/documents`)
+      .then(r => { if (live) setDocuments(r.data); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [openId]);
+
+  // Pushed, not replaced: each folder opened is a step Back can undo.
+  function openIt(folder) {
+    if (folder.id === openId) return;
+    const params = new URLSearchParams(searchParams);
+    params.set('f', folder.id);
+    setSearchParams(params);
   }
 
-  function goTop() { setOpenFolder(null); setErr(''); setNotice(''); clearSelection(); }
+  function goTop() {
+    if (!openId) return;
+    const params = new URLSearchParams(searchParams);
+    params.delete('f');
+    setSearchParams(params);
+  }
 
   // Move or copy whatever is ticked into the folder picked (null = top level).
   async function moveOrCopy(mode, targetId) {
@@ -112,10 +178,7 @@ function DocumentsTab({ isAdmin }) {
       setPicking(null);
       clearSelection();
       await loadFolders();
-      if (openFolder) {
-        const { data: docs } = await api.get(`/hub/folders/${openFolder.id}/documents`);
-        setDocuments(docs);
-      }
+      if (openId) await loadDocuments(openId);
     } catch (e2) {
       setErr(e2.response?.data?.error || `Could not ${mode} those.`);
       setPicking(null);
@@ -161,8 +224,6 @@ function DocumentsTab({ isAdmin }) {
       await api.put(`/hub/folders/${folder.id}`, { name: name.trim() });
       setRenaming(null);
       await loadFolders();
-      // The breadcrumb is showing the old name until it is told otherwise.
-      if (openFolder?.id === folder.id) setOpenFolder({ ...openFolder, name: name.trim() });
     } catch (e2) {
       setErr(e2.response?.data?.error || 'Could not rename that folder');
     } finally { setBusy(false); }
@@ -192,27 +253,40 @@ function DocumentsTab({ isAdmin }) {
     } finally { setBusy(false); }
   }
 
+  // Several at once, one after another, so one that is refused does not stop
+  // the rest — and the message says which ones did not go.
   async function handleUpload(e) {
-    const file = e.target.files?.[0];
+    const files = [...(e.target.files || [])];
     e.target.value = '';
-    if (!file) return;
-    if (file.type !== 'application/pdf') { setErr('Only PDF files can be uploaded.'); return; }
-    setUploading(true); setErr('');
-    try {
-      const data_base64 = await new Promise((res, rej) => {
-        const reader = new FileReader();
-        reader.onload = ev => res(ev.target.result);
-        reader.onerror = rej;
-        reader.readAsDataURL(file);
-      });
-      await api.post(`/hub/folders/${openFolder.id}/documents`, {
-        filename: file.name, mime_type: file.type, data_base64,
-      });
-      await openIt(openFolder);
-      loadFolders();
-    } catch (e2) {
-      setErr(e2.response?.data?.error || 'Upload failed — the file may be too large.');
-    } finally { setUploading(false); }
+    if (!files.length) return;
+    const folderId = openId;
+    setErr(''); setNotice('');
+    const failed = [];
+    let done = 0;
+    for (const file of files) {
+      if (!acceptsFile(file.name)) { failed.push(`${file.name} (not a supported type)`); continue; }
+      if (file.size > MAX_UPLOAD_BYTES) { failed.push(`${file.name} (over ${MAX_UPLOAD_MB} MB)`); continue; }
+      setUploading(files.length > 1 ? `Uploading ${done + 1} of ${files.length}…` : 'Uploading…');
+      try {
+        const data_base64 = await new Promise((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = ev => res(ev.target.result);
+          reader.onerror = rej;
+          reader.readAsDataURL(file);
+        });
+        await api.post(`/hub/folders/${folderId}/documents`, {
+          filename: file.name, mime_type: file.type, data_base64,
+        });
+        done++;
+      } catch (e2) {
+        failed.push(`${file.name} (${e2.response?.data?.error || 'upload failed'})`);
+      }
+    }
+    setUploading(false);
+    if (done) setNotice(`${done} file${done === 1 ? '' : 's'} added.`);
+    if (failed.length) setErr(`Not added: ${failed.join('; ')}`);
+    if (folderId === openId) await loadDocuments(folderId).catch(() => {});
+    loadFolders();
   }
 
   async function handleDelete(doc) {
@@ -235,7 +309,19 @@ function DocumentsTab({ isAdmin }) {
   // still counts — and pointed at a short-lived signed URL once there is one.
   // The browser then gets a plain application/pdf response and shows it in its
   // own viewer, where it can be shared, printed or saved as usual.
+  //
+  // Word, Excel and the rest are not something a browser tab can show, so
+  // those are not given a tab at all: the link comes back as a download and
+  // following it here opens the file in Word or Excel (or the iPad's preview)
+  // without leaving the Hub or an empty tab behind.
   async function openDoc(doc) {
+    if (!showsInBrowser(doc)) {
+      try {
+        const { data } = await api.post(`/hub/documents/${doc.id}/link`);
+        window.location.href = `${import.meta.env.VITE_API_BASE_URL || ''}${data.url}`;
+      } catch { alert('Could not open that document.'); }
+      return;
+    }
     const tab = window.open('', '_blank');
     try {
       const { data } = await api.post(`/hub/documents/${doc.id}/link`);
@@ -408,10 +494,11 @@ function DocumentsTab({ isAdmin }) {
                 🔒 {folders.find(f => f.id === openFolder.id)?.restricted ? 'Restricted'
                   : restrictedAbove(openFolder, folders) ? 'Limited by parent' : 'Everyone'}
               </button>
-              <input ref={fileRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={handleUpload} />
+              <input ref={fileRef} type="file" multiple accept={ACCEPT} style={{ display: 'none' }} onChange={handleUpload} />
               <button className={styles.btnPrimary} style={{ marginLeft: 0 }}
-                onClick={() => fileRef.current?.click()} disabled={uploading}>
-                {uploading ? 'Uploading…' : '+ Add PDF'}
+                title="PDF, Word, Excel, PowerPoint, CSV, text, images, drawings, zip or email"
+                onClick={() => fileRef.current?.click()} disabled={!!uploading}>
+                {uploading || '+ Add files'}
               </button>
             </>
           )}
@@ -442,7 +529,10 @@ function DocumentsTab({ isAdmin }) {
                     checked={selDocs.has(d.id)}
                     onChange={() => toggle(selDocs, setSelDocs, d.id)} />
                 )}
-                <button className={styles.docName} onClick={() => openDoc(d)}>📄 {d.filename}</button>
+                <button className={styles.docName} onClick={() => openDoc(d)}
+                  title={showsInBrowser(d) ? 'Open' : 'Download to open'}>
+                  {fileIcon(d.filename)} {d.filename}
+                </button>
                 <span className={styles.muted}>{fmtSize(d.size_bytes)}</span>
                 <span className={styles.muted}>{fmtDate(d.created_at)}</span>
                 <span className={styles.muted}>{d.uploaded_by_name || '—'}</span>

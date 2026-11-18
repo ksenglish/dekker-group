@@ -34,11 +34,16 @@ router.get('/documents/:id/data', async (req, res, next) => {
     } catch {
       return res.status(404).json({ error: 'That document is no longer stored.' });
     }
+    const type = doc.mime_type || 'application/pdf';
     res.set({
-      'Content-Type': doc.mime_type || 'application/pdf',
-      // inline, so iOS shows it in its own viewer rather than downloading a
-      // file the user then has to go and find.
-      'Content-Disposition': `inline; filename="${doc.filename.replace(/"/g, '')}"`,
+      'Content-Type': type,
+      // inline for what a browser can show, so iOS opens a PDF in its own
+      // viewer rather than downloading a file the user then has to go and
+      // find. A Word or Excel file goes out as a download, which opens it in
+      // Word or Excel (or the iPad's preview) under its own name.
+      'Content-Disposition': `${SHOWS_INLINE.test(type) ? 'inline' : 'attachment'}; `
+        + `filename="${doc.filename.replace(/["\\\r\n]/g, '').replace(/[^\x20-\x7e]/g, '_')}"; `
+        + `filename*=UTF-8''${encodeURIComponent(doc.filename)}`,
       // A signed link is good for minutes; caching it for longer would outlive
       // the permission it carries.
       'Cache-Control': 'private, max-age=60',
@@ -331,30 +336,66 @@ router.get('/folders/:id/documents', async (req, res) => {
   } catch (err) { console.error('[hub]', err.message); res.status(500).json({ error: 'Server error' }); }
 });
 
+// What can go in the Hub: office documents, not anything at all. Decided by the
+// file's extension, because browsers often send a blank or generic type for
+// Office files (Windows without Office installed sends nothing for .xlsx), and
+// the type stored is the one that goes back out when the file is opened.
+const HUB_TYPES = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xlsm: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+  csv: 'text/csv',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  txt: 'text/plain',
+  rtf: 'application/rtf',
+  odt: 'application/vnd.oasis.opendocument.text',
+  ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+  webp: 'image/webp', heic: 'image/heic',
+  dwg: 'application/acad', dxf: 'application/dxf',
+  zip: 'application/zip',
+  msg: 'application/vnd.ms-outlook', eml: 'message/rfc822',
+};
+const hubTypeOf = filename => HUB_TYPES[String(filename).split('.').pop().toLowerCase()] || null;
+
+// What the browser can show itself; everything else is handed over as a file
+// to open in Word, Excel and so on.
+const SHOWS_INLINE = /^(application\/pdf|image\/(jpeg|png|gif|webp)|text\/plain)$/;
+
 router.post('/folders/:id/documents', requireRole('admin'), async (req, res) => {
-  const { filename, mime_type, data_base64 } = req.body || {};
+  const { filename, data_base64 } = req.body || {};
   if (!filename || !data_base64) return res.status(400).json({ error: 'filename and data_base64 are required' });
-  if (mime_type && mime_type !== 'application/pdf') {
-    return res.status(400).json({ error: 'Only PDF documents can be uploaded' });
+  const mimeType = hubTypeOf(filename);
+  if (!mimeType) {
+    return res.status(400).json({
+      error: `"${filename}" is not a file type the Hub takes — PDF, Word, Excel, PowerPoint, CSV, text, images, drawings, zip or email.`,
+    });
   }
   try {
     const { rows: [folder] } = await pool.query('SELECT id FROM hub_folders WHERE id=$1', [req.params.id]);
     if (!folder) return res.status(404).json({ error: 'Folder not found' });
+    // The type in the payload is whatever the browser guessed; the stored
+    // object should carry the one decided above.
+    const b64 = data_base64.replace(/^data:[^;]*;base64,/, '');
+    const dataUrl = `data:${mimeType};base64,${b64}`;
     // Rough decoded size from the base64 payload, for display only.
-    const b64 = data_base64.replace(/^data:[^;]+;base64,/, '');
     const sizeBytes = Math.round((b64.length * 3) / 4);
     // Into the bucket where there is one. A policy PDF is a megabyte and the
     // database is not where a megabyte of PDF belongs.
     const stored = await fileStore.storeDataUrl({
-      prefix: `hub/${req.params.id}`, filename, dataUrl: data_base64,
+      prefix: `hub/${req.params.id}`, filename, dataUrl,
     });
     const { rows } = await pool.query(
       `INSERT INTO hub_documents (folder_id, filename, mime_type, size_bytes,
                                   data_base64, storage_key, uploaded_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING id, folder_id, filename, mime_type, size_bytes, created_at`,
-      [req.params.id, filename, mime_type || 'application/pdf', stored?.size || sizeBytes,
-       stored ? null : data_base64, stored?.key || null, req.user.id]
+      [req.params.id, filename, mimeType, stored?.size || sizeBytes,
+       stored ? null : dataUrl, stored?.key || null, req.user.id]
     );
     res.status(201).json(rows[0]);
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
