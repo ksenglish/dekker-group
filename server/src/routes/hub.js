@@ -150,9 +150,7 @@ router.put('/folders/:id/access', requireRole('admin'), async (req, res) => {
   const restricted = !!req.body?.restricted;
   const roles = [...new Set((req.body?.roles || []).map(String))].filter(r => ACCESS_ROLES.includes(r));
   const userIds = [...new Set((req.body?.user_ids || []).map(String))];
-  if (restricted && !roles.length && !userIds.length) {
-    return res.status(400).json({ error: 'Pick at least one group or person, or set the folder back to Everyone.' });
-  }
+  // Restricted with nobody else ticked is "Admin only" — admins always pass.
   try {
     if (userIds.length) {
       const { rows } = await pool.query('SELECT id FROM users WHERE id = ANY($1::uuid[])', [userIds]);
