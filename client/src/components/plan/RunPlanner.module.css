@@ -172,3 +172,91 @@
   .bar { flex-wrap: wrap; }
   .snap { flex: 1 1 100%; }
 }
+
+/* ── Hand, zoom and things dropped on the line ────────────────────────────── */
+
+.planPan {
+  composes: plan;
+  border-color: var(--color-primary, #1e40af);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.planPan:active { cursor: grabbing; }
+
+/* Where a thumb can reach it without covering the drawing. */
+.zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.zoom button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 0.94);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  color: #334155;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
+}
+.zoom button:hover { background: #fff; }
+
+/* A gate or a door sitting on the line. Tapping it takes it off; dragging the
+   line under it moves it along. */
+.objectTag {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 3px 7px;
+  border: 1px solid;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.94);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.12);
+}
+
+.tool {
+  padding: 7px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tool:disabled { opacity: 0.45; cursor: default; }
+.toolOn {
+  composes: tool;
+  background: var(--color-primary, #1e40af);
+  border-color: var(--color-primary, #1e40af);
+  color: #fff;
+}
+
+/* The label falls through to the plan so the gate under it can be dragged;
+   only this takes it off. */
+.objectOff {
+  margin-left: 5px;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  color: inherit;
+  opacity: 0.65;
+  cursor: pointer;
+}
+.objectOff:hover { opacity: 1; }

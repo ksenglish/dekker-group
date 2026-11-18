@@ -138,6 +138,7 @@ export default function UrbanFenceCalculator({
 
   const [gateSku, setGateSku] = useState('');
   const [gateCount, setGateCount] = useState(0);
+  const [drawnGates, setDrawnGates] = useState([]);
   const [gateWidthMm, setGateWidthMm] = useState(0);
 
   const [basePlate, setBasePlate] = useState(false);
@@ -276,9 +277,15 @@ export default function UrbanFenceCalculator({
     onQuantityChange?.(plan ? plan.fenceMetres : 0);
   }, [plan, onQuantityChange]);
 
-  function planned({ points: next, closed }) {
+  function planned({ points: next, closed, objects }) {
     setPoints(next);
     setClosedLoop(closed);
+    // Gates are dropped on the fence line and dragged to where they go, so
+    // how many there are is read off the plan rather than typed twice.
+    if (objects) {
+      setDrawnGates(objects);
+      setGateCount(objects.length);
+    }
   }
 
   // A measurement being typed is held as it is typed and applied when the
@@ -327,6 +334,8 @@ export default function UrbanFenceCalculator({
           fill={fullPage}
           labelFor={s => (plan?.panelsPerRun?.[s.i]
             ? ` · ${plan.panelsPerRun[s.i]}` : '')}
+          objects={drawnGates}
+          objectKinds={['gate']}
           overlay={fenceOnPlan({ plan })}
           hint="Press and drag to pull out the first run of fence. Drag the next one off the end of it, and type over any measurement to make it exact."
         />
@@ -461,10 +470,20 @@ export default function UrbanFenceCalculator({
         </div>
         {hasGate && (
           <>
+            {/* Counted off the plan when any have been dropped on it, so the
+                drawing and the quote cannot say different numbers. Typed only
+                while the fence has no gates drawn on it. */}
             <div className={styles.calcField}>
               <label>How many</label>
-              <input type="number" min="0" step="1" value={gateCount}
-                onChange={e => setGateCount(Math.max(0, parseInt(e.target.value, 10) || 0))} />
+              {drawnGates.length ? (
+                <p className={own.sub} style={{ margin: 0 }}>
+                  {drawnGates.length} on the plan — drag one along the line to move it,
+                  or tap it to take it off
+                </p>
+              ) : (
+                <input type="number" min="0" step="1" value={gateCount}
+                  onChange={e => setGateCount(Math.max(0, parseInt(e.target.value, 10) || 0))} />
+              )}
             </div>
             <div className={styles.calcField}>
               <label>

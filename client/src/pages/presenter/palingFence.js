@@ -186,7 +186,9 @@ export function takeOff({
 
     // What is actually covered once whole palings are counted, so an installer
     // knows there is one to rip down rather than finding out on site.
-    palingOvercutMm: Math.max(0, palings * palingCoverMm - fenceMm),
+    // To the millimetre. A fence drawn by hand is 10.3004m long, and nobody
+    // needs to be told there is 50.00937257025726mm to rip off a paling.
+    palingOvercutMm: Math.round(Math.max(0, palings * palingCoverMm - fenceMm)),
   };
 }
 

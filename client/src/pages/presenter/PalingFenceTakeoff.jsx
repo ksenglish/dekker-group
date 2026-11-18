@@ -86,8 +86,9 @@ export default function PalingFenceTakeoff({ onPick, onQuantityChange, fullPage 
   const [points, setPoints] = useState([]);
   const [closedLoop, setClosedLoop] = useState(false);
   const [draft, setDraft] = useState(null);
-  const [openings, setOpenings] = useState(0);
-  const [openingWidthMm, setOpeningWidthMm] = useState(1000);
+  // Gateways are dropped on the fence line and dragged to where they go,
+  // so the plan says where they are rather than the take-off assuming.
+  const [gates, setGates] = useState([]);
 
   useEffect(() => {
     Promise.all([
@@ -107,15 +108,23 @@ export default function PalingFenceTakeoff({ onPick, onQuantityChange, fullPage 
   }, [points, closedLoop]);
   const segs = useMemo(() => segmentsOf(points, closedLoop), [points, closedLoop]);
 
+  // Every gateway is the same opening as far as the take-off is concerned:
+  // what comes out of the fence line, and the extra post it costs.
+  const openingWidthMm = useMemo(
+    () => (gates.length ? Math.round((gates[0].widthM || 1) * 1000) : 0), [gates]);
   const plan = useMemo(() => takeOff({
-    runs, heightMm, spec, topCap, openings, openingWidthMm,
-  }), [runs, heightMm, spec, topCap, openings, openingWidthMm]);
+    runs, heightMm, spec, topCap, openings: gates.length, openingWidthMm,
+  }), [runs, heightMm, spec, topCap, gates, openingWidthMm]);
 
   const total = useMemo(() => priceUp({ plan, spec, products }), [plan, spec, products]);
 
   useEffect(() => { onQuantityChange?.(plan ? plan.fenceMetres : 0); }, [plan, onQuantityChange]);
 
-  function planned({ points: next, closed }) { setPoints(next); setClosedLoop(closed); }
+  function planned({ points: next, closed, objects }) {
+    setPoints(next);
+    setClosedLoop(closed);
+    if (objects) setGates(objects);
+  }
 
   function fieldFor(s) {
     return draft?.i === s.i ? draft.text : s.metres.toFixed(2);
@@ -159,6 +168,8 @@ export default function PalingFenceTakeoff({ onPick, onQuantityChange, fullPage 
           fill={fullPage}
           labelFor={s => (plan?.baysPerRun?.[s.i]
             ? ` · ${plan.baysPerRun[s.i]} ${plan.baysPerRun[s.i] === 1 ? 'bay' : 'bays'}` : '')}
+          objects={gates}
+          objectKinds={['gate']}
           overlay={fenceOnPlan({ plan, hex })}
           hint="Press and drag to pull out the first run of fence. Drag the next one off the end of it, and type over any measurement to make it exact."
         />
@@ -177,17 +188,13 @@ export default function PalingFenceTakeoff({ onPick, onQuantityChange, fullPage 
             </select>
           </div>
           <div className={styles.calcField}>
-            <label>Gateways to leave</label>
-            <input type="number" min="0" step="1" value={openings}
-              onChange={e => setOpenings(Math.max(0, parseInt(e.target.value, 10) || 0))} />
+            <label>Gateways</label>
+            <p className={own.sub} style={{ margin: 0 }}>
+              {gates.length
+                ? `${gates.length} on the plan at ${(openingWidthMm / 1000).toFixed(2)}m`
+                : 'Drop one on the fence line with + Gate, then drag it to where it goes'}
+            </p>
           </div>
-          {openings > 0 && (
-            <div className={styles.calcField}>
-              <label>Opening (mm)</label>
-              <input type="number" min="0" step="10" value={openingWidthMm}
-                onChange={e => setOpeningWidthMm(Math.max(0, parseInt(e.target.value, 10) || 0))} />
-            </div>
-          )}
         </div>
 
         <label className={own.toggle}>
