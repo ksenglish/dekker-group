@@ -8,6 +8,7 @@ import styles from './SalesPresenter.module.css';
 import { overlayClose } from '../../lib/overlayClose';
 import CompositeDeckCalculator from './CompositeDeckCalculator';
 import UrbanFenceCalculator from './UrbanFenceCalculator';
+import PalingFenceTakeoff from './PalingFenceTakeoff';
 import ProductImage from '../../components/products/ProductImage';
 import { loadAuthedFile } from '../../components/products/authedFile';
 import {
@@ -1177,12 +1178,13 @@ const SELF_PICK_CALCULATORS = new Set([
   'bdvair_positive_pressure',
   'composite_deck',
   'urban_fence',
+  'paling_fence_takeoff',
 ]);
 
 // Calculators that are drawn on. These get the whole screen rather than the
 // product drawer, because the drawing is the tool and 520px is not enough to
 // lay a boundary out in.
-const FULL_PAGE_CALCULATORS = new Set(['urban_fence']);
+const FULL_PAGE_CALCULATORS = new Set(['urban_fence', 'paling_fence_takeoff']);
 
 function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange, onRecommend, fullPage }) {
   const type = product.calculator_type || 'unit';
@@ -1196,6 +1198,7 @@ function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange,
   if (type === 'bdvair_positive_pressure') return <BDVAirPositivePressureCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
   if (type === 'composite_deck') return <CompositeDeckCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
   if (type === 'urban_fence') return <UrbanFenceCalculator onRecommend={onRecommend} onPick={onPick} product={product} onQuantityChange={onQuantityChange} fullPage={fullPage} />;
+  if (type === 'paling_fence_takeoff') return <PalingFenceTakeoff onPick={onPick} onQuantityChange={onQuantityChange} fullPage={fullPage} />;
   return <UnitCalculator product={product} />;
 }
 

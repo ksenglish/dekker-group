@@ -394,6 +394,59 @@ const DEFAULT_BILLING_RATES = [
 
 // How many minutes either side of a booking still count as that booking.
 // Lives next to the rates because it is read on the same screen.
+// ── How we build a paling fence ─────────────────────────────────────────────
+//
+// Post spacing, how deep they go, bags of concrete each, how many rails a
+// height takes, what a paling covers, and which Price List item each part of
+// the fence is. All of it is a decision the business makes rather than
+// something the app should know, and all of it changes — a supplier swaps a
+// paling, concrete goes up, somebody decides 1500 fences get three rails.
+//
+// So it lives here and is edited in Presenter Setup. The calculator reads it;
+// nothing about how we build is written into the calculator itself.
+router.get('/paling-fence', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT value FROM settings WHERE key = 'paling_fence_spec'`);
+    res.json(rows[0]?.value || {});
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/paling-fence', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const spec = req.body;
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
+    return res.status(400).json({ error: 'Send the whole specification' });
+  }
+  // The numbers that would make a take-off nonsense rather than merely
+  // unusual. Posts no distance apart is not a fence, and a paling covering
+  // nothing is an infinite number of palings.
+  const r = spec.rules || {};
+  const positive = (v, name) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return `${name} has to be a number above zero`;
+    return null;
+  };
+  const complaint = positive(r.maxSpacingMm, 'The most a post can be from the next one')
+    || positive(r.palingCoverMm, 'What one paling covers')
+    || positive(r.railLengthMm, 'The length a rail comes in')
+    || positive(r.capLengthMm, 'The length a cap comes in');
+  if (complaint) return res.status(400).json({ error: complaint });
+  if (Number(r.embedmentMm) < 0 || Number(r.bagsPerPost) < 0) {
+    return res.status(400).json({ error: 'Depth and bags cannot be less than nothing' });
+  }
+  if (!Array.isArray(spec.heights) || !spec.heights.length) {
+    return res.status(400).json({ error: 'Keep at least one fence height' });
+  }
+  try {
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('paling_fence_spec', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+      [JSON.stringify(spec)]
+    );
+    res.json(spec);
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 router.get('/timesheet-grace', authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(

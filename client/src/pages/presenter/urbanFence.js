@@ -303,11 +303,16 @@ export function takeOff({
 
   // Every panel needs a post each side, and neighbours share. Across the whole
   // fence that is one more post than panels — less one for every corner, which
-  // two runs share, and plus one each side of every gate.
+  // two runs share.
+  //
+  // A gate adds one post, not two. There are two posts at the opening, but the
+  // fence running up to it already had one of them: break a continuous line in
+  // two and you go from one post to two, which is one more. Counting two was
+  // a post per gate too many on every quote.
   //
   // Written as the thing it is rather than a formula nobody can check:
   const linePosts = panels + 1 - corners - (closedLoop ? 1 : 0);
-  const gatePosts = Math.max(0, gates) * 2;
+  const gatePosts = Math.max(0, gates);
   const posts = Math.max(0, linePosts) + corners + gatePosts;
 
   // A ColourFence bay comes with its posts in the box, so a post line on top of

@@ -10,6 +10,7 @@ import api from '../../lib/api';
 import { compressImage } from '../../lib/image';
 import RichTextEditor from '../../components/RichTextEditor';
 import { htmlToText } from '../../lib/richText';
+import PalingFenceSetup from './PalingFenceSetup';
 import styles from './PresenterAdmin.module.css';
 
 const CALC_TYPES = [
@@ -24,6 +25,7 @@ const CALC_TYPES = [
   { value: 'bdvair_positive_pressure', label: 'BDVAir Positive Pressure (lookup table)' },
   { value: 'paling_fence', label: 'Paling Fence (per metre, scan plan)' },
   { value: 'urban_fence',  label: 'Urban Group Fence (panels, posts, corners)' },
+  { value: 'paling_fence_takeoff', label: 'Timber Paling Fence (drawn take-off)' },
 ];
 
 function ImgUpload({ value, onChange, label = '📷 Upload Image', maxMb = 3 }) {
@@ -889,6 +891,10 @@ export default function PresenterAdmin() {
         </div>
 
       </div>
+
+      {/* How the calculators that build something are built. The sections
+          above are what the presenter shows; this is what a take-off reads. */}
+      <PalingFenceSetup />
 
       {movingProduct && (
         <MoveProductModal
