@@ -318,3 +318,62 @@ export function gridFor(span) {
   const wanted = span / 30;
   return steps.find(s => s >= wanted) || steps[steps.length - 1];
 }
+
+// ── Lining up with what is already drawn ────────────────────────────────────
+
+/**
+ * A wall being pulled out, slid to line up with a corner already on the plan.
+ *
+ * Snapping the angle gets a wall square. It does not get the far end of it in
+ * line with the corner twelve metres away, which is what anybody drawing the
+ * fourth side of anything is actually trying to do — and doing it by eye is
+ * how a plan ends up 4.97m where it should be 5.
+ *
+ * So the direction the wall is going is left alone and only its length moves:
+ * slid until its end sits on the same northing or easting as a corner that is
+ * already there. The angle lock and the alignment never fight, because one
+ * sets the direction and the other sets how far.
+ *
+ * `tol` is in metres and should come from the zoom — a fixed number of metres
+ * would grab from the other side of the paddock when zoomed out.
+ */
+export function guideSnap(anchor, candidate, anchors, { tol = 0.3 } = {}) {
+  const others = (anchors || []).filter(a =>
+    a && (Math.abs(a.x - anchor.x) > 1e-9 || Math.abs(a.y - anchor.y) > 1e-9));
+  if (!others.length) return { point: candidate, guides: [] };
+
+  // Landing on a corner outright beats lining up with one.
+  for (const a of others) {
+    if (Math.hypot(candidate.x - a.x, candidate.y - a.y) <= tol) {
+      return { point: { x: a.x, y: a.y }, guides: [{ from: a, axis: 'point' }] };
+    }
+  }
+
+  const dx = candidate.x - anchor.x;
+  const dy = candidate.y - anchor.y;
+  const len = Math.hypot(dx, dy);
+  if (len <= 0) return { point: candidate, guides: [] };
+  const ux = dx / len;
+  const uy = dy / len;
+
+  // How far along this heading the wall would have to reach for its end to
+  // share a corner's easting, or its northing.
+  let best = null;
+  for (const a of others) {
+    const reaches = [];
+    if (Math.abs(ux) > 1e-6) reaches.push({ at: (a.x - anchor.x) / ux, axis: 'x', from: a });
+    if (Math.abs(uy) > 1e-6) reaches.push({ at: (a.y - anchor.y) / uy, axis: 'y', from: a });
+    for (const r of reaches) {
+      if (r.at <= 0) continue;              // behind the hand, not in front of it
+      const off = Math.abs(r.at - len);
+      if (off > tol) continue;
+      if (!best || off < best.off) best = { ...r, off };
+    }
+  }
+  if (!best) return { point: candidate, guides: [] };
+
+  return {
+    point: { x: anchor.x + ux * best.at, y: anchor.y + uy * best.at },
+    guides: [{ from: best.from, axis: best.axis }],
+  };
+}

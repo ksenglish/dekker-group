@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   snapTo, setSegmentLength, segmentsOf, turnAt, setTurnAt, appendRun, removeSegment,
   areaOf, perimeterOf, placeOnLine, pointOnLine, pruneObjects,
-  zoomAt, fitView, gridFor, turnBetween, SAME_RUN_DEGREES, TAP_PX,
+  zoomAt, fitView, gridFor, guideSnap, turnBetween, SAME_RUN_DEGREES, TAP_PX,
 } from './planGeometry';
 import styles from './RunPlanner.module.css';
 
@@ -65,7 +65,17 @@ export default function RunPlanner({
   const [typed, setTyped] = useState('');
   const [snapAngles, setSnapAngles] = useState(true);
   const [drawing, setDrawing] = useState(false);  // mid-chain, tapping corners
-  const [panning, setPanning] = useState(false);  // the hand, for a mouse
+  // What a press does, said out loud rather than guessed at.
+  //
+  // One mode that works out whether a press meant to draw a wall, move a
+  // corner or pick up a gate gets it wrong sooner or later, and when it does
+  // there is nothing the hand can do about it but undo. Pick the tool, and a
+  // press only ever does the one thing.
+  const [tool, setTool] = useState('draw');      // draw | select | pan
+  const panning = tool === 'pan';
+  // Which corners a wall being drawn has lined itself up with, so the guides
+  // can be drawn to them.
+  const [guides, setGuides] = useState([]);
 
   // The shape of the view has to be the shape of the box it is drawn in, or a
   // square drawn on it comes out a rectangle and a right angle comes out bent.
@@ -200,11 +210,20 @@ export default function RunPlanner({
   // Where the next corner would land: square to the wall before it, and on
   // the grid. The same answer whether it came from a drag or from hovering
   // between taps.
-  const aim = useCallback(raw => {
-    const anchor = points.length ? points[points.length - 1] : null;
-    if (!anchor) return onGrid(raw);
-    return snapTo(anchor, raw, { snapM, angleStepDeg, snapAngles });
-  }, [points, onGrid, snapM, angleStepDeg, snapAngles]);
+  // Then slid along that direction to line up with a corner already drawn,
+  // which is what gets the last side of anything to actually meet the first.
+  // The angle lock sets which way the wall goes; this sets how far.
+  const aim = useCallback((raw, anchorOverride) => {
+    const anchor = anchorOverride || (points.length ? points[points.length - 1] : null);
+    if (!anchor) { setGuides([]); return onGrid(raw); }
+    const square = snapTo(anchor, raw, { snapM, angleStepDeg, snapAngles });
+    // A fixed number of metres would grab from the other side of the paddock
+    // when zoomed out, and be unusable when zoomed in. This is about twelve
+    // pixels at any zoom.
+    const lined = guideSnap(anchor, square, points, { tol: unit * 1.2 });
+    setGuides(lined.guides);
+    return lined.point;
+  }, [points, onGrid, snapM, angleStepDeg, snapAngles, unit]);
 
   // Would this land on the first corner and close the shape?
   const closesHere = useCallback(at => {
@@ -258,7 +277,20 @@ export default function RunPlanner({
 
     if (panning) { setDrag({ kind: 'pan', startedAt, view }); return; }
 
-    // Something sitting on the line is picked up before the line is.
+    // Draw draws. It never quietly picks a corner up instead, which is the
+    // thing that cannot be undone by trying again.
+    if (tool === 'draw') {
+      setDrag({
+        kind: 'draw',
+        anchor: points.length ? points[points.length - 1] : onGrid(g),
+        to: aim(g),
+        startedAt,
+      });
+      return;
+    }
+
+    // Select moves what is already there. Something sitting on the line is
+    // picked up before the line is, because it is on top of it.
     const grabObject = held.find(o => {
       const at = pointOnLine(live, closed, o.run, o.atM);
       return at && Math.hypot(at.x - g.x, at.y - g.y) < unit * 2.5;
@@ -267,15 +299,10 @@ export default function RunPlanner({
 
     // A press on a corner picks that corner up to move it — except the open
     // end of the drawing, which is the pen tip.
-    const tip = closed ? -1 : live.length - 1;
-    const grab = live.findIndex((p, i) =>
-      i !== tip && Math.hypot(p.x - g.x, p.y - g.y) < unit * 2.5);
-    if (grab >= 0) {
-      setDrag({ kind: 'vertex', index: grab, to: live[grab], startedAt });
-      return;
-    }
-
-    setDrag({ kind: 'draw', anchor: points.length ? points[points.length - 1] : onGrid(g), to: aim(g), startedAt });
+    // In Select every corner can be moved, the open end included — there is
+    // no pen to keep out of the way of.
+    const grab = live.findIndex(p => Math.hypot(p.x - g.x, p.y - g.y) < unit * 2.5);
+    if (grab >= 0) setDrag({ kind: 'vertex', index: grab, to: live[grab], startedAt });
   }
 
   function pointerMove(event) {
@@ -481,6 +508,14 @@ export default function RunPlanner({
                 stroke="#bfdbfe" strokeWidth={unit * 0.18} />
               <line x1={view.x0} y1={previewFrom.y} x2={view.x0 + w} y2={previewFrom.y}
                 stroke="#bfdbfe" strokeWidth={unit * 0.18} />
+              {/* What it has lined itself up with. Drawn back to the corner
+                  it matched, so it is obvious why the wall stopped there. */}
+              {guides.map((guide, i) => (
+                <line key={i}
+                  x1={guide.from.x} y1={guide.from.y} x2={preview.x} y2={preview.y}
+                  stroke="#16a34a" strokeWidth={unit * 0.22}
+                  strokeDasharray={`${unit * 0.9} ${unit * 0.7}`} />
+              ))}
               <line x1={previewFrom.x} y1={previewFrom.y} x2={preview.x} y2={preview.y}
                 stroke={colour} strokeWidth={unit * 0.9} strokeLinecap="round" opacity="0.55" />
               {closesHere(preview) && (
@@ -606,11 +641,23 @@ export default function RunPlanner({
               onChange={e => setSnapAngles(e.target.checked)} />
             Square to the grid
           </label>
-          <button type="button" className={panning ? styles.toolOn : styles.tool}
-            onClick={() => setPanning(p => !p)}
-            title="Move the plan about instead of drawing on it">
-            ✋ Move
-          </button>
+          {/* Pick what a press does. Nothing is inferred from where it
+              landed, so a press never turns out to have meant something
+              else. */}
+          <div className={styles.tools} role="group" aria-label="What a press does">
+            {[
+              ['draw', '✏️ Draw', 'Lay out walls'],
+              ['select', '↖ Select', 'Move a corner, or something sitting on the line'],
+              ['pan', '✋ Move', 'Move the plan about'],
+            ].map(([key, label, why]) => (
+              <button type="button" key={key} title={why}
+                aria-pressed={tool === key}
+                className={tool === key ? styles.toolOn : styles.tool}
+                onClick={() => { setTool(key); stopDrawing(); }}>
+                {label}
+              </button>
+            ))}
+          </div>
           {objectKinds.map(kind => (
             <button type="button" key={kind} className={styles.tool}
               disabled={!segs.length}

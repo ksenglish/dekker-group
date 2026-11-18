@@ -135,12 +135,21 @@
 .bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 8px 6px;
   margin-top: 8px;
   font-size: 12.5px;
   color: var(--color-text-muted);
 }
-.spacer { flex: 1; min-width: 0; }
+/* The hint gives way before the buttons do: it is the thing you can do
+   without, and wrapped into a narrow column it makes the whole bar tall. */
+.spacer {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .snap {
   display: flex;
@@ -260,3 +269,13 @@
   cursor: pointer;
 }
 .objectOff:hover { opacity: 1; }
+
+/* The tools, grouped so they read as one choice rather than three switches. */
+.tools {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: #f1f5f9;
+  border-radius: 9px;
+}
+.tools button { border-radius: 7px; }
