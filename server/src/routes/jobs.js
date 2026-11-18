@@ -356,16 +356,75 @@ router.post('/:id/arcsite-sync', requireRole('admin', 'office'), async (req, res
       },
     };
 
-    const result = await arcsite.createOrUpdateProject(project, job.arcsite_project_id);
-    if (!job.arcsite_project_id) {
-      await pool.query('UPDATE jobs SET arcsite_project_id=$1, updated_at=NOW() WHERE id=$2', [result.id, job.id]);
+    let projectId = job.arcsite_project_id;
+    let linkedExisting = false;
+
+    if (!projectId) {
+      let created = null;
+      try {
+        created = await arcsite.createOrUpdateProject(project, null);
+      } catch (err) {
+        // The project is already there — almost always because an earlier send
+        // created it and the id never got saved on the job. Adopt it rather
+        // than failing on every click from then on.
+        if (!arcsite.isNameTakenError(err)) throw err;
+        const existing = await arcsite.findProjectForJob({ name: project.name, jobNumber });
+        if (!existing) throw err;
+        projectId = existing.id;
+        linkedExisting = true;
+      }
+      if (created) projectId = created.id;
+      if (!projectId) throw new Error('ArcSite did not send back a project id');
+
+      // Keep the id before doing anything else: losing it here is what leaves
+      // a job unable to pull its drawing.
+      await linkJobToArcsiteProject(pool, job, projectId);
+      if (created) return res.json({ arcsite_project_id: projectId, name: created.name });
     }
-    res.json({ arcsite_project_id: result.id, name: result.name });
+
+    // An existing project: bring its customer details up to date. If that fails
+    // just after adopting the project, the link itself is still good.
+    try {
+      const result = await arcsite.createOrUpdateProject(project, projectId);
+      res.json({ arcsite_project_id: projectId, name: result?.name || project.name, linked: linkedExisting });
+    } catch (err) {
+      if (!linkedExisting) throw err;
+      console.error('ArcSite update after linking failed:', err);
+      res.json({ arcsite_project_id: projectId, name: project.name, linked: true });
+    }
   } catch (err) {
     console.error('ArcSite sync failed:', err);
-    res.status(502).json({ error: err.message || 'Failed to sync with ArcSite' });
+    res.status(err.status || 502).json({ error: err.message || 'Failed to sync with ArcSite' });
   }
 });
+
+async function linkJobToArcsiteProject(pool, job, projectId) {
+  try {
+    await queryRetryingDroppedConnection(pool,
+      'UPDATE jobs SET arcsite_project_id=$1, updated_at=NOW() WHERE id=$2', [projectId, job.id]);
+  } catch (err) {
+    if (err.code !== '23505') throw err;
+    const { rows: [other] } = await pool.query(
+      'SELECT job_number, external_ref FROM jobs WHERE arcsite_project_id=$1', [projectId]);
+    const e = new Error(`That ArcSite project is already linked to job ${other ? formatJobNumber(other) : 'another job'}`);
+    e.status = 409;
+    throw e;
+  }
+  job.arcsite_project_id = projectId;
+}
+
+// A job that was sent to ArcSite but lost its project id can still find it:
+// ArcSite holds the job number on the project.
+async function relinkArcsiteProject(pool, job) {
+  const { rows: [site] } = await pool.query(
+    'SELECT address FROM customer_sites WHERE id=$1', [job.site_id || null]);
+  const jobNumber = formatJobNumber(job);
+  const name = site?.address ? `${jobNumber} - ${site.address}` : null;
+  const existing = await arcsite.findProjectForJob({ name, jobNumber });
+  if (!existing) return null;
+  await linkJobToArcsiteProject(pool, job, existing.id);
+  return existing.id;
+}
 
 // With a bucket configured a drawing is just a file and its size stops being
 // interesting — 50MB is a sanity check, not a real ceiling. Without one the
@@ -406,7 +465,9 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
     const pool = require('../db/pool');
     const { rows: [job] } = await pool.query('SELECT * FROM jobs WHERE id=$1', [req.params.id]);
     if (!job) return res.status(404).json({ error: 'Job not found' });
-    if (!job.arcsite_project_id) return res.status(400).json({ error: 'Send this job to ArcSite first' });
+    if (!job.arcsite_project_id && !(formatJobNumber(job) && await relinkArcsiteProject(pool, job))) {
+      return res.status(400).json({ error: 'Send this job to ArcSite first' });
+    }
 
     const drawings = await arcsite.listProjectDrawings(job.arcsite_project_id);
     const pulled = [];
@@ -493,10 +554,10 @@ router.post('/:id/arcsite-pull-drawings', requireRole('admin', 'office'), async 
       }
     }
 
-    res.json({ pulled, skipped });
+    res.json({ pulled, skipped, arcsite_project_id: job.arcsite_project_id });
   } catch (err) {
     console.error('ArcSite pull-drawings failed:', err);
-    res.status(502).json({ error: err.message || 'Failed to pull drawings from ArcSite' });
+    res.status(err.status || 502).json({ error: err.message || 'Failed to pull drawings from ArcSite' });
   }
 });
 

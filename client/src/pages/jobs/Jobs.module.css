@@ -1074,6 +1074,17 @@
   animation: flashFade 3s forwards;
 }
 @keyframes flashFade { 0%,70% { opacity: 1; } 100% { opacity: 0; } }
+.flashError {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 10px 16px; background: #fef2f2; border: 1px solid #fca5a5;
+  border-radius: var(--radius); font-size: 13px; color: #b91c1c; margin-bottom: 16px;
+  overflow-wrap: anywhere;
+}
+.flashError > span { flex: 1; }
+.flashErrorClose {
+  background: none; border: none; color: inherit; font-size: 18px; line-height: 1;
+  cursor: pointer; padding: 0 2px;
+}
 
 /* ── Email Modal ─────────────────────────────────────────────── */
 .overlay {

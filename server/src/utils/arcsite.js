@@ -32,6 +32,34 @@ async function createOrUpdateProject(project, existingProjectId) {
   return arcsiteRequest('POST', '/projects', project);
 }
 
+// ArcSite refuses a second project with the same name. That is what a job hits
+// when its project was created but the id never made it back onto the job.
+function isNameTakenError(err) {
+  return /POST \/projects failed: 400/.test(err?.message || '') && /already exists/i.test(err.message);
+}
+
+// Find the project that belongs to a job when the job has lost (or never kept)
+// its id. ArcSite's list endpoint has no search, so this pages through it —
+// a few hundred projects is a handful of requests. An exact name match wins;
+// otherwise the newest project carrying the job's number, live ones first.
+async function findProjectForJob({ name, jobNumber }) {
+  const PER_PAGE = 100;
+  const byNumber = [];
+  for (let page = 1; page <= 50; page++) {
+    const rows = await arcsiteRequest('GET', `/projects?per_page=${PER_PAGE}&page=${page}`);
+    const list = Array.isArray(rows) ? rows : (rows?.projects || []);
+    for (const p of list) {
+      if (name && p.name === name) return p;
+      if (jobNumber && p.job_number === jobNumber) byNumber.push(p);
+    }
+    if (list.length < PER_PAGE) break;
+  }
+  byNumber.sort((a, b) =>
+    (a.archived ? 1 : 0) - (b.archived ? 1 : 0) ||
+    String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  return byNumber[0] || null;
+}
+
 async function listProjectDrawings(projectId) {
   const data = await arcsiteRequest('GET', `/projects/${projectId}/drawings`);
   return Array.isArray(data) ? data : (data?.drawings || []);
@@ -49,4 +77,7 @@ async function downloadFile(url) {
   return { buffer, contentType };
 }
 
-module.exports = { createOrUpdateProject, listProjectDrawings, getDrawing, downloadFile };
+module.exports = {
+  createOrUpdateProject, findProjectForJob, isNameTakenError,
+  listProjectDrawings, getDrawing, downloadFile,
+};

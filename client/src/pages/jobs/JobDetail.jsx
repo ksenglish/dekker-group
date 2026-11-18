@@ -1447,6 +1447,7 @@ export default function JobDetail() {
   // Supports deep-linking to a tab, e.g. /jobs/:id?tab=line_items from the "Edit" button on a quote
   const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'details');
   const [emailFlash, setEmailFlash] = useState('');
+  const [errorFlash, setErrorFlash] = useState('');
   // Bumped when a timer starts or stops here, so the Time tab re-reads who is
   // on the clock rather than waiting for its own poll.
   const [timerKey, setTimerKey] = useState(0);
@@ -1638,30 +1639,36 @@ export default function JobDetail() {
 
   async function handleArcSiteSync() {
     setSyncingArcSite(true);
+    setErrorFlash('');
     try {
       const { data } = await api.post(`/jobs/${id}/arcsite-sync`);
       setJob(j => ({ ...j, arcsite_project_id: data.arcsite_project_id }));
-      setEmailFlash(`Synced to ArcSite as "${data.name}"`);
+      setEmailFlash(data.linked
+        ? `Linked to the existing ArcSite project "${data.name}" — you can pull the drawing now`
+        : `Synced to ArcSite as "${data.name}"`);
     } catch (err) {
-      setEmailFlash(err.response?.data?.error || 'Failed to sync with ArcSite');
+      setErrorFlash(err.response?.data?.error || 'Failed to sync with ArcSite');
     } finally { setSyncingArcSite(false); }
   }
 
   async function handlePullDrawings() {
     setPullingDrawings(true);
+    setErrorFlash('');
     try {
       const { data } = await api.post(`/jobs/${id}/arcsite-pull-drawings`);
+      if (data.arcsite_project_id) setJob(j => ({ ...j, arcsite_project_id: data.arcsite_project_id }));
       if (data.pulled.length === 0 && data.skipped.length === 0) {
         setEmailFlash('No drawings found on this ArcSite project yet.');
+      } else if (data.pulled.length === 0) {
+        setErrorFlash(`No drawings pulled. Skipped: ${data.skipped.join('; ')}`);
       } else {
-        const parts = [];
-        if (data.pulled.length) parts.push(`Pulled ${data.pulled.length} drawing${data.pulled.length === 1 ? '' : 's'}`);
+        const parts = [`Pulled ${data.pulled.length} drawing${data.pulled.length === 1 ? '' : 's'}`];
         if (data.skipped.length) parts.push(`Skipped: ${data.skipped.join('; ')}`);
         setEmailFlash(parts.join(' · '));
-        if (data.pulled.length) setAttachmentsRefreshKey(k => k + 1);
+        setAttachmentsRefreshKey(k => k + 1);
       }
     } catch (err) {
-      setEmailFlash(err.response?.data?.error || 'Failed to pull drawings from ArcSite');
+      setErrorFlash(err.response?.data?.error || 'Failed to pull drawings from ArcSite');
     } finally { setPullingDrawings(false); }
   }
 
@@ -1795,6 +1802,14 @@ export default function JobDetail() {
           )}
           {emailFlash && (
             <div className={styles.flashBanner} onAnimationEnd={() => setEmailFlash('')}>{emailFlash}</div>
+          )}
+          {/* Errors stay until dismissed — the success banner fades in 3s,
+              which is too quick to read an error and wrongly says it worked. */}
+          {errorFlash && (
+            <div className={styles.flashError} role="alert">
+              <span>{errorFlash}</span>
+              <button type="button" className={styles.flashErrorClose} onClick={() => setErrorFlash('')} aria-label="Dismiss">×</button>
+            </div>
           )}
 
           {/* Tabs */}
