@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import api from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
 import styles from './Hub.module.css';
+import { overlayClose } from '../../lib/overlayClose';
 
 const TABS = ['Documents', 'Events', 'App Feedback'];
 
@@ -64,6 +65,12 @@ function DocumentsTab({ isAdmin }) {
   const [newName, setNewName] = useState('');
   const [renaming, setRenaming] = useState(null);  // folder being renamed
   const [busy, setBusy] = useState(false);
+  // What is ticked, for Move to / Copy to. Cleared on leaving the folder.
+  const [selFolders, setSelFolders] = useState(() => new Set());
+  const [selDocs, setSelDocs] = useState(() => new Set());
+  const [picking, setPicking] = useState(null);     // 'move' | 'copy' | null
+  const [accessFor, setAccessFor] = useState(null); // folder whose access is being set
+  const [notice, setNotice] = useState('');
   const fileRef = useRef();
 
   function loadFolders() {
@@ -71,12 +78,54 @@ function DocumentsTab({ isAdmin }) {
   }
   useEffect(() => { loadFolders().finally(() => setLoading(false)); }, []);
 
+  function clearSelection() { setSelFolders(new Set()); setSelDocs(new Set()); }
+  const toggle = (set, setter, id) => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setter(next);
+  };
+
   async function openIt(folder) {
     setOpenFolder(folder);
-    setErr('');
+    setErr(''); setNotice('');
+    clearSelection();
     setDocuments([]);
     const { data } = await api.get(`/hub/folders/${folder.id}/documents`);
     setDocuments(data);
+  }
+
+  function goTop() { setOpenFolder(null); setErr(''); setNotice(''); clearSelection(); }
+
+  // Move or copy whatever is ticked into the folder picked (null = top level).
+  async function moveOrCopy(mode, targetId) {
+    setBusy(true); setErr(''); setNotice('');
+    try {
+      const { data } = await api.post(`/hub/items/${mode}`, {
+        folder_ids: [...selFolders], document_ids: [...selDocs], target_id: targetId,
+      });
+      const where = targetId ? folders.find(f => f.id === targetId)?.name : 'the top level';
+      const what = [
+        data.folders ? `${data.folders} folder${data.folders === 1 ? '' : 's'}` : null,
+        data.documents ? `${data.documents} document${data.documents === 1 ? '' : 's'}` : null,
+      ].filter(Boolean).join(' and ') || 'Nothing';
+      setNotice(`${what} ${mode === 'move' ? 'moved' : 'copied'} to ${where}.`);
+      setPicking(null);
+      clearSelection();
+      await loadFolders();
+      if (openFolder) {
+        const { data: docs } = await api.get(`/hub/folders/${openFolder.id}/documents`);
+        setDocuments(docs);
+      }
+    } catch (e2) {
+      setErr(e2.response?.data?.error || `Could not ${mode} those.`);
+      setPicking(null);
+    } finally { setBusy(false); }
+  }
+
+  async function saveAccess(folder, access) {
+    await api.put(`/hub/folders/${folder.id}/access`, access);
+    setAccessFor(null);
+    await loadFolders();
   }
 
   // Where we are, and what is in it. Folders nest now, so "the folders" is
@@ -210,11 +259,56 @@ function DocumentsTab({ isAdmin }) {
 
   if (loading) return <div className={styles.loading}>Loading…</div>;
 
+  const selCount = selFolders.size + selDocs.size;
+
+  // Ticked items, and what to do with them.
+  const selectionBar = isAdmin && selCount > 0 && (
+    <div className={styles.selBar}>
+      <strong>{selCount} selected</strong>
+      <button className={styles.btnSecondary} disabled={busy} onClick={() => setPicking('move')}>Move to…</button>
+      <button className={styles.btnSecondary} disabled={busy} onClick={() => setPicking('copy')}>Copy to…</button>
+      <button className={styles.backLink} onClick={clearSelection}>Clear</button>
+    </div>
+  );
+
+  const modals = (
+    <>
+      {picking && (
+        <FolderPicker
+          mode={picking}
+          folders={folders}
+          movingFolderIds={selFolders}
+          hasDocuments={selDocs.size > 0}
+          currentId={here}
+          busy={busy}
+          onPick={(mode, targetId) => moveOrCopy(mode, targetId)}
+          onClose={() => setPicking(null)}
+        />
+      )}
+      {accessFor && (
+        <AccessModal
+          folder={accessFor}
+          folders={folders}
+          onSave={access => saveAccess(accessFor, access)}
+          onClose={() => setAccessFor(null)}
+        />
+      )}
+    </>
+  );
+
+  const flash = (
+    <>
+      {err && <div className={styles.errorMsg}>{err}</div>}
+      {notice && <div className={styles.noticeMsg}>{notice}</div>}
+    </>
+  );
+
   // The folder tiles for wherever we are, with the admin controls on each.
   const folderTiles = (
     <>
       {children.map(f => (
-        <div key={f.id} className={styles.folderCard}>
+        <div key={f.id}
+          className={`${styles.folderCard} ${selFolders.has(f.id) ? styles.folderSelected : ''}`}>
           {renaming === f.id ? (
             <form
               onSubmit={e => { e.preventDefault(); renameFolder(f, e.target.elements.n.value); }}
@@ -227,6 +321,12 @@ function DocumentsTab({ isAdmin }) {
             </form>
           ) : (
             <>
+              {isAdmin && (
+                <input type="checkbox" className={styles.folderCheck}
+                  title="Select" aria-label={`Select ${f.name}`}
+                  checked={selFolders.has(f.id)}
+                  onChange={() => toggle(selFolders, setSelFolders, f.id)} />
+              )}
               <button className={styles.folderOpen} onClick={() => openIt(f)}>
                 <div className={styles.folderIcon}>📁</div>
                 <div className={styles.folderName}>{f.name}</div>
@@ -236,11 +336,20 @@ function DocumentsTab({ isAdmin }) {
                     `${f.document_count} ${f.document_count === 1 ? 'document' : 'documents'}`,
                   ].filter(Boolean).join(' · ')}
                 </div>
+                {f.restricted && (
+                  <div className={styles.accessBadge}>
+                    🔒 {isAdmin ? accessSummary(f, folders) : 'Restricted'}
+                  </div>
+                )}
               </button>
               {isAdmin && (
                 <div className={styles.folderActions}>
                   <button title="Rename" disabled={busy}
                     onClick={() => { setErr(''); setRenaming(f.id); }}>✎</button>
+                  <button title="Who can see this" disabled={busy}
+                    onClick={() => { setErr(''); setAccessFor(f); }}>🔒</button>
+                  <button title="Move or copy" disabled={busy}
+                    onClick={() => { setErr(''); setSelFolders(new Set([f.id])); setSelDocs(new Set()); setPicking('move'); }}>⇄</button>
                   <button title="Delete" disabled={busy}
                     onClick={() => deleteFolder(f)}>✕</button>
                 </div>
@@ -276,7 +385,7 @@ function DocumentsTab({ isAdmin }) {
         <div className={styles.cardHeader}>
           {/* Where you are, and every step back out of it. */}
           <nav className={styles.crumbs}>
-            <button className={styles.backLink} onClick={() => { setOpenFolder(null); setErr(''); }}>
+            <button className={styles.backLink} onClick={goTop}>
               Dekker Hub
             </button>
             {trail.map((f, i) => (
@@ -288,50 +397,315 @@ function DocumentsTab({ isAdmin }) {
               </span>
             ))}
           </nav>
+          {/* In the header rather than a row of its own, so ticking a box
+              never shifts the list under the next click. */}
+          {selectionBar}
           {isAdmin && (
             <>
+              <button className={styles.btnSecondary} style={{ marginLeft: selCount ? 0 : 'auto' }}
+                onClick={() => setAccessFor(openFolder)}
+                title="Who can see this folder">
+                🔒 {folders.find(f => f.id === openFolder.id)?.restricted ? 'Restricted'
+                  : restrictedAbove(openFolder, folders) ? 'Limited by parent' : 'Everyone'}
+              </button>
               <input ref={fileRef} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={handleUpload} />
-              <button className={styles.btnPrimary} onClick={() => fileRef.current?.click()} disabled={uploading}>
+              <button className={styles.btnPrimary} style={{ marginLeft: 0 }}
+                onClick={() => fileRef.current?.click()} disabled={uploading}>
                 {uploading ? 'Uploading…' : '+ Add PDF'}
               </button>
             </>
           )}
         </div>
-        {err && <div className={styles.errorMsg}>{err}</div>}
+        {flash}
 
         {(children.length > 0 || isAdmin) && (
-          <div className={styles.folderGrid} style={{ marginBottom: 18 }}>{folderTiles}</div>
+          <div className={styles.folderGrid} style={{ margin: '16px 20px 18px' }}>{folderTiles}</div>
         )}
 
         {documents.length === 0 ? (
           <p className={styles.emptySmall}>No documents in this folder yet.</p>
         ) : (
           <div className={styles.docTable}>
-            <div className={styles.docHeaderRow}>
+            <div className={`${styles.docHeaderRow} ${isAdmin ? styles.docRowAdmin : ''}`}>
+              {isAdmin && (
+                <input type="checkbox" aria-label="Select all documents"
+                  checked={documents.length > 0 && documents.every(d => selDocs.has(d.id))}
+                  onChange={e => setSelDocs(e.target.checked ? new Set(documents.map(d => d.id)) : new Set())} />
+              )}
               <span>Document</span><span>Size</span><span>Added</span><span>Added by</span><span />
             </div>
             {documents.map(d => (
-              <div key={d.id} className={styles.docRow}>
+              <div key={d.id}
+                className={`${styles.docRow} ${isAdmin ? styles.docRowAdmin : ''} ${selDocs.has(d.id) ? styles.docRowSelected : ''}`}>
+                {isAdmin && (
+                  <input type="checkbox" aria-label={`Select ${d.filename}`}
+                    checked={selDocs.has(d.id)}
+                    onChange={() => toggle(selDocs, setSelDocs, d.id)} />
+                )}
                 <button className={styles.docName} onClick={() => openDoc(d)}>📄 {d.filename}</button>
                 <span className={styles.muted}>{fmtSize(d.size_bytes)}</span>
                 <span className={styles.muted}>{fmtDate(d.created_at)}</span>
                 <span className={styles.muted}>{d.uploaded_by_name || '—'}</span>
-                <span style={{ textAlign: 'right' }}>
-                  {isAdmin && <button className={styles.deleteX} onClick={() => handleDelete(d)} title="Delete">✕</button>}
+                <span className={styles.docActions}>
+                  {isAdmin && (
+                    <>
+                      <button className={styles.iconBtn} title="Move or copy"
+                        onClick={() => { setErr(''); setSelDocs(new Set([d.id])); setSelFolders(new Set()); setPicking('move'); }}>⇄</button>
+                      <button className={styles.deleteX} onClick={() => handleDelete(d)} title="Delete">✕</button>
+                    </>
+                  )}
                 </span>
               </div>
             ))}
           </div>
         )}
+        {modals}
       </div>
     );
   }
 
   return (
     <>
-      {err && <div className={styles.errorMsg}>{err}</div>}
-      <div className={styles.folderGrid}>{folderTiles}</div>
+      {flash}
+      {selectionBar}
+      <div className={styles.folderGrid} style={{ marginTop: (err || notice || selCount) ? 12 : 0 }}>{folderTiles}</div>
+      {modals}
     </>
+  );
+}
+
+// ── Folder access ────────────────────────────────────────────────────────────
+// The groups are the roles on the Users page. Admin is always in.
+const ACCESS_GROUPS = [
+  { value: 'admin', label: 'Admin' },
+  { value: 'sales', label: 'Sales' },
+  { value: 'operations', label: 'Operations' },
+  { value: 'subcontractor', label: 'Subcontractor' },
+];
+const GROUP_LABEL = Object.fromEntries(ACCESS_GROUPS.map(g => [g.value, g.label]));
+
+// "Admin & Sales", "Admin, Sales + 2 people" — short enough for a tile.
+function accessSummary(f) {
+  const groups = ['admin', ...(f.access_roles || []).filter(r => r !== 'admin')].map(r => GROUP_LABEL[r] || r);
+  const people = (f.access_user_ids || []).length;
+  const g = groups.length <= 2 ? groups.join(' & ') : `${groups.slice(0, -1).join(', ')} & ${groups.at(-1)}`;
+  return people ? `${g} + ${people} ${people === 1 ? 'person' : 'people'}` : `${g} only`;
+}
+
+// The nearest folder above this one that is restricted, if any — because a
+// restriction up there limits this folder too, whatever is set here.
+function restrictedAbove(folder, folders) {
+  for (let cur = folders.find(f => f.id === folder.parent_id), n = 0; cur && n < 30;
+       cur = folders.find(f => f.id === cur.parent_id), n++) {
+    if (cur.restricted) return cur;
+  }
+  return null;
+}
+
+function AccessModal({ folder, folders, onSave, onClose }) {
+  const live = folders.find(f => f.id === folder.id) || folder;
+  const [restricted, setRestricted] = useState(!!live.restricted);
+  const [roles, setRoles] = useState(() => new Set(['admin', ...(live.access_roles || [])]));
+  const [people, setPeople] = useState(() => new Set(live.access_user_ids || []));
+  const [users, setUsers] = useState([]);
+  const [q, setQ] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const above = restrictedAbove(live, folders);
+
+  useEffect(() => {
+    api.get('/users').then(r => setUsers(r.data.filter(u => u.is_active !== false))).catch(() => {});
+  }, []);
+
+  const flip = (set, setter, v) => { const n = new Set(set); if (n.has(v)) n.delete(v); else n.add(v); setter(n); };
+  const shown = users.filter(u => !q.trim() || `${u.name} ${u.email}`.toLowerCase().includes(q.trim().toLowerCase()));
+  // A person whose whole group is already ticked is in anyway; say so rather
+  // than leave the box looking like it matters.
+  const viaGroup = u => roles.has(({ office: 'operations', field_tech: 'subcontractor' })[u.role] || u.role);
+
+  async function save() {
+    setSaving(true); setErr('');
+    try {
+      await onSave({
+        restricted,
+        roles: [...roles].filter(r => r !== 'admin'),
+        user_ids: [...people],
+      });
+    } catch (e) {
+      setErr(e.response?.data?.error || 'Could not save that.');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={styles.overlay} {...overlayClose(onClose)}>
+      <div className={styles.modal} role="dialog" aria-label={`Who can see ${live.name}`}>
+        <div className={styles.modalHeader}>
+          <h2>Who can see “{live.name}”</h2>
+          <button className={styles.backLink} onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className={styles.modalBody}>
+          {above && (
+            <p className={styles.inheritNote}>
+              🔒 This folder is inside “{above.name}”, which is limited to {accessSummary(above).replace(/ only$/, '')}.
+              Only those people can reach it, whatever is set here.
+            </p>
+          )}
+          <label className={styles.radioRow}>
+            <input type="radio" checked={!restricted} onChange={() => setRestricted(false)} />
+            <span><strong>Everyone</strong><br /><span className={styles.muted}>Every signed-in staff member</span></span>
+          </label>
+          <label className={styles.radioRow}>
+            <input type="radio" checked={restricted} onChange={() => setRestricted(true)} />
+            <span><strong>Only these groups and people</strong><br />
+              <span className={styles.muted}>Subfolders and documents inside are limited too</span></span>
+          </label>
+
+          {restricted && (
+            <>
+              <div className={styles.pickLabel}>User groups</div>
+              <div className={styles.chipRow}>
+                {ACCESS_GROUPS.map(g => (
+                  <label key={g.value}
+                    className={`${styles.chip} ${roles.has(g.value) ? styles.chipOn : ''}`}
+                    title={g.value === 'admin' ? 'Admins can always see every folder' : undefined}>
+                    <input type="checkbox" checked={roles.has(g.value)} disabled={g.value === 'admin'}
+                      onChange={() => flip(roles, setRoles, g.value)} />
+                    {g.label}
+                  </label>
+                ))}
+              </div>
+
+              <div className={styles.pickLabel}>Individual people</div>
+              <input className={styles.searchInput} placeholder="Search people…" value={q}
+                onChange={e => setQ(e.target.value)} />
+              <div className={styles.peopleList}>
+                {shown.map(u => (
+                  <label key={u.id} className={styles.personRow}>
+                    <input type="checkbox"
+                      checked={viaGroup(u) || people.has(u.id)}
+                      disabled={viaGroup(u)}
+                      onChange={() => flip(people, setPeople, u.id)} />
+                    <span>{u.name}</span>
+                    <span className={styles.muted}>
+                      {viaGroup(u) ? `via ${GROUP_LABEL[({ office: 'operations', field_tech: 'subcontractor' })[u.role] || u.role]}` : (GROUP_LABEL[u.role] || u.role)}
+                    </span>
+                  </label>
+                ))}
+                {shown.length === 0 && <div className={styles.muted} style={{ padding: 8 }}>No one matches.</div>}
+              </div>
+            </>
+          )}
+          {err && <div className={styles.errorMsg} style={{ margin: '12px 0 0' }}>{err}</div>}
+        </div>
+        <div className={styles.modalFooter}>
+          <button className={styles.btnSecondary} onClick={onClose}>Cancel</button>
+          <button className={styles.btnPrimary} style={{ marginLeft: 0 }} onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Move / copy destination ──────────────────────────────────────────────────
+// The whole tree, OneDrive-style. A folder cannot go inside itself, so the
+// folders being moved (and everything under them) are greyed out.
+function FolderPicker({ mode: initialMode, folders, movingFolderIds, hasDocuments, currentId, busy, onPick, onClose }) {
+  const [mode, setMode] = useState(initialMode);
+  const [target, setTarget] = useState(undefined);   // undefined = nothing picked, null = top level
+  const [open, setOpen] = useState(() => {
+    // Start with the way to the current folder unfolded.
+    const s = new Set();
+    for (let cur = folders.find(f => f.id === currentId), n = 0; cur && n < 30;
+         cur = folders.find(f => f.id === cur.parent_id), n++) s.add(cur.id);
+    return s;
+  });
+
+  const blocked = new Set();
+  const block = id => { blocked.add(id); folders.filter(f => f.parent_id === id).forEach(f => block(f.id)); };
+  movingFolderIds.forEach(block);
+
+  const kids = id => folders.filter(f => (f.parent_id || null) === id);
+  const pickable = id => id === null ? !hasDocuments : !blocked.has(id);
+
+  function row(f, depth) {
+    const sub = kids(f.id);
+    const isOpen = open.has(f.id);
+    const disabled = !pickable(f.id);
+    return (
+      <div key={f.id}>
+        <div
+          className={`${styles.treeRow} ${target === f.id ? styles.treeRowOn : ''} ${disabled ? styles.treeRowOff : ''}`}
+          style={{ paddingLeft: 10 + depth * 18 }}
+          onClick={() => !disabled && setTarget(f.id)}
+          onDoubleClick={() => !disabled && !busy && onPick(mode, f.id)}
+        >
+          <button className={styles.treeToggle} disabled={!sub.length}
+            onClick={e => { e.stopPropagation(); const n = new Set(open); if (isOpen) n.delete(f.id); else n.add(f.id); setOpen(n); }}>
+            {sub.length ? (isOpen ? '▾' : '▸') : ''}
+          </button>
+          <span>📁 {f.name}</span>
+          {f.restricted && <span className={styles.muted} title="Restricted">🔒</span>}
+          {f.id === currentId && <span className={styles.muted}>(current)</span>}
+        </div>
+        {isOpen && sub.map(c => row(c, depth + 1))}
+      </div>
+    );
+  }
+
+  const n = movingFolderIds.size;
+  const targetName = target === null ? 'Dekker Hub (top level)' : folders.find(f => f.id === target)?.name;
+  const restrictedTarget = target && (folders.find(f => f.id === target)?.restricted
+    || restrictedAbove(folders.find(f => f.id === target) || {}, folders));
+
+  return (
+    <div className={styles.overlay} {...overlayClose(onClose)}>
+      <div className={styles.modal} role="dialog" aria-label={mode === 'move' ? 'Move to' : 'Copy to'}>
+        <div className={styles.modalHeader}>
+          <div className={styles.filterGroup} style={{ marginLeft: 0 }}>
+            {['move', 'copy'].map(m => (
+              <button key={m} className={`${styles.filterBtn} ${mode === m ? styles.filterBtnActive : ''}`}
+                onClick={() => setMode(m)}>{m === 'move' ? 'Move' : 'Copy'}</button>
+            ))}
+          </div>
+          <h2 style={{ marginLeft: 8 }}>to…</h2>
+          <button className={styles.backLink} style={{ marginLeft: 'auto' }} onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className={styles.modalBody} style={{ padding: 0 }}>
+          <div className={styles.tree}>
+            <div
+              className={`${styles.treeRow} ${target === null ? styles.treeRowOn : ''} ${!pickable(null) ? styles.treeRowOff : ''}`}
+              style={{ paddingLeft: 10 }}
+              title={!pickable(null) ? 'Documents need to go inside a folder' : undefined}
+              onClick={() => pickable(null) && setTarget(null)}
+            >
+              <span className={styles.treeToggle} />
+              <span>🏠 Dekker Hub (top level)</span>
+            </div>
+            {kids(null).map(f => row(f, 1))}
+          </div>
+        </div>
+        <div className={styles.modalFooter}>
+          <span className={styles.muted} style={{ marginRight: 'auto' }}>
+            {target === undefined ? 'Pick a folder' :
+              restrictedTarget ? `🔒 ${targetName} — restricted access` : targetName}
+          </span>
+          <button className={styles.btnSecondary} onClick={onClose}>Cancel</button>
+          <button className={styles.btnPrimary} style={{ marginLeft: 0 }}
+            disabled={busy || target === undefined}
+            onClick={() => onPick(mode, target)}>
+            {busy ? (mode === 'move' ? 'Moving…' : 'Copying…') : (mode === 'move' ? 'Move here' : 'Copy here')}
+          </button>
+        </div>
+        {n > 0 && mode === 'copy' && (
+          <div className={styles.muted} style={{ padding: '0 20px 14px' }}>
+            Folders are copied with everything inside them, and keep their access settings.
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
