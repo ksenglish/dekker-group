@@ -25,6 +25,7 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
   // Choosing which of the job's lines to send back to stock.
   const [removing, setRemoving] = useState(false);
   const [stockLocations, setStockLocations] = useState([]);
+  const [returnPlacesLoading, setReturnPlacesLoading] = useState(false);
   const [suppliers, setSuppliers] = useState([]);
   // A cost line being sent back to stock: bought for the job, never used on it.
   const [returning, setReturning] = useState(null);
@@ -84,22 +85,34 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
     setCosts(c => c.filter(x => x.scan_id !== scanId));
   }
 
-  // Locations are only needed once someone actually scans, so they're fetched
-  // on demand rather than on every visit to the Costs tab.
+  // Somewhere to put stock, fetched when something needs it rather than on
+  // every visit to the Costs tab.
+  //
+  // One way in for everything that asks, because there used to be two and the
+  // third thing that needed them had neither: the Send back to stock dialog
+  // read the list without ever loading it, so unless a scan had been opened
+  // first in the same visit, its dropdown was empty and its button stayed
+  // greyed out. Hands back the list as well as storing it — a caller cannot
+  // read state it has only just set.
+  async function ensureLocations() {
+    const { data } = await api.get('/stock/locations');
+    setStockLocations(data);
+    return data;
+  }
+
   // `mode` is 'take' (off a van or the warehouse, onto this job) or 'put'
   // (back into one). Held in the same state as the panel, so what opened it is
   // what it does.
   async function openStockScan(mode) {
     try {
-      const { data } = await api.get('/stock/locations');
       // The warehouse is always there, so this only fails when nothing is —
       // and unlike before, a business with no vans can still count its
       // warehouse rather than being turned away.
-      if (data.length === 0) {
+      const places = await ensureLocations();
+      if (places.length === 0) {
         alert('No stock locations have been set up yet. Add one under Reports → Stock first.');
         return;
       }
-      setStockLocations(data);
       setScanningStock(mode);
     } catch {
       alert('Could not load stock locations');
@@ -199,13 +212,10 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
   // fetched yet if nobody has pressed Add this visit.
   async function openRemove() {
     try {
-      if (stockLocations.length === 0) {
-        const { data } = await api.get('/stock/locations');
-        if (data.length === 0) {
-          alert('No stock locations have been set up yet. Add one under Reports → Stock first.');
-          return;
-        }
-        setStockLocations(data);
+      const places = await ensureLocations();
+      if (places.length === 0) {
+        alert('No stock locations have been set up yet. Add one under Reports → Stock first.');
+        return;
       }
       setRemoving(true);
     } catch {
@@ -213,12 +223,29 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
     }
   }
 
-  function startReturn(cost) {
+  // Sending a line back needs somewhere to send it, so the places are loaded
+  // with the dialog rather than assumed to be there already. The panel opens
+  // straight away and fills its dropdown a moment later, because waiting on a
+  // request before anything appears reads as a button that does nothing.
+  async function startReturn(cost) {
     setReturning(cost);
     setReturnQty(String(cost.quantity));
-    setReturnTo(stockLocations[0]?.id || '');
+    setReturnTo('');
     setReturnError('');
     setReturnNeedsProduct(false);
+    setReturnPlacesLoading(true);
+    try {
+      const places = await ensureLocations();
+      if (places.length === 0) {
+        setReturnError('No stock locations have been set up yet. Add a van or the warehouse under Reports → Stock first.');
+        return;
+      }
+      setReturnTo(places[0].id);
+    } catch {
+      setReturnError('Could not load the vans and the warehouse. Try again in a moment.');
+    } finally {
+      setReturnPlacesLoading(false);
+    }
   }
 
   // Sends it back. The quantity is what was not used on the job, so the job
@@ -263,7 +290,16 @@ export default function JobCosts({ jobId, user, readonly, onBillCosts }) {
               </label>
               <label>
                 Back to
-                <select value={returnTo} onChange={e => setReturnTo(e.target.value)}>
+                {/* An empty dropdown is a dead end nobody can read. While the
+                    places are coming it says so, and if there are none it says
+                    that instead of sitting there blank. */}
+                <select value={returnTo} disabled={!stockLocations.length}
+                  onChange={e => setReturnTo(e.target.value)}>
+                  {!stockLocations.length && (
+                    <option value="">
+                      {returnPlacesLoading ? 'Loading…' : 'Nowhere set up yet'}
+                    </option>
+                  )}
                   {stockLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
               </label>
