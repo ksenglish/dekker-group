@@ -24,7 +24,50 @@ const AUTOSAVE_DELAY = 1200;
 // reviewed before it goes out, so it saves when you say so, and warns if you
 // leave without doing it. onDirtyChange lets that page fold unsaved line items
 // into its own leave prompt.
-export default function LineItemsEditor({ items: initialItems, onSave, readonly, autoSave = true, onDirtyChange }) {
+// What a line costs us, where that is known.
+//
+// Read off the Price List against the product the line is linked to, and sent
+// down with the line. A line typed in by hand — labour, an allowance, "supply
+// and install as discussed" — has no cost to read, and says so rather than
+// showing a zero, because a zero is a cost and "we do not know" is not.
+const costOf = item => (item.cost_cents == null ? null : item.cost_cents / 100);
+
+function CostCell({ item }) {
+  const cost = costOf(item);
+  if (cost == null) {
+    return (
+      <span
+        className={styles.costUnknown}
+        title="Not a Price List product, so there is no cost to read. Nothing is guessed here."
+      >
+        —
+      </span>
+    );
+  }
+  // The margin on this line, said here because the cost beside it is excluding
+  // GST and the line total further along includes it. Left to be eyeballed,
+  // those two read as a far better margin than the line is really making.
+  const sellExGst = ((parseFloat(item.unit_price) || 0) * (parseFloat(item.quantity) || 0))
+    / (1 + GST_RATE);
+  const pct = sellExGst > 0 ? Math.round(((sellExGst - cost) / sellExGst) * 100) : null;
+  return (
+    <span className={styles.costCell}>
+      ${cost.toFixed(2)}
+      {pct !== null && (
+        <em className={styles.costMargin} title="Margin on this line, on the excluding-GST price">
+          {pct}%
+        </em>
+      )}
+    </span>
+  );
+}
+
+export default function LineItemsEditor({
+  items: initialItems, onSave, readonly, autoSave = true, onDirtyChange,
+  // Admin-only, and off everywhere else: what the line costs and what is left
+  // on it. The customer's quote has never shown this and never should.
+  costColumn = false,
+}) {
   const [items, setItems] = useState([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -119,11 +162,16 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly,
 
   return (
     <div>
-      <div className={styles.lineItemsHeader}>
+      <div className={costColumn ? styles.lineItemsHeaderCost : styles.lineItemsHeader}>
         <div>Description</div>
         <div title="Supplier code for ordering — not shown on the customer's quote">Product Name</div>
         <div>Qty</div>
         <div>Unit Price (NZD, incl. GST)</div>
+        {costColumn && (
+          <div title="What this line costs us, off the Price List. Excludes GST. Blank where the line is not a Price List product.">
+            Cost (excl. GST)
+          </div>
+        )}
         <div>Line Total</div>
         {!readonly && <div />}
       </div>
@@ -133,13 +181,14 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly,
       )}
 
       {items.map((item, idx) => (
-        <div key={item._key} className={styles.lineItemRow}>
+        <div key={item._key} className={costColumn ? styles.lineItemRowCost : styles.lineItemRow}>
           {readonly ? (
             <>
               <span>{item.description}</span>
               <span className={styles.productCode}>{item.product_name || '—'}</span>
               <span>{item.quantity}</span>
               <span>${parseFloat(item.unit_price).toFixed(2)}</span>
+              {costColumn && <CostCell item={item} />}
               <span>${(parseFloat(item.unit_price) * parseFloat(item.quantity)).toFixed(2)}</span>
             </>
           ) : (
@@ -177,6 +226,7 @@ export default function LineItemsEditor({ items: initialItems, onSave, readonly,
                 value={item.unit_price}
                 onChange={e => update(idx, 'unit_price', e.target.value)}
               />
+              {costColumn && <CostCell item={item} />}
               <span className={styles.lineTotal}>
                 ${((parseFloat(item.unit_price) || 0) * (parseFloat(item.quantity) || 0)).toFixed(2)}
               </span>

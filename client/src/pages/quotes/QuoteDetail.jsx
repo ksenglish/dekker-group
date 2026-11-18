@@ -422,7 +422,7 @@ export default function QuoteDetail() {
       },
     ];
     const { data } = await api.put(`/quotes/${id}/line-items`, { items: payload });
-    setQuote(q => ({ ...q, line_items: data.line_items, subtotal: data.subtotal, gst: data.gst, total: data.total }));
+    setQuote(q => ({ ...q, line_items: data.line_items, subtotal: data.subtotal, gst: data.gst, total: data.total, costing: data.costing ?? q.costing }));
 
     // The product's own wording goes onto the quote's description, one line
     // break below whatever is already there. Saved straight away rather than
@@ -464,7 +464,7 @@ export default function QuoteDetail() {
 
   async function handleSaveLineItems(lineItems) {
     const { data } = await api.put(`/quotes/${id}/line-items`, { items: lineItems });
-    setQuote(q => ({ ...q, line_items: data.line_items, subtotal: data.subtotal, gst: data.gst, total: data.total }));
+    setQuote(q => ({ ...q, line_items: data.line_items, subtotal: data.subtotal, gst: data.gst, total: data.total, costing: data.costing ?? q.costing }));
     flash('success', 'Line items saved');
     loadActivity();
   }
@@ -542,6 +542,11 @@ export default function QuoteDetail() {
   if (!quote) return <div className={styles.page}><div className={styles.empty}>{loadError || 'Quote not found.'}</div></div>;
 
   const items = quote.line_items || [];
+  // The server only sends costs to an admin, so this follows what arrived
+  // rather than deciding again from the role — two places deciding who may see
+  // a cost is one place too many.
+  const costing = quote.costing || null;
+  const showsCost = !!costing;
 
   return (
     <div className={styles.page}>
@@ -755,12 +760,47 @@ export default function QuoteDetail() {
               readonly={isLocked}
               autoSave={false}
               onDirtyChange={setLineItemsDirty}
+              costColumn={showsCost}
             />
             <div className={styles.totalsBlock}>
               <div className={styles.totalRow}><span>Subtotal</span><span>${(quote.subtotal/100).toFixed(2)}</span></div>
               <div className={styles.totalRow}><span>GST (15%)</span><span>${(quote.gst/100).toFixed(2)}</span></div>
               <div className={`${styles.totalRow} ${styles.totalFinal}`}><span>Total (NZD)</span><span>${(quote.total/100).toFixed(2)}</span></div>
             </div>
+
+            {/* What is left on the job, for the people whose business that is.
+                Worked on the excluding-GST figures, because GST was never
+                ours and a margin counted on it is not a margin. */}
+            {showsCost && costing && (
+              <div className={styles.marginBlock}>
+                <div className={styles.marginHead}>
+                  Margin <span>Admin only · not on the customer’s quote</span>
+                </div>
+                <div className={styles.marginRow}>
+                  <span>Sell (excl. GST)</span><span>${(quote.subtotal / 100).toFixed(2)}</span>
+                </div>
+                <div className={styles.marginRow}>
+                  <span>Cost</span><span>${(costing.cost_cents / 100).toFixed(2)}</span>
+                </div>
+                <div className={`${styles.marginRow} ${styles.marginFinal}`}>
+                  <span>Margin</span>
+                  <span>
+                    ${((quote.subtotal - costing.cost_cents) / 100).toFixed(2)}
+                    {quote.subtotal > 0 && (
+                      <em> · {Math.round(((quote.subtotal - costing.cost_cents) / quote.subtotal) * 100)}%</em>
+                    )}
+                  </span>
+                </div>
+                {costing.uncosted_lines > 0 && (
+                  <p className={styles.marginNote}>
+                    {costing.uncosted_lines} {costing.uncosted_lines === 1 ? 'line is' : 'lines are'} not
+                    a Price List product, so {costing.uncosted_lines === 1 ? 'it has' : 'they have'} no
+                    cost to read — ${(costing.uncosted_sell_cents / 100).toFixed(2)} of the sell price,
+                    counted here as though it were all margin.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Activity Log */}

@@ -10,6 +10,7 @@ const { getThemeById, getDefaultTheme, documentTypeOf } = require('../utils/docu
 const { logActivity } = require('../utils/activity');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { OFFICE_RECORDS_EMAIL, SALES_EMAIL } = require('../utils/recordsEmail');
+const { costOfLines, summarise } = require('../services/lineCost');
 const { advanceJobStatus, advanceJobStatusByLabel } = require('../utils/jobStatusFlow');
 const { appUrl } = require('../utils/appUrl');
 const fileStore = require('../services/fileStore');
@@ -243,12 +244,29 @@ async function get(req, res) {
       'SELECT * FROM line_items WHERE quote_id = $1 ORDER BY created_at',
       [q.id]
     );
+    // What the quote costs us, for the people whose business that is.
+    //
+    // Read off the Price List rather than stored against the line, so it is
+    // today's cost — which is the one that matters when the question is what
+    // margin this job will make, not what margin it would have made in
+    // August. A line typed in by hand has no cost to read and is left
+    // unanswered rather than guessed at; how much of the quote that accounts
+    // for is handed back with it.
+    let costing = null;
+    if (req.user?.role === 'admin') {
+      const costs = await costOfLines(items.rows.map(i => i.id));
+      items.rows.forEach(i => {
+        if (costs.has(i.id)) i.cost_cents = costs.get(i.id);
+      });
+      costing = summarise(items.rows, costs);
+    }
     // The theme's wording travels with the quote so the editor can show what
     // it would say if left alone, and offer it back after a customisation.
     const docTheme = await getThemeById(q.theme_id);
     res.json({
       ...q,
       line_items: items.rows,
+      costing,
       attachment_ids: await getQuoteAttachmentIds(q.id),
       theme_terms: docTheme.termsAndConditions || '',
       theme_payment_terms: docTheme.paymentTerms || '',
@@ -468,7 +486,15 @@ async function updateLineItems(req, res) {
     await pool.query('UPDATE quotes SET subtotal=$1, gst=$2, total=$3, updated_at=NOW() WHERE id=$4',
       [subtotal, gst, total, req.params.id]);
     await logIfApproved(req.params.id, req.user?.id, 'Quote line items updated');
-    res.json({ line_items: rows, subtotal, gst, total });
+    // The costs go back with the saved lines, so the margin on screen follows
+    // the edit rather than going blank until the page is opened again.
+    let costing = null;
+    if (req.user?.role === 'admin') {
+      const costs = await costOfLines(rows.map(i => i.id));
+      rows.forEach(i => { if (costs.has(i.id)) i.cost_cents = costs.get(i.id); });
+      costing = summarise(rows, costs);
+    }
+    res.json({ line_items: rows, subtotal, gst, total, costing });
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: 'Server error' });

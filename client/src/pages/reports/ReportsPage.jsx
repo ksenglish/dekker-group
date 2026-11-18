@@ -89,6 +89,7 @@ export default function ReportsPage() {
         </div>
         <div className={styles.sectionLinks}>
           <Link to="/reports/sales" className={styles.stockLink}>Sales →</Link>
+          <Link to="/reports/forecast" className={styles.stockLink}>Forecast →</Link>
           {isAdmin && <Link to="/reports/marketing" className={styles.stockLink}>Marketing →</Link>}
           <Link to="/reports/costs" className={styles.stockLink}>Costs →</Link>
           <Link to="/reports/stock" className={styles.stockLink}>Stock →</Link>

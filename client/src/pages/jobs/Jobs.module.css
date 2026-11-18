@@ -490,6 +490,29 @@
 
 .lineItemRow input:focus { border-color: var(--color-primary); }
 
+/* With the cost column, which only Admin ever sees. A separate template
+   rather than an extra column everywhere, so nothing moves on the screens
+   that do not show it. */
+.lineItemsHeaderCost {
+  composes: lineItemsHeader;
+  grid-template-columns: 3fr 115px 66px 125px 92px 105px 30px;
+}
+.lineItemRowCost {
+  composes: lineItemRow;
+  grid-template-columns: 3fr 115px 66px 125px 92px 105px 30px;
+}
+
+.costCell { font-size: 13px; color: #334155; }
+.costMargin {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+/* A line with no Price List product behind it. Said as a dash rather than a
+   zero, because a zero is a cost and this is not knowing. */
+.costUnknown { font-size: 13px; color: #94a3b8; }
+
 .lineTotal { font-size: 13px; font-weight: 500; }
 
 .lineItemActions {
@@ -935,8 +958,9 @@
   .detailGrid { grid-template-columns: 1fr; }
   .pipeline { gap: 4px; }
   .pipelineStep { font-size: 12px; padding: 6px 10px; }
-  .lineItemsHeader { display: none; }
+  .lineItemsHeader, .lineItemsHeaderCost { display: none; }
   .lineItemRow { grid-template-columns: 2fr 100px 60px 100px 32px; }
+  .lineItemRowCost { grid-template-columns: 2fr 90px 56px 90px 80px 32px; }
 }
 
 /* ── AI Scan ─────────────────────────────────────────────────── */

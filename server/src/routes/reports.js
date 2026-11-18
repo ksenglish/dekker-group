@@ -5,6 +5,8 @@ const pool = require('../db/pool');
 const { buildPDF } = require('../utils/pdf');
 const { sendMail } = require('../utils/email');
 const { getTheme } = require('../controllers/settingsController');
+const { forecast } = require('../services/forecast');
+const { costOfJobs } = require('../services/lineCost');
 
 router.use(authenticate);
 // subcontractor added explicitly — sales/operations already pass via
@@ -678,6 +680,89 @@ router.get('/sales', async (req, res) => {
     });
   } catch (err) {
     console.error('Sales report failed:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Forecast: what the diary is worth ───────────────────────────────────────
+//
+// Revenue is not earned on the day a job is sold or the day it is invoiced. It
+// is earned across the days the job is booked to be done, which is the only
+// reading that lets a diary answer "what is November worth".
+//
+// The arithmetic is in services/forecast.js, on its own and checkable by hand.
+// This is the part that decides what counts:
+//
+//   Revenue   the job's own line items — what will be invoiced — excluding
+//             GST, because GST was never ours.
+//   Days      every distinct date the job is booked, operations only. A site
+//             visit is not a day of delivering the job, and counting it would
+//             push revenue into the month before the work.
+//   Divisor   all of the job's days, not just the ones in the window. That is
+//             what makes two days of a five-day job worth two fifths of it
+//             rather than half.
+router.get('/forecast', async (req, res) => {
+  const { from, to } = req.query;
+  const group = ['day', 'week', 'month'].includes(req.query.group) ? req.query.group : 'month';
+  // Margin is a cost figure, and costs are not everybody's business.
+  const showCost = req.user.role === 'admin';
+  try {
+    // Operations days only, and a date written down with no type is from
+    // before the diary had types — those are the old install bookings.
+    const BOOKED = `s.appointment_type IS DISTINCT FROM 'sales'`;
+
+    // Every day of every job that has at least one day inside the window. The
+    // days outside it come too, because they are what set the daily rate.
+    const { rows } = await pool.query(`
+      WITH booked AS (
+        SELECT DISTINCT s.job_id, s.scheduled_date
+          FROM schedules s
+         WHERE ${BOOKED}
+      ), in_window AS (
+        SELECT DISTINCT job_id FROM booked
+         WHERE ($1::date IS NULL OR scheduled_date >= $1::date)
+           AND ($2::date IS NULL OR scheduled_date <= $2::date)
+      )
+      SELECT b.job_id, b.scheduled_date,
+             j.job_number, j.external_ref, j.status, j.description,
+             c.name AS customer_name
+        FROM booked b
+        JOIN in_window w ON w.job_id = b.job_id
+        JOIN jobs j ON j.id = b.job_id
+        LEFT JOIN customers c ON c.id = j.customer_id
+       WHERE j.status <> 'cancelled'
+       ORDER BY b.job_id, b.scheduled_date
+    `, [from || null, to || null]);
+
+    const byJob = new Map();
+    for (const r of rows) {
+      if (!byJob.has(r.job_id)) {
+        byJob.set(r.job_id, {
+          job_id: r.job_id,
+          job_number: r.job_number,
+          external_ref: r.external_ref,
+          status: r.status,
+          description: r.description,
+          customer_name: r.customer_name,
+          days: [],
+        });
+      }
+      byJob.get(r.job_id).days.push(r.scheduled_date);
+    }
+
+    const money = await costOfJobs([...byJob.keys()]);
+    for (const job of byJob.values()) {
+      const m = money.get(job.job_id);
+      job.revenue_cents = m ? m.revenue_cents : 0;
+      job.cost_cents = showCost && m ? m.cost_cents : 0;
+      job.line_count = m ? m.line_count : 0;
+      job.costed_lines = m ? m.costed_lines : 0;
+    }
+
+    const out = forecast({ jobs: [...byJob.values()], from, to, group });
+    res.json({ ...out, shows_cost: showCost });
+  } catch (err) {
+    console.error('Forecast report failed:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
