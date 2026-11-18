@@ -692,6 +692,13 @@ export default function PresenterAdmin() {
         </div>
       </div>
 
+      {/* What the calculators that build something read.
+          Above the sections rather than below them, because the columns below
+          are as tall as the product list is long — put at the bottom, this was
+          a page and a half of scrolling away and might as well not have been
+          there. Closed until it is wanted: it is set up once and then left. */}
+      <PalingFenceSetup />
+
       <div className={styles.layout3}>
 
         {/* ── Column 1: Sections (sortable) ── */}
@@ -891,10 +898,6 @@ export default function PresenterAdmin() {
         </div>
 
       </div>
-
-      {/* How the calculators that build something are built. The sections
-          above are what the presenter shows; this is what a take-off reads. */}
-      <PalingFenceSetup />
 
       {movingProduct && (
         <MoveProductModal

@@ -6,7 +6,7 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  margin-top: 20px;
+  margin-bottom: 20px;
   overflow: hidden;
 }
 
@@ -48,6 +48,21 @@
   line-height: 1.6;
   color: var(--color-text-muted);
 }
+
+/* Where the calculator actually turns up. Set apart because somebody who has
+   just filled this in and cannot find it on the presenter needs to read this
+   one and not the paragraph above it. */
+.where {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  background: #eff6ff;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #1e3a5f;
+}
+.where em { font-style: normal; font-weight: 600; }
 
 /* ── The rules ────────────────────────────────────────────────────────────── */
 

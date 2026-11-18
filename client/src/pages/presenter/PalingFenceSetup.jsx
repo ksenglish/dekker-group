@@ -148,6 +148,14 @@ export default function PalingFenceSetup() {
             drawn on the plan. What it reads to do that is all here — nothing about how we
             build is written into the app.
           </p>
+          {/* Setting this up does not put the calculator in front of anybody.
+              It turns up when a presenter product is pointed at it, and
+              nothing else on this page says so. */}
+          <p className={styles.where}>
+            <strong>To put it in front of a customer:</strong> add or edit a product in the
+            sections below and set its <em>Calculator Type</em> to “Timber Paling Fence (drawn
+            take-off)”. Opening that product in the Sales Presenter then opens this calculator.
+          </p>
 
           {/* ── The rules ── */}
           <h4 className={styles.sub}>How we build them</h4>
