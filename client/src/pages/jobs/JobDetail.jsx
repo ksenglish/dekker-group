@@ -155,6 +155,17 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
   const onTimerChangeRef = useRef(onTimerChange);
   onTimerChangeRef.current = onTimerChange;
 
+  // The parent is told once per timer rather than once per reminder.
+  const toldRef = useRef(null);
+  const tickRef = useRef(null);
+  // Whether the timer now running was started by a press of the button on this
+  // tab. The first thing the server hears about it is then a start and not a
+  // reminder, which matters because a reminder is weighed against when this
+  // person last stopped — and a phone whose clock is a minute behind the
+  // server's would otherwise be unable to start a timer straight after
+  // stopping one.
+  const startedHereRef = useRef(false);
+
   const STOP_KEY = 'timer_stop_pending';
   const flushStop = useCallback(() => {
     let pending;
@@ -168,6 +179,17 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
       .catch(() => { /* still pending; the next pass tries again */ });
   }, []);
 
+  // Letting go of a timer this tab thought it had.
+  const forgetTimer = useCallback(() => {
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* nothing to clear */ }
+    clearInterval(tickRef.current);
+    toldRef.current = null;
+    setStartTs(null);
+    setEndTs(null);
+    setElapsed(0);
+    setShowSave(false);
+  }, [STORAGE_KEY]);
+
   useEffect(() => {
     flushStop();
     // Rarely, and on waking: the common case is that the first try worked, and
@@ -175,8 +197,26 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
     const again = setInterval(flushStop, 60 * 1000);
     const onWake = () => { if (!document.hidden) flushStop(); };
     document.addEventListener('visibilitychange', onWake);
-    return () => { clearInterval(again); document.removeEventListener('visibilitychange', onWake); };
-  }, [flushStop]);
+
+    // Stopped in another tab, so stopped here.
+    //
+    // The timer is kept in this browser's storage and read once, when the page
+    // loads. Half a dozen tabs open on the app is normal, and pressing Stop in
+    // one left the others still holding a start time they would go on
+    // announcing. localStorage changes do not reach the tab that made them,
+    // which is exactly what makes this the right signal.
+    const onElsewhere = e => {
+      if (e.key === STOP_KEY && e.newValue) forgetTimer();
+      else if (e.key === STORAGE_KEY && !e.newValue) forgetTimer();
+    };
+    window.addEventListener('storage', onElsewhere);
+
+    return () => {
+      clearInterval(again);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('storage', onElsewhere);
+    };
+  }, [flushStop, forgetTimer, STORAGE_KEY]);
 
   // A running timer keeps saying so.
   //
@@ -191,9 +231,6 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
   // start time goes with it, so a timer that has been going since 08:31 is
   // recorded as having started at 08:31 rather than whenever the phone
   // managed to get the message out.
-  const toldRef = useRef(null);
-  // Held in a ref so the reminder below does not restart its interval every
-  // time the job page re-renders and hands down a new arrow.
   useEffect(() => {
     if (!startTs || endTs) return undefined;
     let stopped = false;
@@ -201,7 +238,21 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
       job_id: jobId,
       billing_rate_id: billingRateId || null,
       started_at: new Date(startTs).toISOString(),
-    }).then(() => {
+      // Said plainly, because the server treats the two differently: a start
+      // creates a timer and a reminder only keeps one alive. Without this, a
+      // tab that missed a stop puts the timer back every five minutes. The
+      // press of the button on this tab is a start; everything after it,
+      // including this tab reloading, is a reminder.
+      still_running: !startedHereRef.current,
+    }).then(r => {
+      startedHereRef.current = false;
+      // Stopped somewhere else — another tab, another phone, or the office
+      // clearing it. This tab has been carrying a timer that no longer exists,
+      // so it lets go of it rather than arguing every five minutes.
+      if (r.data?.stopped_elsewhere) {
+        if (!stopped) forgetTimer();
+        return;
+      }
       // The parent is told once per timer, not once per reminder.
       if (!stopped && toldRef.current !== startTs) {
         toldRef.current = startTs;
@@ -211,8 +262,7 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
     tell();
     const again = setInterval(tell, 5 * 60 * 1000);
     return () => { stopped = true; clearInterval(again); };
-  }, [startTs, endTs, jobId, billingRateId]);
-  const tickRef = useRef(null);
+  }, [startTs, endTs, jobId, billingRateId, forgetTimer]);
 
   useEffect(() => {
     if (!startTs) { clearInterval(tickRef.current); return; }
@@ -223,6 +273,10 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
 
   function start() {
     const ts = Date.now();
+    startedHereRef.current = true;
+    // Whatever stop is still waiting to be sent belongs to the timer that has
+    // just been replaced, and sending it now would stop this one.
+    try { localStorage.removeItem(STOP_KEY); } catch { /* nothing to clear */ }
     localStorage.setItem(STORAGE_KEY, String(ts));
     localStorage.setItem(RATE_STORAGE_KEY, billingRateId);
     setStartTs(ts);

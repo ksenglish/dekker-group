@@ -445,10 +445,33 @@ function startedAtFrom(value) {
 }
 
 async function startTimer(req, res) {
-  const { job_id, billing_rate_id } = req.body || {};
+  const { job_id, billing_rate_id, still_running } = req.body || {};
   if (!job_id) return res.status(400).json({ error: 'Which job?' });
   const startedAt = startedAtFrom(req.body?.started_at);
   try {
+    // A reminder is not a start.
+    //
+    // The job page says "still running" every five minutes so that a timer the
+    // office cannot see announces itself. Until now that was an ordinary
+    // start, and a start creates the row — so a second tab still open on the
+    // job, holding the start time it read when it loaded, put a stopped timer
+    // straight back with its original start time. Stop at 17:10 and be on the
+    // clock again by 17:15, having apparently never left.
+    //
+    // So a reminder is checked against when this person last went off the
+    // clock. One about a timer that was stopped since is a tab that missed the
+    // news, and it is told so rather than obeyed. Pressing Start is never a
+    // reminder and is always obeyed.
+    if (still_running) {
+      const { rows: [who] } = await pool.query(
+        'SELECT timer_stopped_at FROM users WHERE id = $1', [req.user.id]);
+      const stoppedAt = who?.timer_stopped_at;
+      const stale = stoppedAt
+        && (!startedAt || new Date(startedAt) <= new Date(stoppedAt));
+      if (stale) {
+        return res.json({ stopped_elsewhere: true, stopped_at: stoppedAt });
+      }
+    }
     const { rows } = await pool.query(
       `INSERT INTO active_timers (user_id, job_id, billing_rate_id, started_at)
        VALUES ($1,$2,$3,COALESCE($4::timestamptz, NOW()))
@@ -488,6 +511,11 @@ async function stopTimer(req, res) {
   try {
     const { rowCount } = await pool.query(
       'DELETE FROM active_timers WHERE user_id = $1', [req.user.id]);
+    // Written down even when there was nothing to delete: a retry that arrives
+    // after the row has gone is still somebody saying they are off the clock,
+    // and a tab that has not heard yet may be about to say otherwise.
+    await pool.query(
+      'UPDATE users SET timer_stopped_at = NOW() WHERE id = $1', [req.user.id]);
     res.json({ stopped: true, was_running: rowCount > 0 });
   } catch (err) {
     console.error('[timers] stop failed:', err.message);
@@ -515,6 +543,10 @@ async function stopTimerFor(req, res) {
       [userId]
     );
     if (!rows[0]) return res.status(404).json({ error: 'That timer is no longer running' });
+    // The same memory as somebody stopping their own: whoever's tab is still
+    // open on that job must not put it back five minutes later.
+    await pool.query(
+      'UPDATE users SET timer_stopped_at = NOW() WHERE id = $1', [userId]);
     const { rows: [who] } = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
     res.json({ stopped: true, timer: rows[0], user_name: who?.name || null });
   } catch (err) {
