@@ -194,6 +194,9 @@ const jobMaterials = require('../controllers/materialsController');
 router.get('/:id/materials', requireRole('admin', 'office'), jobMaterials.list);
 router.post('/:id/materials/regenerate', requireRole('admin', 'office'), jobMaterials.regenerate);
 router.post('/:id/materials', requireRole('admin', 'office'), jobMaterials.addItem);
+// Before :materialId, or "pickup" is read as the id of a material and the
+// assignment goes nowhere.
+router.put('/:id/materials/pickup', requireRole('admin', 'office'), jobMaterials.assignPickup);
 router.put('/:id/materials/:materialId', requireRole('admin', 'office'), jobMaterials.updateItem);
 router.delete('/:id/materials/:materialId', requireRole('admin', 'office'), jobMaterials.removeItem);
 router.post('/:id/materials/order/preview', requireRole('admin', 'office'), jobMaterials.previewOrder);

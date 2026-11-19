@@ -187,6 +187,40 @@ async function updateItem(req, res) {
   } catch (err) { console.error('[materials]', err.message); res.status(500).json({ error: 'Server error' }); }
 }
 
+// Putting somebody's name against the things that cannot be ordered.
+//
+// Top soil, metal, a load of bark: somebody drives in and gets it on the day.
+// This is not an order and does not pretend to be one — nothing is emailed —
+// it is the list saying who is seeing to it, so the line stops reading as
+// something the office still has to send.
+async function assignPickup(req, res) {
+  const { material_ids, user_id } = req.body || {};
+  const ids = Array.isArray(material_ids) ? material_ids.filter(Boolean) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Choose at least one material' });
+
+  try {
+    if (user_id) {
+      const { rows } = await pool.query(
+        'SELECT id FROM users WHERE id = $1 AND is_active IS NOT FALSE', [user_id]);
+      if (!rows[0]) return res.status(400).json({ error: 'That is not somebody who can pick it up' });
+    }
+    // Only lines that are still waiting on something. One already on an
+    // order is the office's to undo first, or the crew is told two different
+    // stories about the same line.
+    const { rows } = await pool.query(
+      `UPDATE job_materials
+          SET pickup_user_id = $1, updated_at = NOW()
+        WHERE job_id = $2 AND id = ANY($3::uuid[]) AND status = 'needed'
+        RETURNING id`,
+      [user_id || null, req.params.id, ids]
+    );
+    res.json({ updated: rows.length });
+  } catch (err) {
+    console.error('[materials] pickup failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 async function removeItem(req, res) {
   try {
     const { rowCount } = await pool.query(
@@ -670,7 +704,7 @@ async function previewOrder(req, res) {
 }
 
 module.exports = {
-  list, regenerate, addItem, updateItem, removeItem,
+  list, regenerate, addItem, updateItem, removeItem, assignPickup,
   listSuppliers, saveSupplier, removeSupplier, mergeSuppliers,
   unnamedDocuments, nameExistingDocuments,
   createOrder, previewOrder, undoOrder,

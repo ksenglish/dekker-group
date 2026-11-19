@@ -244,13 +244,68 @@ async function syncFromQuote(quoteId, jobId) {
 }
 
 // The job's list, grouped the way it is ordered: by supplier.
+// A date as a crew reads it off a phone: 30/11/26.
+//
+// The DATE comes back from pg as a Date at UTC midnight, so it is read with
+// the UTC getters — any other way it is the day before, somewhere else.
+function shortDate(value) {
+  if (!value) return '';
+  const d = value instanceof Date ? value : new Date(`${String(value).slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${String(d.getUTCFullYear()).slice(2)}`;
+}
+
+/**
+ * What has been arranged for one line, in the words a crew needs.
+ *
+ * One sentence per line saying what is happening to it and when — which is
+ * the only question anybody standing on site has about the materials list.
+ * "To order" answered none of it.
+ *
+ * Built here rather than on the screen because the same answer has to come
+ * out the same everywhere it is read.
+ */
+function arrangementFor({ pickupName, order }) {
+  if (pickupName) {
+    return { kind: 'pickup', text: `${pickupName} to organise pick up` };
+  }
+  if (!order) return null;
+  const when = shortDate(order.required_date);
+  if (order.method === 'collect') {
+    const who = order.contact_name ? ` for ${order.contact_name}` : '';
+    return {
+      kind: 'collect',
+      text: `Click and Collect ordered${who} to pick up${when ? ` on ${when}` : ''}`,
+    };
+  }
+  if (order.method === 'depot') {
+    return { kind: 'depot', text: `Ordered in to the depot${when ? ` for ${when}` : ''}` };
+  }
+  return { kind: 'delivery', text: `Delivery organised${when ? ` for ${when}` : ''}` };
+}
+
 async function listForJob(jobId) {
   const { rows } = await pool.query(
     `SELECT m.*, s.email AS supplier_email, s.account_ref AS supplier_account,
-            s.order_emails AS supplier_order_emails, p.sku
+            s.order_emails AS supplier_order_emails, p.sku,
+            pu.name AS pickup_name,
+            ord.method AS order_method, ord.required_date AS order_date,
+            ord.contact_name AS order_contact
        FROM job_materials m
        LEFT JOIN suppliers s ON LOWER(s.name) = LOWER(m.supplier)
        LEFT JOIN products p ON p.id = m.product_id
+       LEFT JOIN users pu ON pu.id = m.pickup_user_id
+       -- The order this line is actually on, latest first, ignoring any that
+       -- have been undone — an undone order is one the line is free of.
+       LEFT JOIN LATERAL (
+         SELECT o.method, o.required_date, o.contact_name
+           FROM material_order_lines l
+           JOIN material_orders o ON o.id = l.order_id
+          WHERE l.material_id = m.id AND o.status <> 'cancelled'
+          ORDER BY o.created_at DESC
+          LIMIT 1
+       ) ord ON TRUE
       WHERE m.job_id = $1
       ORDER BY COALESCE(m.supplier, 'zzz'), m.sort_order, m.created_at`,
     [jobId]
@@ -272,9 +327,15 @@ async function listForJob(jobId) {
     groups.get(key).items.push({
       ...m,
       quantity: num(m.quantity),
+      arrangement: arrangementFor({
+        pickupName: m.pickup_name,
+        order: m.order_method
+          ? { method: m.order_method, required_date: m.order_date, contact_name: m.order_contact }
+          : null,
+      }),
     });
   }
   return [...groups.values()];
 }
 
-module.exports = { explodeQuote, syncFromQuote, listForJob, merge };
+module.exports = { explodeQuote, syncFromQuote, listForJob, merge, arrangementFor, shortDate };

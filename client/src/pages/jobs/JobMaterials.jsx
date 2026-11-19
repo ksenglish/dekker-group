@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
 import { isAdmin } from '../../lib/permissions';
 import OrderModal from './MaterialOrderModal';
+import { overlayClose } from '../../lib/overlayClose';
 import styles from './Materials.module.css';
 
 // What this job needs, grouped by who sells it.
@@ -39,6 +40,65 @@ const fmtWhen = d => (d ? new Date(d).toLocaleDateString('en-NZ', {
 // One step back, for a button pressed by mistake. "Received" is the easy one
 // to hit on a phone, and until now there was no way back off it.
 const STEP_BACK = { received: 'ordered', ordered: 'needed', cancelled: 'needed' };
+
+// Who is picking it up. A short list of the people already on this job, so
+// the common case is one tap — and a way to take the name off again, since
+// plans change on the morning more often than they change on paper.
+function PickupModal({ jobId, team, items, onClose, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function assign(userId) {
+    setBusy(true); setError('');
+    try {
+      await api.put(`/jobs/${jobId}/materials/pickup`, {
+        material_ids: items.map(i => i.id), user_id: userId,
+      });
+      await onDone();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Could not set that');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className={styles.modalOverlay} {...overlayClose(onClose)}>
+      <div className={styles.modalSmall}>
+        <div className={styles.modalHead}>
+          <h2>👷 Team member to pick up</h2>
+          <button className={styles.modalClose} onClick={onClose}>✕</button>
+        </div>
+        <div className={styles.modalBody}>
+          <p className={styles.modalIntro}>
+            Who is organising to pick up {items.length === 1
+              ? <strong>{items[0].description}</strong>
+              : <>these <strong>{items.length} items</strong></>}
+            {' '}on the day? Nothing is emailed — the list just says who is seeing to it.
+          </p>
+          {team.length === 0 ? (
+            <p className={styles.noSupplier}>
+              Nobody is on this job yet. Put somebody on it in the Schedule tab and they will
+              turn up here.
+            </p>
+          ) : (
+            <div className={styles.pickupList}>
+              {team.map(p => (
+                <button key={p.id} className={styles.pickupChoice} disabled={busy}
+                  onClick={() => assign(p.id)}>
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {error && <p className={styles.pickupError}>{error}</p>}
+          <button className={styles.linkBtnQuiet} disabled={busy} onClick={() => assign(null)}>
+            Take the name off these and put them back on the list
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Row({ jobId, item, checked, onToggle, onChanged, canEdit, canUndo }) {
   const [editing, setEditing] = useState(false);
@@ -85,21 +145,49 @@ function Row({ jobId, item, checked, onToggle, onChanged, canEdit, canUndo }) {
   }
 
   const st = STATUS[item.status] || STATUS.needed;
+  // What has been arranged for this line, in the words a crew needs: who is
+  // picking it up, or what was ordered and when. Said instead of "To order",
+  // which answered none of the questions anybody standing on site has.
+  const arranged = item.arrangement;
+  // A line somebody is picking up is not one to put on an order, so it does
+  // not offer itself for one.
+  const spokenFor = !!item.pickup_user_id;
   return (
     <div className={`${styles.row} ${item.status !== 'needed' ? styles.rowDone : ''}`}>
-      <input type="checkbox" checked={checked} disabled={item.status !== 'needed'}
+      <input type="checkbox" checked={checked}
+        disabled={item.status !== 'needed' || spokenFor}
         onChange={() => onToggle(item.id)}
-        title={item.status === 'needed' ? 'Include in an order' : 'Already ordered'} />
+        title={spokenFor ? 'Somebody is picking this one up'
+          : item.status === 'needed' ? 'Include in an order' : 'Already ordered'} />
       <span className={styles.what}>
         {item.description}
         {SOURCE_NOTE[item.source] && <em className={styles.src}>{SOURCE_NOTE[item.source]}</em>}
       </span>
       <span className={styles.qty}>{qty(item.quantity)}{item.unit ? ` ${item.unit}` : ''}</span>
-      <span className={`${styles.status} ${styles[st.cls]}`}>{st.label}</span>
+      {arranged ? (
+        <span className={`${styles.status} ${styles[`arr_${arranged.kind}`] || styles.stOrdered}`}
+          title={st.label}>
+          {arranged.text}
+        </span>
+      ) : (
+        <span className={`${styles.status} ${styles[st.cls]}`}>{st.label}</span>
+      )}
       {canEdit && (
         <span className={styles.rowActions}>
-          {item.status === 'ordered' && (
-            <button className={styles.linkBtn} onClick={() => setStatus('received')}>Received</button>
+          {/* Picked up or delivered, it has arrived and the line is done. */}
+          {(item.status === 'ordered' || spokenFor) && (
+            <button className={styles.linkBtn} onClick={() => setStatus('received')}>
+              {spokenFor ? 'Picked up' : 'Received'}
+            </button>
+          )}
+          {spokenFor && item.status === 'needed' && (
+            <button className={styles.linkBtnQuiet} title="Put it back on the list to be ordered"
+              onClick={async () => {
+                await api.put(`/jobs/${jobId}/materials/pickup`, {
+                  material_ids: [item.id], user_id: null,
+                });
+                await onChanged();
+              }}>↶ Undo</button>
           )}
           {canUndo && STEP_BACK[item.status] && (
             <button className={styles.linkBtnQuiet}
@@ -125,6 +213,7 @@ export default function JobMaterials({ jobId, user }) {
   const [error, setError] = useState('');
   const [picked, setPicked] = useState([]);
   const [ordering, setOrdering] = useState(null);   // { method, group }
+  const [assigning, setAssigning] = useState(null); // the group a pickup is being set on
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ description: '', quantity: '1', unit: 'each', supplier: '' });
   const canEdit = true;      // the route is already office-and-up
@@ -302,6 +391,18 @@ export default function JobMaterials({ jobId, user }) {
                   </button>
                 </span>
               )}
+              {/* Outside the canOrder block on purpose. The things this is
+                  for — top soil, metal, a load of bark — have no supplier on
+                  the price list, so the group they land in is exactly the one
+                  that shows none of the ordering buttons. */}
+              {canEdit && (
+                <span className={styles.groupActions}>
+                  <button className={styles.btnPickup} disabled={pickedHere === 0}
+                    onClick={() => setAssigning(group)}>
+                    👷 Team member to pick up
+                  </button>
+                </span>
+              )}
             </div>
             {!group.supplier && (
               <p className={styles.noSupplier}>
@@ -359,6 +460,16 @@ export default function JobMaterials({ jobId, user }) {
           materialIds={ordering.group.items.filter(i => picked.includes(i.id)).map(i => i.id)}
           onClose={() => setOrdering(null)}
           onSent={async () => { setOrdering(null); setPicked([]); await load(); }}
+        />
+      )}
+
+      {assigning && (
+        <PickupModal
+          jobId={jobId}
+          team={data.team || []}
+          items={assigning.items.filter(i => picked.includes(i.id))}
+          onClose={() => setAssigning(null)}
+          onDone={async () => { setAssigning(null); setPicked([]); await load(); }}
         />
       )}
     </div>
