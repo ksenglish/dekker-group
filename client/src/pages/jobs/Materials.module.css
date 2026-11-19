@@ -25,7 +25,10 @@
 }
 .btnCollect { background: #eff6ff; border-color: #93c5fd; color: #1d4ed8; font-weight: 600; }
 .btnDeliver { background: #f0fdf4; border-color: #86efac; color: #15803d; font-weight: 600; }
-.btnCollect:disabled, .btnDeliver:disabled, .btnSmallPrimary:disabled { opacity: 0.45; cursor: default; }
+/* Into our own yard rather than out to a job. Its own colour so it is not
+   reached for by mistake when a delivery to site was meant. */
+.btnDepot { background: #fff7ed; border-color: #fdba74; color: #c2410c; font-weight: 600; }
+.btnCollect:disabled, .btnDeliver:disabled, .btnDepot:disabled, .btnSmallPrimary:disabled { opacity: 0.45; cursor: default; }
 .linkBtn {
   background: none; border: none; padding: 0; cursor: pointer;
   font-size: 12px; color: var(--color-primary); text-decoration: underline;

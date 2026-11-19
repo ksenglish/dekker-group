@@ -394,6 +394,37 @@ const DEFAULT_BILLING_RATES = [
 
 // How many minutes either side of a booking still count as that booking.
 // Lives next to the rates because it is read on the same screen.
+// ── Where our own yard is ───────────────────────────────────────────────────
+//
+// Kept apart from the address on the letterhead on purpose. That one is what
+// goes on a quote; this is where a truck is sent. The day the two differ,
+// nobody should find out from a supplier who delivered a pallet to the wrong
+// place.
+const DEPOT_FALLBACK = '15 Dekker Road, Omanawa, 3173';
+
+router.get('/depot-address', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT value FROM settings WHERE key = 'depot_address'`);
+    const stored = typeof rows[0]?.value === 'string' ? rows[0].value.trim() : '';
+    res.json({ address: stored || DEPOT_FALLBACK });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
+router.put('/depot-address', authenticate, requireRole('admin', 'office'), async (req, res) => {
+  const address = String(req.body?.address || '').trim();
+  if (!address) return res.status(400).json({ error: 'Give it an address' });
+  if (address.length > 300) return res.status(400).json({ error: 'That address is too long' });
+  try {
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) VALUES ('depot_address', $1, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+      [JSON.stringify(address)]
+    );
+    res.json({ address });
+  } catch { res.status(500).json({ error: 'Server error' }); }
+});
+
 // ── How we build a paling fence ─────────────────────────────────────────────
 //
 // Post spacing, how deep they go, bags of concrete each, how many rails a

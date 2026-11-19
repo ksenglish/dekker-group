@@ -292,6 +292,14 @@ export default function JobMaterials({ jobId, user }) {
                     onClick={() => setOrdering({ method: 'delivery', group })}>
                     🚚 Arrange Delivery
                   </button>
+                  {/* In to our own yard rather than out to the job — what an
+                      Auckland supplier gets, to be taken out later. Put
+                      through as a delivery it told them to drop a pallet at
+                      the customer's house. */}
+                  <button className={styles.btnDepot} disabled={pickedHere === 0}
+                    onClick={() => setOrdering({ method: 'depot', group })}>
+                    🏭 Order from Supplier
+                  </button>
                 </span>
               )}
             </div>
@@ -320,7 +328,7 @@ export default function JobMaterials({ jobId, user }) {
               <span className={styles.orderRef}>{o.reference}</span>
               <span>{o.supplier}</span>
               <span className={styles.orderMethod}>
-                {o.method === 'collect' ? 'Click & Collect' : 'Delivery'}
+                {o.method === 'collect' ? 'Click & Collect' : o.method === 'depot' ? 'Supplier order' : 'Delivery'}
                 {o.required_date && ` · ${new Date(`${String(o.required_date).slice(0, 10)}T12:00:00`)
                   .toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}`}
               </span>

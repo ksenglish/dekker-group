@@ -34,6 +34,9 @@ const tomorrow = () => {
 
 export default function OrderModal({ jobId, job, team = [], method, group, materialIds, onClose, onSent }) {
   const collect = method === 'collect';
+  // Into our own yard, to go out to the job later. It goes to the supplier as
+  // a delivery; what differs is the address and who is expecting it.
+  const depot = method === 'depot';
   const items = group.items.filter(i => materialIds.includes(i.id));
 
   const [form, setForm] = useState({
@@ -51,6 +54,16 @@ export default function OrderModal({ jobId, job, team = [], method, group, mater
   const [saveEmail, setSaveEmail] = useState(!group.supplier_email);
 
   const [pickedPerson, setPickedPerson] = useState('');
+  // Our own yard's address, so an order in arrives filled in. Still typable,
+  // because a one-off to another yard is an ordinary thing to want, and a
+  // changed one can be kept as the new default rather than retyped each time.
+  const [saveDepot, setSaveDepot] = useState(false);
+  useEffect(() => {
+    if (!depot) return;
+    api.get('/settings/depot-address')
+      .then(r => setForm(f => ({ ...f, deliver_to: r.data.address || f.deliver_to })))
+      .catch(() => {});
+  }, [depot]);
   const alsoTo = (group.supplier_order_emails || [])
     .filter(e => e.toLowerCase() !== form.email_to.trim().toLowerCase());
 
@@ -89,6 +102,10 @@ export default function OrderModal({ jobId, job, team = [], method, group, mater
           name: group.supplier, email: form.email_to.trim(),
         }).catch(() => {});
       }
+      // A moved yard is typed once, not once per order.
+      if (saveDepot && depot && form.deliver_to.trim()) {
+        await api.put('/settings/depot-address', { address: form.deliver_to.trim() }).catch(() => {});
+      }
       const { data } = await api.post(`/jobs/${jobId}/materials/order`, {
         method, supplier: group.supplier, material_ids: materialIds, ...form,
       });
@@ -108,7 +125,11 @@ export default function OrderModal({ jobId, job, team = [], method, group, mater
     <div className={styles.modalOverlay} {...overlayClose(onClose)}>
       <div className={styles.modal}>
         <div className={styles.modalHead}>
-          <h2>{collect ? '🛒 Click & Collect' : '🚚 Arrange Delivery'}</h2>
+          <h2>
+            {collect ? '🛒 Click & Collect'
+              : depot ? '🏭 Order from Supplier'
+                : '🚚 Arrange Delivery'}
+          </h2>
           <button className={styles.modalClose} onClick={onClose}>✕</button>
         </div>
 
@@ -137,13 +158,25 @@ export default function OrderModal({ jobId, job, team = [], method, group, mater
 
             {!collect && (
               <label className={`${styles.field} ${styles.wide}`}>
-                Deliver to
+                {depot ? 'Send it to' : 'Deliver to'}
                 <input value={form.deliver_to} onChange={e => set('deliver_to', e.target.value)} />
+                {depot && (
+                  <span className={styles.alsoTo}>
+                    <label>
+                      <input type="checkbox" checked={saveDepot}
+                        onChange={e => setSaveDepot(e.target.checked)} />
+                      {' '}Remember this as our depot address
+                    </label>
+                  </span>
+                )}
               </label>
             )}
 
             <label className={styles.field}>
-              Site contact
+              {/* Who the supplier asks for. On a collection that is whoever is
+                  turning up at the trade desk, which is not a site contact and
+                  was being read as one. */}
+              {collect ? 'Team member collecting' : depot ? 'Who to ask for' : 'Site contact'}
               {/* The people on this job, so the name and the mobile arrive
                   together — the number is the point of the field, and nobody
                   wants to go and look it up on the Users screen. Still typable
@@ -219,7 +252,10 @@ export default function OrderModal({ jobId, job, team = [], method, group, mater
         <div className={styles.modalFoot}>
           <button className={styles.btnSmall} onClick={onClose}>Cancel</button>
           <button className={styles.btnSmallPrimary} onClick={send} disabled={busy || !items.length}>
-            {busy ? 'Sending…' : collect ? 'Send the order' : 'Request the delivery'}
+            {busy ? 'Sending…'
+              : collect ? 'Send the order'
+                : depot ? 'Send the order'
+                  : 'Request the delivery'}
           </button>
         </div>
       </div>

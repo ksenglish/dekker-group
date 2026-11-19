@@ -419,9 +419,12 @@ async function orderLines(jobId, ids) {
 
 function orderEmail({ job, order, lines, theme }) {
   const collect = order.method === 'collect';
+  // Into our own yard, to go out to the job later. It is a delivery as far as
+  // the supplier is concerned; it is the address that makes it different.
+  const depot = order.method === 'depot';
   const label = jobLabel(job);
-  const title = collect ? 'Click & Collect order' : 'Delivery request';
-  const ref = order.reference;
+  const title = collect ? 'Click & Collect order'
+    : depot ? 'Supplier order' : 'Delivery request';
 
   // The product as the supplier knows it — their own code first where we hold
   // one, since that is what they pick off a shelf — then the name, then the
@@ -438,12 +441,16 @@ function orderEmail({ job, order, lines, theme }) {
       </td>
     </tr>`).join('');
 
+  // The job number is the reference. There used to be an order number of our
+  // own above it, which meant a supplier ringing up about an order had two
+  // numbers to choose between and we had two to look up — and only one of
+  // them means anything to anybody outside this office.
   const detail = [
-    ['Our reference', ref],
     ['Job number', label],
     [collect ? 'Collection date' : 'Delivery date', fmtDate(order.required_date)],
     collect ? null : ['Deliver to', order.deliver_to],
-    ['Site contact', [order.contact_name, order.contact_phone].filter(Boolean).join(' · ')],
+    [collect ? 'Collecting' : 'Site contact',
+      [order.contact_name, order.contact_phone].filter(Boolean).join(' · ')],
     ['Account', theme?.accountRef || null],
   ].filter(r => r && r[1]);
 
@@ -467,7 +474,7 @@ function orderEmail({ job, order, lines, theme }) {
       </table>
       ${order.instructions ? `<p style="margin:16px 0 0;font-size:14px;"><strong>Notes:</strong><br>${escapeHtml(order.instructions).replace(/\n/g, '<br>')}</p>` : ''}
       <p style="margin:20px 0 0;font-size:13px;color:#475569;">
-        Please reply to confirm${collect ? ' when this is ready to collect' : ' the delivery'}. Thank you.
+        Please reply to confirm${collect ? ' when this is ready to collect' : depot ? ' the order' : ' the delivery'}. Thank you.
       </p>
       ${theme?.contactDetails ? `<p style="margin:16px 0 0;font-size:12px;color:#94a3b8;">${escapeHtml(theme.contactDetails).replace(/\n/g, '<br>')}</p>` : ''}
     </div>`;
@@ -481,7 +488,7 @@ function orderEmail({ job, order, lines, theme }) {
     ...lines.map(l => `- ${qtyWithUnit(l.quantity, l.unit)} × ${l.sku ? `[${l.sku}] ` : ''}${l.product_name || l.description}`),
     order.instructions ? `\nNotes: ${order.instructions}` : '',
     '',
-    `Please reply to confirm${collect ? ' when this is ready to collect' : ' the delivery'}. Thank you.`,
+    `Please reply to confirm${collect ? ' when this is ready to collect' : depot ? ' the order' : ' the delivery'}. Thank you.`,
   ].filter(v => v !== undefined).join('\n');
 
   const subject = `${title} — ${label}${job.site_address ? ` — ${String(job.site_address).split(',')[0]}` : ''}`;
@@ -491,8 +498,10 @@ function orderEmail({ job, order, lines, theme }) {
 async function createOrder(req, res) {
   const { method, material_ids, required_date, instructions, email_to,
           deliver_to, contact_name, contact_phone, supplier } = req.body || {};
-  if (!['collect', 'delivery'].includes(method)) {
-    return res.status(400).json({ error: 'An order is either a collection or a delivery' });
+  // Collected from the branch, delivered to site, or sent in to our own
+  // yard to go out to the job later.
+  if (!['collect', 'delivery', 'depot'].includes(method)) {
+    return res.status(400).json({ error: 'An order is collected, delivered to site, or sent to the depot' });
   }
   const ids = Array.isArray(material_ids) ? material_ids.filter(Boolean) : [];
   if (!ids.length) return res.status(400).json({ error: 'Choose at least one material to order' });
@@ -648,7 +657,7 @@ async function previewOrder(req, res) {
     const type = await findJobType(job.type);
     const theme = type?.theme_id ? await getThemeById(type.theme_id) : await getDefaultTheme();
     const order = {
-      method: req.body?.method === 'collect' ? 'collect' : 'delivery',
+      method: ['collect', 'depot'].includes(req.body?.method) ? req.body.method : 'delivery',
       required_date: req.body?.required_date || null,
       deliver_to: req.body?.deliver_to || job.site_address || '',
       contact_name: req.body?.contact_name || job.job_contact || '',
