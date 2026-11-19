@@ -67,11 +67,26 @@
 }
 
 .rows { background: var(--color-surface); }
-.row {
-  display: grid; grid-template-columns: 22px minmax(0, 1fr) 110px 90px auto;
+/* The status column used to be 90px of nowrap, which was fine for the word
+   "Ordered" and nothing like enough for "Kyle English to organise pick up" —
+   it ran straight over the buttons beside it. It takes what it needs now, and
+   the description gives way first. */
+.rowHead, .row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 84px minmax(130px, auto) auto;
   gap: 10px; align-items: center; padding: 9px 14px;
   border-bottom: 1px solid var(--color-border); font-size: 13px;
 }
+
+/* What each column is, said once at the top of the group rather than left to
+   be worked out from the numbers. */
+.rowHead {
+  padding-top: 7px; padding-bottom: 7px;
+  background: #f8fafc;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.rowHead span:nth-child(3) { text-align: right; }
 .row:last-child { border-bottom: none; }
 .rowDone { background: #fafafa; color: var(--color-text-muted); }
 .what { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
@@ -80,6 +95,12 @@
 .status {
   font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
   text-align: center; white-space: nowrap;
+}
+/* What has been arranged, which is a sentence rather than a word. It wraps
+   instead of running over whatever is beside it. */
+.arranged {
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 8px;
+  text-align: left; line-height: 1.35;
 }
 .stNeeded { background: #e0e7ff; color: #3730a3; }
 .stOrdered { background: #fef3c7; color: #92400e; }
@@ -248,3 +269,15 @@
 .arr_collect  { background: #eff6ff; color: #1d4ed8; }
 .arr_delivery { background: #f0fdf4; color: #15803d; }
 .arr_depot    { background: #fff7ed; color: #c2410c; }
+
+/* Typed by hand and matching nothing on the price list. Offered under the add
+   row rather than beside it, so it reads as the next thing to do rather than
+   another field to fill in. */
+.addToList {
+  display: block; width: 100%;
+  margin: -4px 0 10px; padding: 8px 14px;
+  border: 1px dashed #c7d2fe; border-radius: var(--radius);
+  background: #eef2ff; font: inherit; font-size: 12.5px; font-weight: 600;
+  color: #3730a3; text-align: left; cursor: pointer;
+}
+.addToList:hover { background: #e0e7ff; }

@@ -55,7 +55,7 @@ export default function ProductSearch({ value, onChange, placeholder }) {
   function handleChange(e) {
     const q = e.target.value;
     setQuery(q);
-    onChange({ description: q, unit_price: null, cost_price: null, unit: null, product_id: null, product_name: null });
+    onChange({ description: q, unit_price: null, cost_price: null, unit: null, product_id: null, product_name: null, supplier: null });
     if (timer) clearTimeout(timer);
     if (q.length < 1) { setResults([]); setOpen(false); return; }
     setTimer(setTimeout(async () => {
@@ -74,7 +74,9 @@ export default function ProductSearch({ value, onChange, placeholder }) {
     // cost_price is in cents, unlike unit_price — proposals price off both and
     // work in cents throughout; the line-item editors that only read
     // unit_price are unaffected.
-    onChange({ description: customerText, unit_price: p.unit_price / 100, cost_price: p.cost_price ?? 0, unit: p.unit, product_id: p.id, product_name: p.name });
+    // Who sells it comes too: on a materials list that is what decides
+    // which group a line lands in and whether it can be ordered at all.
+    onChange({ description: customerText, unit_price: p.unit_price / 100, cost_price: p.cost_price ?? 0, unit: p.unit, product_id: p.id, product_name: p.name, supplier: p.supplier || null });
   }
 
   return (

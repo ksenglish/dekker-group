@@ -3,6 +3,8 @@ import api from '../../lib/api';
 import { isAdmin } from '../../lib/permissions';
 import OrderModal from './MaterialOrderModal';
 import { overlayClose } from '../../lib/overlayClose';
+import ProductSearch from '../../components/products/ProductSearch';
+import NewProductModal from '../../components/products/NewProductModal';
 import styles from './Materials.module.css';
 
 // What this job needs, grouped by who sells it.
@@ -165,7 +167,7 @@ function Row({ jobId, item, checked, onToggle, onChanged, canEdit, canUndo }) {
       </span>
       <span className={styles.qty}>{qty(item.quantity)}{item.unit ? ` ${item.unit}` : ''}</span>
       {arranged ? (
-        <span className={`${styles.status} ${styles[`arr_${arranged.kind}`] || styles.stOrdered}`}
+        <span className={`${styles.arranged} ${styles[`arr_${arranged.kind}`] || styles.stOrdered}`}
           title={st.label}>
           {arranged.text}
         </span>
@@ -215,7 +217,8 @@ export default function JobMaterials({ jobId, user }) {
   const [ordering, setOrdering] = useState(null);   // { method, group }
   const [assigning, setAssigning] = useState(null); // the group a pickup is being set on
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ description: '', quantity: '1', unit: 'each', supplier: '' });
+  const [draft, setDraft] = useState({ description: '', quantity: '1', unit: 'each', supplier: '', product_id: null });
+  const [newProduct, setNewProduct] = useState(false);
   const canEdit = true;      // the route is already office-and-up
   const canOrder = isAdmin(user?.role);
 
@@ -283,7 +286,7 @@ export default function JobMaterials({ jobId, user }) {
     if (!draft.description.trim()) return;
     try {
       await api.post(`/jobs/${jobId}/materials`, { ...draft, quantity: parseFloat(draft.quantity) || 1 });
-      setDraft({ description: '', quantity: '1', unit: 'each', supplier: '' });
+      setDraft({ description: '', quantity: '1', unit: 'each', supplier: '', product_id: null });
       setAdding(false);
       await load();
     } catch (e2) { setError(e2.response?.data?.error || 'Could not add that'); }
@@ -320,18 +323,64 @@ export default function JobMaterials({ jobId, user }) {
 
       {error && <div className={styles.error}>{error}</div>}
 
+      {/* Added off the price list rather than typed from nothing.
+          A line typed by hand has no supplier and no code, so it lands in the
+          group that cannot be ordered and somebody has to go and fix it.
+          Picking the product brings both with it. */}
       {adding && (
-        <form className={styles.addRow} onSubmit={addMaterial}>
-          <input autoFocus placeholder="What is it?" value={draft.description}
-            onChange={e => setDraft(d => ({ ...d, description: e.target.value }))} />
-          <input type="number" step="0.001" min="0.001" value={draft.quantity}
-            onChange={e => setDraft(d => ({ ...d, quantity: e.target.value }))} />
-          <input placeholder="unit" value={draft.unit}
-            onChange={e => setDraft(d => ({ ...d, unit: e.target.value }))} />
-          <input placeholder="supplier" value={draft.supplier}
-            onChange={e => setDraft(d => ({ ...d, supplier: e.target.value }))} />
-          <button className={styles.btnSmallPrimary}>Add</button>
-        </form>
+        <>
+          <form className={styles.addRow} onSubmit={addMaterial}>
+            <ProductSearch
+              value={draft.description}
+              placeholder="Search the price list, or type what it is…"
+              onChange={p => setDraft(d => ({
+                ...d,
+                description: p.description,
+                product_id: p.product_id ?? null,
+                // Only a picked product fills these in. Typing over the top
+                // clears the link, and clearing the supplier with it would
+                // wipe one somebody had just typed.
+                ...(p.product_id
+                  ? { unit: p.unit || 'each', supplier: p.supplier || '' }
+                  : {}),
+              }))}
+            />
+            <input type="number" step="0.001" min="0.001" value={draft.quantity}
+              onChange={e => setDraft(d => ({ ...d, quantity: e.target.value }))} />
+            <input placeholder="unit" value={draft.unit}
+              onChange={e => setDraft(d => ({ ...d, unit: e.target.value }))} />
+            <input placeholder="supplier" value={draft.supplier}
+              onChange={e => setDraft(d => ({ ...d, supplier: e.target.value, product_id: null }))} />
+            <button className={styles.btnSmallPrimary}>Add</button>
+          </form>
+          {/* Matching nothing on the list. Most of these are things we buy
+              again, so offer to put it there rather than leave another line
+              nobody can order. */}
+          {!draft.product_id && draft.description.trim() && (
+            <button className={styles.addToList} onClick={() => setNewProduct(true)}>
+              + Add “{draft.description.trim().slice(0, 48)}
+              {draft.description.trim().length > 48 ? '…' : ''}” to the Price List
+            </button>
+          )}
+        </>
+      )}
+
+      {newProduct && (
+        <NewProductModal
+          initialDescription={draft.description}
+          initialSupplier={draft.supplier}
+          onClose={() => setNewProduct(false)}
+          onCreated={product => {
+            setDraft(d => ({
+              ...d,
+              product_id: product.id,
+              description: (product.description || '').trim() || product.name,
+              unit: product.unit || d.unit,
+              supplier: product.supplier || d.supplier,
+            }));
+            setNewProduct(false);
+          }}
+        />
       )}
 
       {data.groups.length === 0 && (
@@ -411,6 +460,16 @@ export default function JobMaterials({ jobId, user }) {
               </p>
             )}
             <div className={styles.rows}>
+              {/* Said once at the top rather than left to be worked out from
+                  the numbers — a bare "4" beside a description could be a
+                  quantity or anything else. */}
+              <div className={styles.rowHead}>
+                <span />
+                <span>Material</span>
+                <span>Quantity</span>
+                <span>Arranged</span>
+                <span />
+              </div>
               {group.items.map(item => (
                 <Row key={item.id} jobId={jobId} item={item}
                   checked={picked.includes(item.id)} onToggle={toggle}
