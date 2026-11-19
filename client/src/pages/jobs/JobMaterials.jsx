@@ -150,7 +150,12 @@ function Row({ jobId, item, checked, onToggle, onChanged, canEdit, canUndo }) {
   // What has been arranged for this line, in the words a crew needs: who is
   // picking it up, or what was ordered and when. Said instead of "To order",
   // which answered none of the questions anybody standing on site has.
-  const arranged = item.arrangement;
+  // The order it was on is still on record, but a line put back to "to order"
+  // is not arranged any more, whatever that record says. Left showing, it told
+  // a crew a delivery was coming for something the office had just taken back
+  // off the order.
+  const arranged = (item.status !== 'needed' || item.pickup_user_id)
+    ? item.arrangement : null;
   // A line somebody is picking up is not one to put on an order, so it does
   // not offer itself for one.
   const spokenFor = !!item.pickup_user_id;
@@ -295,7 +300,17 @@ export default function JobMaterials({ jobId, user }) {
   if (loading) return <div className={styles.empty}>Loading…</div>;
   if (!data) return <div className={styles.empty}>{error || 'Could not load the materials'}</div>;
 
-  const toOrder = data.groups.flatMap(g => g.items).filter(i => i.status === 'needed').length;
+  // A line is sorted once something has been arranged for it — ordered,
+  // delivered, or somebody put down to pick it up. Counting "needed" alone
+  // called a line still to order when a name was already against it.
+  //
+  // Undo is the way back, and it has to be, because it is what brings the
+  // ordering buttons back to a supplier that has none left showing. So this
+  // reads the two things undo actually changes — the status, and the name
+  // against it — not the order record, which stays as a record of what was
+  // sent whatever anybody does to the line afterwards.
+  const waiting = i => i.status === 'needed' && !i.pickup_user_id;
+  const toOrder = data.groups.flatMap(g => g.items).filter(waiting).length;
 
   return (
     <div>
@@ -305,8 +320,8 @@ export default function JobMaterials({ jobId, user }) {
               order. On an empty list it read as reassurance that the job was
               taken care of, which is the opposite of what it meant. */}
           {data.groups.length === 0 ? 'Nothing on the list'
-            : toOrder > 0 ? `${toOrder} still to order`
-            : 'Everything is ordered'}
+            : toOrder > 0 ? `${toOrder} still to sort out`
+            : 'All sorted'}
         </span>
         <span className={styles.spacer} />
         <button className={styles.btnSmall} onClick={() => setAdding(a => !a)}>+ Add a material</button>
@@ -406,10 +421,16 @@ export default function JobMaterials({ jobId, user }) {
       {data.groups.map(group => {
         const needed = group.items.filter(i => i.status === 'needed');
         const pickedHere = needed.filter(i => picked.includes(i.id)).length;
+        // Nothing left under this supplier to arrange, so none of the ways of
+        // arranging it are offered. A tab of buttons that cannot do anything
+        // is a tab nobody can read at a glance, and the only honest answer to
+        // "what is outstanding here" is nothing. Undoing a line puts them
+        // back, because then there is something to arrange again.
+        const allSorted = group.items.length > 0 && !group.items.some(waiting);
         return (
           <div key={group.supplier || 'none'} className={styles.group}>
             <div className={styles.groupHead}>
-              <input type="checkbox" disabled={needed.length === 0}
+              <input type="checkbox" disabled={needed.length === 0 || allSorted}
                 checked={needed.length > 0 && pickedHere === needed.length}
                 onChange={() => toggleGroup(group)} />
               <span className={styles.supplier}>
@@ -420,7 +441,9 @@ export default function JobMaterials({ jobId, user }) {
                 {group.items.length} item{group.items.length === 1 ? '' : 's'}
                 {pickedHere > 0 && ` · ${pickedHere} picked`}
               </span>
-              {canOrder && (
+              {/* Said once, instead of a row of buttons that can do nothing. */}
+              {allSorted && <span className={styles.groupSorted}>✓ All sorted</span>}
+              {canOrder && !allSorted && (
                 <span className={styles.groupActions}>
                   <button className={styles.btnCollect} disabled={pickedHere === 0}
                     onClick={() => setOrdering({ method: 'collect', group })}>
@@ -444,7 +467,7 @@ export default function JobMaterials({ jobId, user }) {
                   for — top soil, metal, a load of bark — have no supplier on
                   the price list, so the group they land in is exactly the one
                   that shows none of the ordering buttons. */}
-              {canEdit && (
+              {canEdit && !allSorted && (
                 <span className={styles.groupActions}>
                   <button className={styles.btnPickup} disabled={pickedHere === 0}
                     onClick={() => setAssigning(group)}>
@@ -453,7 +476,7 @@ export default function JobMaterials({ jobId, user }) {
                 </span>
               )}
             </div>
-            {!group.supplier && (
+            {!group.supplier && !allSorted && (
               <p className={styles.noSupplier}>
                 These have no supplier on the price list, so they cannot be ordered from here yet.
                 Set one on the product, or edit the line below.
@@ -466,7 +489,7 @@ export default function JobMaterials({ jobId, user }) {
               <div className={styles.rowHead}>
                 <span />
                 <span>Material</span>
-                <span>Quantity</span>
+                <span>Qty</span>
                 <span>Arranged</span>
                 <span />
               </div>

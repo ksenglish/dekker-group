@@ -60,6 +60,12 @@
   border-radius: 999px; padding: 1px 8px;
 }
 .groupCount { font-size: 12px; color: var(--color-text-muted); }
+/* Takes the place of the row of buttons once there is nothing left under this
+   supplier to arrange, so the head still says where the group stands. */
+.groupSorted {
+  font-size: 11px; font-weight: 700; color: #166534;
+  background: #dcfce7; border-radius: 999px; padding: 2px 9px;
+}
 .groupActions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 .noSupplier {
   margin: 0; padding: 8px 14px; font-size: 12px; line-height: 1.5;
@@ -71,9 +77,13 @@
    "Ordered" and nothing like enough for "Kyle English to organise pick up" —
    it ran straight over the buttons beside it. It takes what it needs now, and
    the description gives way first. */
+/* Every one of these is its own grid, so a track sized to its own contents
+   lands somewhere different on each line and the headings sat over the wrong
+   columns. Shares of the row instead: the same arithmetic on every line, so
+   they all line up. */
 .rowHead, .row {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 84px minmax(130px, auto) auto;
+  grid-template-columns: 22px minmax(0, 1.6fr) 84px minmax(0, 1.4fr) 164px;
   gap: 10px; align-items: center; padding: 9px 14px;
   border-bottom: 1px solid var(--color-border); font-size: 13px;
 }
@@ -87,6 +97,9 @@
   color: var(--color-text-muted);
 }
 .rowHead span:nth-child(3) { text-align: right; }
+/* Grid stretches it to the full 22px of its column otherwise, which draws the
+   box as a squashed oval. */
+.row > input[type="checkbox"] { justify-self: start; }
 .row:last-child { border-bottom: none; }
 .rowDone { background: #fafafa; color: var(--color-text-muted); }
 .what { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
@@ -230,14 +243,77 @@
 }
 .previewBody { padding: 12px; max-height: 320px; overflow-y: auto; background: white; }
 
+/* ── On a phone ───────────────────────────────────────────────────────────── */
+
+/* Five columns across a 390px screen gave every one of them too little room:
+   the description broke after two words, the quantity sat hard against it and
+   the status sentence stacked a word per line. Each material becomes a small
+   block instead — description, then quantity, then what has been arranged,
+   then anything you can do about it — read top to bottom, one thing per line. */
 @media (max-width: 640px) {
-  .row { grid-template-columns: 22px minmax(0, 1fr) auto; row-gap: 4px; }
-  .row > span:nth-child(3) { grid-column: 2; text-align: left; font-size: 12px; color: var(--color-text-muted); }
-  .rowActions { grid-column: 3; grid-row: 1; }
-  .addRow, .editRow { grid-template-columns: 1fr 1fr; }
-  .addRow > input:first-child, .editRow > input:first-child { grid-column: 1 / -1; }
-  .groupActions { margin-left: 0; width: 100%; }
-  .btnCollect, .btnDeliver { flex: 1; }
+  /* The column headings belong to a table that no longer exists here. Each
+     value says what it is instead, below. */
+  .rowHead { display: none; }
+
+  .toolbar { flex-direction: column; align-items: stretch; }
+  /* It exists to push the buttons to the far end of a wide row. There is no
+     far end here. */
+  .spacer { display: none; }
+  .toolbar > button { width: 100%; }
+
+  .row {
+    grid-template-columns: 22px minmax(0, 1fr);
+    column-gap: 10px; row-gap: 5px;
+    padding: 11px 14px 12px;
+    align-items: start;
+  }
+  /* The checkbox keeps the left margin to itself, alongside the description,
+     so the whole block belongs to it. */
+  .row > input[type="checkbox"] { grid-column: 1; grid-row: 1; margin: 2px 0 0; }
+  .row > .what {
+    grid-column: 2; grid-row: 1;
+    flex-wrap: wrap; font-size: 14px; font-weight: 600; line-height: 1.35;
+  }
+  .what .src { white-space: normal; }
+  .row > .qty {
+    grid-column: 2; grid-row: 2;
+    text-align: left; white-space: normal; font-size: 13px;
+  }
+  /* With the heading row gone, the number says what it is. */
+  .row > .qty::before {
+    content: 'Qty ';
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--color-text-muted);
+  }
+  .row > .status, .row > .arranged {
+    grid-column: 2; grid-row: 3; justify-self: start; white-space: normal;
+  }
+  .row > .rowActions { grid-column: 2; grid-row: 4; gap: 16px; }
+
+  /* The supplier, how many items, and each way of arranging them, one under
+     the other and full width — three buttons side by side came out about
+     seventy pixels wide each. */
+  .groupHead {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    column-gap: 10px; row-gap: 7px; align-items: center;
+  }
+  .groupHead > input[type="checkbox"] { grid-column: 1; grid-row: 1; margin: 0; }
+  .supplier { grid-column: 2; grid-row: 1; flex-wrap: wrap; }
+  .groupCount { grid-column: 2; }
+  .groupSorted { grid-column: 2; justify-self: start; }
+  .groupActions { grid-column: 1 / -1; margin-left: 0; flex-direction: column; gap: 8px; }
+  .groupActions > button { width: 100%; }
+
+  /* One field per line, for the same reason, with the buttons left to share
+     the last one. */
+  .addRow, .editRow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .addRow > *, .editRow > * { grid-column: 1 / -1; }
+  .addRow > button, .editRow > button { grid-column: auto; }
+
+  /* Orders already sent, down the page the same way. */
+  .order { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .orderSent, .orderFailed, .orderUndone { margin-left: 0; }
 }
 
 /* ── Somebody picking it up ───────────────────────────────────────────────── */
