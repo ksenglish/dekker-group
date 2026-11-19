@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { cleanPastedHtml, plainTextToHtml } from '../lib/pasteHtml';
 import styles from './RichTextEditor.module.css';
 
 const FONT_SIZES = [12, 13, 14, 16, 18, 24];
@@ -66,10 +67,25 @@ export default function RichTextEditor({ value, onChange, placeholder }) {
     onChange(html);
   }
 
+  // Paste keeps what was formatted.
+  //
+  // It used to take the plain text and drop the rest, so a scope of works
+  // copied out of a previous quote arrived with its headings unbolded and its
+  // bullets gone — and wearing whatever formatting the caret happened to be
+  // sitting in, which is why one pasted in bold came out bold all through.
+  //
+  // The clipboard's HTML is rebuilt out of the tags this app uses before it
+  // goes anywhere near the document; see lib/pasteHtml.js.
   function handlePaste(e) {
     e.preventDefault();
-    const text = e.clipboardData.getData('text/plain');
-    document.execCommand('insertText', false, text);
+    const clip = e.clipboardData;
+    const html = clip.getData('text/html');
+    const cleaned = html ? cleanPastedHtml(html) : '';
+    // Falling back to the text is not a failure: plenty of things put nothing
+    // but text on the clipboard, and its line breaks are still worth keeping.
+    const insert = cleaned || plainTextToHtml(clip.getData('text/plain'));
+    if (!insert) return;
+    document.execCommand('insertHTML', false, insert);
     handleInput();
   }
 
