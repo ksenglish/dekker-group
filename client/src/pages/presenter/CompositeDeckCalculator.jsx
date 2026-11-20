@@ -1,16 +1,29 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../lib/api';
-import { planDeck, DECK, COLOURS, PITCH, BOARD_W } from './deckPlan';
+import RunPlanner from '../../components/plan/RunPlanner';
+import { planDeckShape, DECK, COLOURS } from './deckPlan';
 import styles from './SalesPresenter.module.css';
-import own from './CompositeDeckCalculator.module.css';
+import own from './UrbanFenceCalculator.module.css';
+import deck from './CompositeDeckCalculator.module.css';
 
 // Working out a composite deck in front of the customer.
+//
+// The deck is drawn, not typed. The same plan the fences use — press and drag
+// out each edge, type over a measurement to make it exact, pinch to get
+// closer — because a back yard is rarely a rectangle and a length and a width
+// could not say so. Close the outline, pick a design, and the boards land in
+// it.
 //
 // Two things are happening at once and both matter. The arithmetic has to
 // agree with what Bunnings will say at the trade desk — it is checked against
 // Ekodeck's own planner, see deckPlan.js — and the customer has to be able to
-// see what they are buying, which is why the deck is drawn in the colour they
-// picked and the board photograph sits beside it.
+// see what they are buying.
+//
+// The drawing is black on white, like Ekodeck's own planner, and so is the
+// board: a plan is for reading, and a brown rectangle full of brown lines
+// reads as a brown rectangle. The colour they picked is beside it on its own
+// photograph, where it looks like the thing it is. Joists and clips are drawn
+// the way Ekodeck draw them, down to the red cross on a locking clip.
 //
 // Designer Series only. That is what Dekker source through Bunnings Trade, and
 // a dropdown of ranges nobody stocks is four wrong answers.
@@ -25,123 +38,131 @@ const isLight = hex => {
   return (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000 > 140;
 };
 
-// A board's own grain, so the drawing reads as timber rather than as a bar
-// chart. Two shades either side of the photographed colour.
-function shade(hex, by) {
-  const n = parseInt(hex.slice(1), 16);
-  const clamp = v => Math.max(0, Math.min(255, Math.round(v)));
-  const r = clamp(((n >> 16) & 255) * by);
-  const g = clamp(((n >> 8) & 255) * by);
-  const b = clamp((n & 255) * by);
-  return `#${[r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')}`;
-}
+// What laying the boards out can be asked for. Until one is picked the drawing
+// is an outline and nothing else — which is the honest state of it, because
+// nobody has said yet which way the boards run.
+const DESIGNS = [
+  { key: 'none', label: 'Outline only', why: 'Just the shape, no boards yet' },
+  { key: 'plain', label: 'Plain', why: 'Boards wall to wall, cut ends showing' },
+  { key: 'frame', label: 'Picture frame', why: 'A board round the edge, hiding the cut ends' },
+];
 
-// ── The drawing ─────────────────────────────────────────────────────────────
+const LAYERS = [
+  ['boards', 'Boards'],
+  ['joists', 'Joists/Subframe'],
+  ['clips', 'Clips'],
+];
+
+const money = n => n.toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// ── The deck, drawn on the plan ─────────────────────────────────────────────
 //
-// A plan view at scale, in the chosen colour, with every board drawn where it
-// will actually land. Not a stock photograph: the point is that turning the
-// boards or adding a picture frame changes the picture, because that is the
-// conversation being had over the plan.
-function DeckPlan({ plan, hex }) {
-  if (!plan) return null;
-  const { runMm, spanMm, boardsAcross, frame, rows, piecesPerRow, pieceMm } = plan;
+// Everything here comes out of the take-off, so the picture and the order
+// cannot disagree: if a board is drawn, it was counted.
+function deckOnPlan({ plan, layers }) {
+  return ({ unit }) => {
+    if (!plan) return null;
+    const {
+      axis, outline, field, boards, breakers, boardWidthM, joists, joistWidthM, clips, locks,
+    } = plan.layout;
+    const half = boardWidthM / 2;
+    // A board lying along x is drawn long in x and a board's width in y, and
+    // the other way about when the boards are turned.
+    const boardRect = b => (axis === 'x'
+      ? { x: b.a0, y: b.at - half, width: b.a1 - b.a0, height: boardWidthM }
+      : { x: b.at - half, y: b.a0, width: boardWidthM, height: b.a1 - b.a0 });
+    // A hairline however far in the plan is zoomed, because a line weight is
+    // about reading the drawing, not about the deck.
+    const line = unit / 9;
+    // A clip is a clip. Drawn at the size it really is — 90mm of it showing
+    // between two boards — so it sits inside the gap instead of straddling
+    // three boards when the plan happens to be zoomed out.
+    const CLIP_LONG = 0.09;
+    const CLIP_WIDE = 0.04;
+    const ARM = 0.05;
 
-  // The deck as it sits on the ground: length left to right.
-  const deckW = boardsAcross ? runMm : spanMm;
-  const deckH = boardsAcross ? spanMm : runMm;
+    return (
+      <g>
+        {/* The deck itself, so the grid does not show through it. */}
+        <polygon points={outline.map(p => `${p.x},${p.y}`).join(' ')} fill="#fff" />
 
-  const PAD = 46;
-  const scale = Math.min(520 / deckW, 360 / deckH);
-  const w = deckW * scale;
-  const h = deckH * scale;
-
-  const inset = frame ? (BOARD_W + DECK.board.gapMm / 2) : 0;
-  const boards = [];
-  for (let i = 0; i < rows; i++) {
-    const at = inset + i * PITCH;
-    for (let p = 0; p < piecesPerRow; p++) {
-      const along = inset + p * (pieceMm + BOARD_W + DECK.board.gapMm / 2);
-      boards.push(
-        boardsAcross
-          ? { x: along, y: at, w: pieceMm, h: BOARD_W, key: `${i}-${p}` }
-          : { x: at, y: along, w: BOARD_W, h: pieceMm, key: `${i}-${p}` }
-      );
-    }
-  }
-
-  const grain = shade(hex, 0.86);
-  const edge = shade(hex, 0.7);
-
-  return (
-    <svg
-      className={own.plan}
-      viewBox={`0 0 ${w + PAD * 2} ${h + PAD * 2}`}
-      role="img"
-      aria-label={`Plan of a ${(deckW / 1000).toFixed(1)} by ${(deckH / 1000).toFixed(1)} metre deck`}
-    >
-      <g transform={`translate(${PAD} ${PAD}) scale(${scale})`}>
-        {/* The substrate, which shows through the 6mm gaps the clips set. */}
-        <rect x="0" y="0" width={deckW} height={deckH} fill="#1f2937" rx={20 / scale} />
-        {/* The frame, drawn as four boards running round the edge with mitred
-            corners. Perpendicular to the field, which is the whole reason
-            anybody puts one on — and the only way the option is visible on a
-            deck where frame and field are the same colour. */}
-        {frame && (
-          <g>
-            <rect x={0} y={0} width={deckW} height={deckH} fill={hex} rx={20 / scale} />
-            <rect x={inset} y={inset} width={deckW - inset * 2} height={deckH - inset * 2}
-              fill="#1f2937" />
-            {/* The groove down each frame board, following the edge it sits on. */}
-            <line x1={0} y1={inset / 2} x2={deckW} y2={inset / 2} stroke={grain} strokeWidth={6} />
-            <line x1={0} y1={deckH - inset / 2} x2={deckW} y2={deckH - inset / 2} stroke={grain} strokeWidth={6} />
-            <line x1={inset / 2} y1={0} x2={inset / 2} y2={deckH} stroke={grain} strokeWidth={6} />
-            <line x1={deckW - inset / 2} y1={0} x2={deckW - inset / 2} y2={deckH} stroke={grain} strokeWidth={6} />
-            {/* Mitres, so the corners read as four boards rather than one hoop. */}
-            {[[0, 0, inset, inset], [deckW, 0, deckW - inset, inset],
-              [0, deckH, inset, deckH - inset], [deckW, deckH, deckW - inset, deckH - inset]]
-              .map(([x1, y1, x2, y2], i) => (
-                <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
-                  stroke={edge} strokeWidth={4} />
-              ))}
+        {layers.boards && (
+          <g fill="none" stroke="#111827" strokeWidth={line}>
+            {/* The frame: the strip between the outline and where the field
+                starts, mitred at every corner. Four boards on a rectangle,
+                six on an L — however many sides the deck turned out to have. */}
+            {plan.frame && (
+              <>
+                <polygon points={outline.map(p => `${p.x},${p.y}`).join(' ')} />
+                <polygon points={field.map(p => `${p.x},${p.y}`).join(' ')} />
+                {outline.map((p, i) => (
+                  <line key={i} x1={p.x} y1={p.y} x2={field[i].x} y2={field[i].y} />
+                ))}
+              </>
+            )}
+            {boards.map((b, i) => <rect key={i} {...boardRect(b)} />)}
+            {/* The breaker each jointed run lands on, running the other way.
+                Without it the joint read as a stripe of missing deck. */}
+            {breakers.map((b, i) => (
+              <rect key={`k${i}`}
+                x={axis === 'x' ? b.a0 : b.c0}
+                y={axis === 'x' ? b.c0 : b.a0}
+                width={axis === 'x' ? b.a1 - b.a0 : b.c1 - b.c0}
+                height={axis === 'x' ? b.c1 - b.c0 : b.a1 - b.a0} />
+            ))}
           </g>
         )}
-        {boards.map(b => (
-          <g key={b.key}>
-            <rect x={b.x} y={b.y} width={b.w} height={b.h} fill={hex} />
-            {/* One groove down the middle of each board, as the profile has. */}
-            <line
-              x1={b.x + (boardsAcross ? 0 : b.w / 2)} y1={b.y + (boardsAcross ? b.h / 2 : 0)}
-              x2={b.x + (boardsAcross ? b.w : b.w / 2)} y2={b.y + (boardsAcross ? b.h / 2 : b.h)}
-              stroke={grain} strokeWidth={6}
-            />
-          </g>
-        ))}
-      </g>
 
-      {/* Dimensions, so the drawing is a plan and not a picture. */}
-      <g className={own.dims}>
-        <line x1={PAD} y1={PAD + h + 18} x2={PAD + w} y2={PAD + h + 18} />
-        <text x={PAD + w / 2} y={PAD + h + 36} textAnchor="middle">
-          {(deckW / 1000).toFixed(2)}m
-        </text>
-        <line x1={PAD + w + 18} y1={PAD} x2={PAD + w + 18} y2={PAD + h} />
-        <text
-          x={PAD + w + 34} y={PAD + h / 2} textAnchor="middle"
-          transform={`rotate(90 ${PAD + w + 34} ${PAD + h / 2})`}
-        >
-          {(deckH / 1000).toFixed(2)}m
-        </text>
+        {/* What the boards are sitting on. Drawn over them rather than under,
+            the way Ekodeck draw it, so you can see which board lands where. */}
+        {layers.joists && (
+          <g fill="#727272" fillOpacity="0.6">
+            {joists.map((j, i) => j.spans.map((s, n) => (
+              <rect key={`${i}-${n}`}
+                x={axis === 'x' ? j.at - joistWidthM / 2 : s.from}
+                y={axis === 'x' ? s.from : j.at - joistWidthM / 2}
+                width={axis === 'x' ? joistWidthM : s.to - s.from}
+                height={axis === 'x' ? s.to - s.from : joistWidthM} />
+            )))}
+          </g>
+        )}
+
+        {/* A clip wherever a board crosses a joist, and the one in the middle
+            of each board a locking clip, which is what stops the board
+            creeping as it grows and shrinks. */}
+        {layers.clips && (
+          <g>
+            {/* The clip lies across the joist, so it runs the way the joist
+                does — against the boards it is holding down. */}
+            {clips.map((c, i) => (
+              <rect key={i} fill="#111827"
+                x={c.x - (axis === 'x' ? CLIP_WIDE : CLIP_LONG) / 2}
+                y={c.y - (axis === 'x' ? CLIP_LONG : CLIP_WIDE) / 2}
+                width={axis === 'x' ? CLIP_WIDE : CLIP_LONG}
+                height={axis === 'x' ? CLIP_LONG : CLIP_WIDE} />
+            ))}
+            {locks.map((c, i) => (
+              <g key={i} stroke="#dc2626" strokeWidth={line * 1.6}>
+                <line x1={c.x - ARM} y1={c.y - ARM} x2={c.x + ARM} y2={c.y + ARM} />
+                <line x1={c.x + ARM} y1={c.y - ARM} x2={c.x - ARM} y2={c.y + ARM} />
+              </g>
+            ))}
+          </g>
+        )}
       </g>
-    </svg>
-  );
+    );
+  };
 }
 
-export default function CompositeDeckCalculator({ onPick, onQuantityChange, onRecommend }) {
+export default function CompositeDeckCalculator({
+  onPick, onQuantityChange, onRecommend, fullPage = false,
+}) {
   const [colour, setColour] = useState(COLOURS[2].key);   // Leatherwood, the usual pick
-  const [lengthM, setLengthM] = useState('');
-  const [widthM, setWidthM] = useState('');
-  const [pictureFrame, setPictureFrame] = useState(false);
+  const [design, setDesign] = useState('none');
   const [boardsAcross, setBoardsAcross] = useState(true);
+  const [layers, setLayers] = useState({ boards: true, joists: false, clips: false });
+  const [points, setPoints] = useState([]);
+  const [closed, setClosed] = useState(false);
   const [priceList, setPriceList] = useState([]);
 
   useEffect(() => {
@@ -149,12 +170,9 @@ export default function CompositeDeckCalculator({ onPick, onQuantityChange, onRe
   }, []);
 
   const swatch = COLOURS.find(c => c.key === colour) || COLOURS[0];
-  const plan = useMemo(() => planDeck({
-    lengthM: parseFloat(lengthM) || 0,
-    widthM: parseFloat(widthM) || 0,
-    pictureFrame,
-    boardsAcross,
-  }), [lengthM, widthM, pictureFrame, boardsAcross]);
+  const plan = useMemo(() => (design === 'none' ? null : planDeckShape({
+    points, closed, pictureFrame: design === 'frame', boardsAcross,
+  })), [points, closed, design, boardsAcross]);
 
   // The board in this colour, and the clips, off the Price List. Matched on
   // the colour name appearing in the product, which is how the Boundaryline
@@ -180,151 +198,209 @@ export default function CompositeDeckCalculator({ onPick, onQuantityChange, onRe
   const kitEach = kitProduct ? kitProduct.unit_price / 100 : 0;
   const total = plan ? plan.stockLengths * boardEach + plan.kits * kitEach : 0;
 
+  function drawn({ points: next, closed: shut }) {
+    setPoints(next);
+    setClosed(shut);
+  }
+  const setLayer = (key, on) => setLayers(l => ({ ...l, [key]: on }));
+
   return (
-    <div className={styles.calc}>
-      <h3 className={styles.calcTitle}>Composite Deck Calculator</h3>
-      <p className={own.sub}>Ekodeck Designer Series · 137 × 23mm board, 5.4m lengths</p>
+    <div className={fullPage ? own.page : styles.calc}>
+      {!fullPage && (
+        <>
+          <h3 className={styles.calcTitle}>Composite Deck Calculator</h3>
+          <p className={own.sub}>Ekodeck Designer Series · 137 × 23mm board, 5.4m lengths</p>
+        </>
+      )}
 
-      {/* ── The colour, which is the first thing a customer has an opinion on ── */}
-      <div className={own.colours} role="radiogroup" aria-label="Board colour">
-        {COLOURS.map(c => (
-          <button
-            key={c.key}
-            type="button"
-            role="radio"
-            aria-checked={c.key === colour}
-            className={c.key === colour ? own.colourOn : own.colour}
-            onClick={() => setColour(c.key)}
-            title={`${c.name} — ${c.tone}`}
-          >
-            <img src={SWATCH(c.key)} alt="" loading="lazy" />
-            <span className={isLight(c.hex) ? own.chipDark : own.chipLight}>{c.name}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className={styles.calcGrid}>
-        <div className={styles.calcField}>
-          <label>Deck length (m)</label>
-          <input type="number" min="0" step="0.1" value={lengthM} inputMode="decimal"
-            onChange={e => setLengthM(e.target.value)} placeholder="e.g. 6" />
-        </div>
-        <div className={styles.calcField}>
-          <label>Deck width (m)</label>
-          <input type="number" min="0" step="0.1" value={widthM} inputMode="decimal"
-            onChange={e => setWidthM(e.target.value)} placeholder="e.g. 4" />
-        </div>
-      </div>
-
-      <div className={own.options}>
-        <label className={own.toggle}>
-          <input type="checkbox" checked={pictureFrame}
-            onChange={e => setPictureFrame(e.target.checked)} />
-          <span>
-            <strong>Picture frame</strong>
-            <em>A board round the edge, hiding the cut ends</em>
-          </span>
-        </label>
-        <label className={own.toggle}>
-          <input type="checkbox" checked={!boardsAcross}
-            onChange={e => setBoardsAcross(!e.target.checked)} />
-          <span>
-            <strong>Run the boards the other way</strong>
-            <em>{boardsAcross ? 'Along the length at the moment' : 'Across the width at the moment'}</em>
-          </span>
-        </label>
-      </div>
-
-      {/* ── What it looks like ── */}
-      <div className={own.preview}>
-        {plan ? (
-          <DeckPlan plan={plan} hex={swatch.hex} />
-        ) : (
-          <div className={own.previewEmpty}>Put a length and a width in to see the deck</div>
+      <div className={fullPage ? own.planPane : own.planInline}>
+        <RunPlanner
+          points={points}
+          closed={closed}
+          onChange={drawn}
+          colour="#111827"
+          fill={fullPage}
+          showArea
+          // A deck is a few metres across, not a boundary. Framed to the 24m
+          // the fences use, the usual one sat in a corner of the view with the
+          // boards too small to count.
+          minSpanM={8}
+          overlay={deckOnPlan({ plan, layers })}
+          hint="Press and drag out the first edge of the deck. Carry on round, finish on the corner you started at to close it, and type over any measurement to make it exact."
+        />
+        {plan && layers.clips && (
+          <p className={deck.legend}>
+            <span className={deck.legendClip} /> Standard clip
+            <span className={deck.legendLock}>✕</span> Locking clip
+          </p>
         )}
-        <div className={own.swatchPane}>
-          <img className={own.swatchImg} src={SWATCH(swatch.key)} alt={`${swatch.name} board`} />
-          <div className={own.swatchName}>{swatch.name}</div>
-          <div className={own.swatchTone}>{swatch.tone}</div>
+      </div>
+
+      <div className={fullPage ? own.sidePane : own.stacked}>
+        {/* ── The design, which is what turns the outline into a deck ──
+            First, and above the colours, because until one of these is picked
+            the drawing is an outline and the take-off is empty. The colour is
+            the conversation; this is the thing that has to be answered. */}
+        <div className={deck.designs} role="radiogroup" aria-label="Decking design">
+          {DESIGNS.map(d => (
+            <button key={d.key} type="button" role="radio" aria-checked={design === d.key}
+              className={design === d.key ? deck.designOn : deck.design}
+              onClick={() => setDesign(d.key)}>
+              <strong>{d.label}</strong>
+              <em>{d.why}</em>
+            </button>
+          ))}
+        </div>
+
+        <div className={`${styles.calcGrid} ${own.grid}`}>
+          <div className={styles.calcField}>
+            <label>Board direction</label>
+            <select value={boardsAcross ? 'h' : 'v'}
+              onChange={e => setBoardsAcross(e.target.value === 'h')}>
+              <option value="h">Horizontal — across the plan</option>
+              <option value="v">Vertical — up the plan</option>
+            </select>
+          </div>
+          <div className={styles.calcField}>
+            <label>Diagram layers</label>
+            <div className={deck.layers}>
+              {LAYERS.map(([key, label]) => (
+                <label key={key} className={deck.layer}>
+                  <input type="checkbox" checked={layers[key]}
+                    disabled={!plan}
+                    onChange={e => setLayer(key, e.target.checked)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── The take-off ── */}
+        {plan ? (
+          <div className={styles.calcResult}>
+            <div className={styles.calcResultRow}>
+              <span>Deck area</span><strong>{plan.areaM2.toFixed(2)} m²</strong>
+            </div>
+            <div className={styles.calcResultRow}>
+              <span>Boards</span>
+              <strong>{plan.rows} {plan.rows === 1 ? 'row' : 'rows'}, {plan.fieldPieces} pieces</strong>
+            </div>
+            {/* Ekodeck's planner calls this the proposed sections, and it is
+                the part a builder reads: how long every cut is. A rectangle
+                has one line here; a shape with a corner out of it has two. */}
+            <div className={own.breakdown}>
+              {plan.sections.map(s => `${s.count} at ${s.pieceMm}mm`).join(' · ')}
+              {plan.joints > 0 && ` · ${plan.joints} ${plan.joints === 1 ? 'breaker' : 'breakers'} in the longest run`}
+            </div>
+            {plan.frame && (
+              <div className={styles.calcResultRow}>
+                <span>Picture frame ({plan.perimeterM.toFixed(2)}m round)</span>
+                <strong>{plan.framePieces} boards</strong>
+              </div>
+            )}
+            <div className={styles.calcResultRow}>
+              <span>5.4m lengths to order</span><strong>{plan.stockLengths}</strong>
+            </div>
+            <div className={styles.calcResultRow}>
+              <span>QuickFix kits (100lm)</span><strong>{plan.kits}</strong>
+            </div>
+            <div className={styles.calcResultRow}>
+              <span>Clips</span>
+              <strong>{plan.clipCount} · {plan.lockCount} locking</strong>
+            </div>
+            <div className={styles.calcResultRow}>
+              <span>Joists at {DECK.install.joistSpacingMm}mm centres</span>
+              <strong>{plan.joists} · {plan.joistLm}lm</strong>
+            </div>
+            <div className={styles.calcResultRow}>
+              <span>Off the board</span>
+              <strong>{plan.linearMetres}lm used · {plan.wastePct}% waste</strong>
+            </div>
+
+            {plan.shortfallMatters && (
+              <div className={deck.warn}>
+                The last row leaves <strong>{plan.shortfallMm}mm</strong> uncovered. That is how
+                Ekodeck count it too — their planner excludes fascia and edge boards — so either
+                add an edge board, or bring the width in by that much.
+              </div>
+            )}
+
+            {boardProduct ? (
+              <>
+                <div className={styles.calcResultRow}>
+                  <span>Board ({plan.stockLengths} × ${money(boardEach)})</span>
+                  <strong>${money(plan.stockLengths * boardEach)}</strong>
+                </div>
+                {kitProduct && (
+                  <div className={styles.calcResultRow}>
+                    <span>Clips ({plan.kits} × ${money(kitEach)})</span>
+                    <strong>${money(plan.kits * kitEach)}</strong>
+                  </div>
+                )}
+                <div className={styles.calcResultRow}>
+                  <span>Total (inc GST)</span>
+                  <strong className={styles.calcTotal}>${money(total * 1.15)}</strong>
+                </div>
+                {onPick && (
+                  <button className={styles.addToJobBtn}
+                    onClick={() => {
+                      onPick({ ...boardProduct, quantity: plan.stockLengths });
+                      if (kitProduct) onPick({ ...kitProduct, quantity: plan.kits });
+                    }}>
+                    + Add {plan.stockLengths} lengths{kitProduct ? ` and ${plan.kits} kits` : ''} to Quote
+                  </button>
+                )}
+              </>
+            ) : (
+              <div className={styles.calcNote} style={{ marginTop: 10 }}>
+                Add “Ekodeck Designer Series {swatch.name}” to your Price List to price this and
+                put it on a quote. The quantities above are right either way.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className={own.empty}>
+            {design === 'none'
+              ? 'Draw the deck on the plan, then pick a design to lay the boards in it'
+              : closed
+                ? 'The outline is not big enough for a board yet'
+                : 'Close the outline — finish on the corner you started at — to lay the boards'}
+          </div>
+        )}
+
+        {/* ── The colour, and where it looks like itself ──
+            Last, because it changes nothing about the take-off. The deck is
+            drawn in black and white whichever of these is picked — a plan is
+            for reading, and a brown rectangle full of brown lines reads as a
+            brown rectangle. The board is here instead, photographed. */}
+        <div className={deck.colours} role="radiogroup" aria-label="Board colour">
+          {COLOURS.map(c => (
+            <button
+              key={c.key}
+              type="button"
+              role="radio"
+              aria-checked={c.key === colour}
+              className={c.key === colour ? deck.colourOn : deck.colour}
+              onClick={() => setColour(c.key)}
+              title={`${c.name} — ${c.tone}`}
+            >
+              <img src={SWATCH(c.key)} alt="" loading="lazy" />
+              <span className={isLight(c.hex) ? deck.chipDark : deck.chipLight}>{c.name}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className={deck.swatchPane}>
+          <img className={deck.swatchImg} src={SWATCH(swatch.key)} alt={`${swatch.name} board`} />
+          <div className={deck.swatchName}>{swatch.name}</div>
+          <div className={deck.swatchTone}>{swatch.tone}</div>
           {SCENE_COLOURS.has(swatch.key) && (
-            <img className={own.scene} src={`/ekodeck/${swatch.key}-deck.jpg`}
+            <img className={deck.scene} src={`/ekodeck/${swatch.key}-deck.jpg`}
               alt={`A deck laid in ${swatch.name}`} loading="lazy" />
           )}
         </div>
       </div>
-
-      {plan && (
-        <div className={styles.calcResult}>
-          <div className={styles.calcResultRow}><span>Deck area</span><strong>{plan.areaM2.toFixed(2)} m²</strong></div>
-          <div className={styles.calcResultRow}>
-            <span>Boards</span>
-            <strong>
-              {plan.rows} {plan.rows === 1 ? 'row' : 'rows'}
-              {plan.piecesPerRow > 1 ? ` × ${plan.piecesPerRow} lengths` : ''} at {plan.pieceMm}mm
-            </strong>
-          </div>
-          {plan.frame && (
-            <div className={styles.calcResultRow}><span>Picture frame</span><strong>{plan.framePieces} boards</strong></div>
-          )}
-          <div className={styles.calcResultRow}>
-            <span>5.4m lengths to order</span><strong>{plan.stockLengths}</strong>
-          </div>
-          <div className={styles.calcResultRow}>
-            <span>QuickFix kits (100lm)</span><strong>{plan.kits}</strong>
-          </div>
-          <div className={styles.calcResultRow}>
-            <span>Joists at {DECK.install.joistSpacingMm}mm centres</span><strong>{plan.joists}</strong>
-          </div>
-          <div className={styles.calcResultRow}>
-            <span>Off the board</span>
-            <strong>{plan.linearMetres}lm used · {plan.wastePct}% waste</strong>
-          </div>
-
-          {plan.shortfallMatters && (
-            <div className={own.warn}>
-              The last row leaves <strong>{plan.shortfallMm}mm</strong> uncovered. That is how
-              Ekodeck count it too — their planner excludes fascia and edge boards — so either
-              add an edge board, or allow one more row and bring the width back to{' '}
-              {((plan.spanMm - plan.shortfallMm) / 1000).toFixed(3)}m.
-            </div>
-          )}
-
-          {boardProduct ? (
-            <>
-              <div className={styles.calcResultRow}>
-                <span>Board ({plan.stockLengths} × ${boardEach.toFixed(2)})</span>
-                <strong>${(plan.stockLengths * boardEach).toFixed(2)}</strong>
-              </div>
-              {kitProduct && (
-                <div className={styles.calcResultRow}>
-                  <span>Clips ({plan.kits} × ${kitEach.toFixed(2)})</span>
-                  <strong>${(plan.kits * kitEach).toFixed(2)}</strong>
-                </div>
-              )}
-              <div className={styles.calcResultRow}>
-                <span>Total (inc GST)</span>
-                <strong className={styles.calcTotal}>
-                  ${(total * 1.15).toLocaleString('en-NZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </strong>
-              </div>
-              {onPick && (
-                <button className={styles.addToJobBtn}
-                  onClick={() => {
-                    onPick({ ...boardProduct, quantity: plan.stockLengths });
-                    if (kitProduct) onPick({ ...kitProduct, quantity: plan.kits });
-                  }}>
-                  + Add {plan.stockLengths} lengths{kitProduct ? ` and ${plan.kits} kits` : ''} to Quote
-                </button>
-              )}
-            </>
-          ) : (
-            <div className={styles.calcNote} style={{ marginTop: 10 }}>
-              Add “Ekodeck Designer Series {swatch.name}” to your Price List to price this and
-              put it on a quote. The quantities above are right either way.
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

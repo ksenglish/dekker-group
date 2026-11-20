@@ -17,7 +17,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 8px;
-  margin-bottom: 16px;
+  margin: 18px 0 0;
 }
 
 .colour {
@@ -60,79 +60,90 @@
 .chipLight { color: #fff; background: rgb(15 23 42 / 0.5); }
 .chipDark { color: #0f172a; background: rgb(255 255 255 / 0.72); }
 
-/* ── Options ──────────────────────────────────────────────────────────────── */
+/* ── The design ───────────────────────────────────────────────────────────── */
 
-.options {
+/* What turns a drawn outline into a deck. Nothing is laid until one of these
+   is picked, because until then nobody has said which way the boards run or
+   whether the cut ends are being hidden. */
+.designs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-  margin: 4px 0 16px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin: 0 0 14px;
 }
 
-.toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
+.design {
+  display: block;
+  text-align: left;
+  padding: 9px 11px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
+  background: var(--color-surface);
+  font-family: inherit;
   cursor: pointer;
+  min-width: 0;
 }
-.toggle input {
-  width: 18px; height: 18px; margin: 1px 0 0;
-  flex-shrink: 0;
-  accent-color: var(--color-primary, #1e40af);
-}
-.toggle span { display: block; min-width: 0; }
-.toggle strong { display: block; font-size: 13.5px; font-weight: 600; }
-.toggle em {
+.design:hover { background: #f8fafc; }
+.design strong { display: block; font-size: 13.5px; font-weight: 600; }
+.design em {
   display: block; font-style: normal;
-  font-size: 12px; color: var(--color-text-muted);
-  line-height: 1.45; margin-top: 2px;
+  font-size: 11.5px; color: var(--color-text-muted);
+  line-height: 1.4; margin-top: 2px;
 }
 
-/* ── The drawing and the board beside it ──────────────────────────────────── */
-
-.preview {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px;
-  gap: 14px;
-  align-items: start;
-  margin-bottom: 16px;
+.designOn {
+  composes: design;
+  border-color: var(--color-primary, #1e40af);
+  background: #eff6ff;
+  box-shadow: 0 0 0 2px rgb(30 64 175 / 0.14);
 }
 
-.plan {
-  width: 100%;
-  height: auto;
-  background: #f8fafc;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  display: block;
-}
+/* ── The diagram ──────────────────────────────────────────────────────────── */
 
-.previewEmpty {
+.layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 7px 2px 0;
+}
+.layer {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 200px;
-  border: 1px dashed var(--color-border);
-  border-radius: 10px;
+  gap: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.layer input {
+  width: 16px; height: 16px; margin: 0;
+  accent-color: var(--color-primary, #1e40af);
+}
+
+/* What the marks on the clip layer mean, said the way Ekodeck say it. The
+   locking clip is the one that is not free to slide, so it is the one worth
+   picking out — which is why it is the only colour left on the drawing. */
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-size: 11.5px;
   color: var(--color-text-muted);
-  font-size: 13.5px;
-  text-align: center;
-  padding: 16px;
+}
+.legendClip {
+  display: inline-block;
+  width: 14px; height: 5px;
+  background: #111827;
+  border-radius: 1px;
+}
+.legendLock {
+  display: inline-block;
+  margin-left: 10px;
+  color: #dc2626;
+  font-weight: 700;
 }
 
-.dims {
-  font-size: 13px;
-  fill: var(--color-text-muted);
-}
-.dims line {
-  stroke: #94a3b8;
-  stroke-width: 1;
-}
-
-.swatchPane { min-width: 0; }
+.swatchPane { min-width: 0; margin-top: 10px; }
 
 .swatchImg {
   width: 100%;
@@ -167,9 +178,8 @@
 }
 
 @media (max-width: 640px) {
-  /* The board goes above the plan on a phone: the colour is what is being
-     discussed, and the plan wants the full width. */
-  .preview { grid-template-columns: 1fr; }
+  /* The board photograph lies down on a phone, so it does not push the
+     take-off a screen further away. */
   .swatchPane {
     display: grid;
     grid-template-columns: 84px 1fr;

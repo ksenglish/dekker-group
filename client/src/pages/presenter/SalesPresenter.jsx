@@ -1184,7 +1184,7 @@ const SELF_PICK_CALCULATORS = new Set([
 // Calculators that are drawn on. These get the whole screen rather than the
 // product drawer, because the drawing is the tool and 520px is not enough to
 // lay a boundary out in.
-const FULL_PAGE_CALCULATORS = new Set(['urban_fence', 'paling_fence_takeoff']);
+const FULL_PAGE_CALCULATORS = new Set(['urban_fence', 'paling_fence_takeoff', 'composite_deck']);
 
 function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange, onRecommend, fullPage }) {
   const type = product.calculator_type || 'unit';
@@ -1196,7 +1196,7 @@ function Calculator({ product, onPick, jobId, onSelectVariant, onQuantityChange,
   if (type === 'smartvent_positive_pressure') return <SmartVentPositivePressureCalculator onRecommend={onRecommend} onPick={onPick} product={product} onQuantityChange={onQuantityChange} />;
   if (type === 'smartvent_balanced_pressure') return <SmartVentBalancedPressureCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
   if (type === 'bdvair_positive_pressure') return <BDVAirPositivePressureCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
-  if (type === 'composite_deck') return <CompositeDeckCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} />;
+  if (type === 'composite_deck') return <CompositeDeckCalculator onRecommend={onRecommend} onPick={onPick} onQuantityChange={onQuantityChange} fullPage={fullPage} />;
   if (type === 'urban_fence') return <UrbanFenceCalculator onRecommend={onRecommend} onPick={onPick} product={product} onQuantityChange={onQuantityChange} fullPage={fullPage} />;
   if (type === 'paling_fence_takeoff') return <PalingFenceTakeoff onPick={onPick} onQuantityChange={onQuantityChange} fullPage={fullPage} />;
   return <UnitCalculator product={product} />;
