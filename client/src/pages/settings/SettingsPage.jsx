@@ -949,7 +949,7 @@ function BillingRatesTab() {
   const [rates, setRates] = useState([]);
   // How far outside a booking still counts as that booking, before the
   // office is emailed about it.
-  const [grace, setGrace] = useState(45);
+  const [grace, setGrace] = useState(90);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -1072,9 +1072,11 @@ function BillingRatesTab() {
             </div>
             <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 8, lineHeight: 1.6 }}>
               Time logged this far before or after someone&rsquo;s booking on a job
-              still counts as that booking — they are warned and the office is
-              emailed only beyond it. Staying on to finish a run is not an
-              incident; an afternoon on the wrong job is.
+              still counts as that booking. The booking is the time on site; the
+              day is not — driving out, driving back and the trip to the trade
+              desk all sit either side of it. Beyond this they are asked why
+              before the hours will save, the office is emailed what they said,
+              and the entry stays red on the timesheet until it is approved.
             </p>
           </div>
 

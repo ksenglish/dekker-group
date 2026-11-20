@@ -12,7 +12,7 @@ import { isHtml, safeHtml } from '../../lib/richText';
 import { compressImage } from '../../lib/image';
 import TeamMemberMultiSelect from '../../components/TeamMemberMultiSelect';
 import { isBillable } from '../../lib/billing';
-import { axisWindow, hourMarks, packLanes, pctFor, fmtHourMark, fmtTimeAmPm } from '../../lib/timeline';
+import { axisWindow, hourMarks, packLanes, pctFor, fmtHourMark, fmtTimeAmPm, needsApproval, approvalNote } from '../../lib/timeline';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
 import JobCosts from './JobCosts';
@@ -358,7 +358,7 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
   // nothing and emails nobody, so cancelling the warning leaves the timer
   // exactly as it was — the hours still on the bar, ready to be put on
   // another job rather than deleted off this one afterwards.
-  async function send(acknowledged) {
+  async function send(acknowledged, scheduleReason) {
     const hours = elapsed < 60 ? 0.25 : Math.max(0.25, Math.round(elapsed / 900) * 0.25);
     const startTime = new Date(endTs - elapsed * 1000).toISOString();
     const endTime = new Date(endTs).toISOString();
@@ -370,6 +370,7 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
         start_time: startTime, end_time: endTime,
         source: 'timer', billing_rate_id: billingRateId || null,
         acknowledged,
+        schedule_reason: scheduleReason || undefined,
       });
       localStorage.removeItem(RATE_STORAGE_KEY);
       try { localStorage.setItem(STOP_KEY, String(Date.now())); } catch { /* retried */ }
@@ -404,7 +405,7 @@ function JobTimer({ jobId, onTimeSaved, onTimerChange, user, jobStatus, jobStatu
           warning={outsideSchedule}
           busy={saving}
           onCancel={() => setOutsideSchedule('')}
-          onConfirm={() => send(true)}
+          onConfirm={reason => send(true, reason)}
         />
       )}
       {prompt === 'complete' && completionStatus && (
@@ -770,7 +771,7 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
   // Hours typed on the job go past the diary like any other. Until
   // acknowledged is true the server writes nothing and emails nobody, so
   // cancelling the warning leaves them looking at what they typed.
-  async function send(acknowledged) {
+  async function send(acknowledged, scheduleReason) {
     setSaving(true); setErr('');
     try {
       const payload = {
@@ -782,6 +783,7 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
         end_time: form.end_time ? new Date(`${form.date}T${form.end_time}:00`).toISOString() : null,
         billing_rate_id: form.billing_rate_id || null,
         acknowledged,
+        schedule_reason: scheduleReason || undefined,
       };
       const { data } = isNew
         ? await api.post('/timesheets', { ...payload, source: 'manual' })
@@ -812,7 +814,7 @@ function TimeEntryModal({ jobId, entry, billingRates, currentUser, onSave, onDel
           warning={outsideSchedule}
           busy={saving}
           onCancel={() => { setOutsideSchedule(''); setSaving(false); }}
-          onConfirm={() => send(true)}
+          onConfirm={reason => send(true, reason)}
         />
       )}
       <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -918,6 +920,12 @@ function TimeDayGroup({ dateKey, entries, billingRates, currentUser, onEntryClic
               <span className={styles.timePersonNameText}>{p.name}</span>
               <span className={styles.timePersonHours}>{dayHours.toFixed(2)}h</span>
               {hasClash && <span className={styles.timeClashFlag} title="This person has overlapping entries on this day">⚠ overlap</span>}
+              {p.entries.some(needsApproval) && (
+                <span className={styles.timeClashFlag}
+                  title="Logged outside the booking and not approved by the office yet">
+                  ⚠ outside diary
+                </span>
+              )}
             </div>
             <div className={styles.timePersonTrack}>
               {/* An hour grid behind the bars, so a bar's start and finish can
@@ -942,7 +950,7 @@ function TimeDayGroup({ dateKey, entries, billingRates, currentUser, onEntryClic
                         className={[
                           styles.timeBar,
                           billable ? styles.timeBarBillable : styles.timeBarNonBillable,
-                          clash ? styles.timeBarClash : '',
+                          clash || needsApproval(e) ? styles.timeBarClash : '',
                         ].filter(Boolean).join(' ')}
                         style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%`, cursor: canModify ? 'pointer' : 'default' }}
                         onClick={() => canModify && onEntryClick(e)}
@@ -952,6 +960,7 @@ function TimeDayGroup({ dateKey, entries, billingRates, currentUser, onEntryClic
                           rateLabel(e, billingRates),
                           e.description || '',
                           clash ? 'Overlaps another entry for this person' : '',
+                          approvalNote(e) || '',
                         ].filter(Boolean).join('\n')}
                       >
                         {!tiny && <>
@@ -1080,6 +1089,63 @@ function TimeSummary({ summary }) {
   );
 }
 
+// Hours logged outside the diary, waiting on somebody in the office.
+//
+// This is where the email lands — its button opens the job on this tab, and
+// this is the first thing on it. Everything the office needs to decide is
+// here: whose hours, when, what the diary expected, and what the person said
+// about it. Approving leaves the warning on the row and adds who accepted it,
+// because what happened is still what happened and a job that gets queried
+// after the invoice needs the whole story, not a cleared flag.
+function OutsideDiaryBanner({ entries, canApprove, onApproved }) {
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState('');
+  const waiting = entries.filter(needsApproval);
+  if (!waiting.length) return null;
+
+  async function approve(entry) {
+    setBusy(entry.id); setErr('');
+    try {
+      const { data } = await api.put(`/timesheets/${entry.id}/approve`, { approved: true });
+      onApproved(data);
+    } catch (e) {
+      setErr(e.response?.data?.error || 'Could not approve that entry');
+    } finally { setBusy(null); }
+  }
+
+  return (
+    <div className={styles.outsideDiary}>
+      <div className={styles.outsideDiaryHead}>
+        ⚠ {waiting.length} {waiting.length === 1 ? 'entry' : 'entries'} logged outside the diary
+      </div>
+      {err && <div className={styles.errorBanner}>{err}</div>}
+      {waiting.map(e => (
+        <div key={e.id} className={styles.outsideDiaryRow}>
+          <div className={styles.outsideDiaryWhat}>
+            <strong>{e.user_name || 'Somebody'}</strong>
+            {' · '}
+            {new Date(`${String(e.date).slice(0, 10)}T12:00:00`)
+              .toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}
+            {e.start_time && e.end_time
+              ? ` · ${fmtTimeAmPm(e.start_time)}–${fmtTimeAmPm(e.end_time)}` : ''}
+            {' · '}{parseFloat(e.hours).toFixed(2)}h
+            <span className={styles.outsideDiaryWhy}>{e.schedule_warning}</span>
+            {e.schedule_reason
+              ? <span className={styles.outsideDiarySaid}>“{e.schedule_reason}”</span>
+              : <span className={styles.outsideDiaryQuiet}>No reason was recorded with this one.</span>}
+          </div>
+          {canApprove && (
+            <button type="button" className={styles.outsideDiaryOk}
+              disabled={busy === e.id} onClick={() => approve(e)}>
+              {busy === e.id ? 'Approving…' : 'Approve these hours'}
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function JobTimesheets({ jobId, user, timerKey }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1136,6 +1202,15 @@ function JobTimesheets({ jobId, user, timerKey }) {
         {running}
         <button className={styles.btnPrimary} onClick={() => setModalEntry(null)}>+ New Timesheet Entry</button>
       </div>
+      {/* Above the timeline, because the office arrives here from the email
+          about exactly this and should not have to go looking for it. */}
+      <OutsideDiaryBanner
+        entries={entries}
+        canApprove={isAdmin(user.role) || user.role === 'office'}
+        onApproved={saved => {
+          setEntries(es => es.map(x => (x.id === saved.id ? { ...x, ...saved } : x)));
+        }}
+      />
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
        entries.length === 0 ? <div className={styles.emptySmall}>No time logged yet.</div> : (
         <>

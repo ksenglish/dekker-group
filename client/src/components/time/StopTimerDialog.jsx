@@ -51,8 +51,9 @@ export default function StopTimerDialog({ timer, rates = [], onClose, onDone }) 
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   // The diary's answer, when it has one. Nothing is written until it is
-  // acknowledged, the same as everywhere else time is recorded.
+  // acknowledged and answered, the same as everywhere else time is recorded.
   const [warning, setWarning] = useState('');
+  const [reason, setReason] = useState('');
 
   const fromMs = new Date(from).getTime();
   const toMs = new Date(to).getTime();
@@ -71,7 +72,7 @@ export default function StopTimerDialog({ timer, rates = [], onClose, onDone }) 
     } finally { setBusy(''); }
   }
 
-  async function recordAndStop(acknowledged) {
+  async function recordAndStop(acknowledged, scheduleReason) {
     if (!sane) { setError('The finish time has to be after the start time.'); return; }
     setBusy('record');
     setError('');
@@ -87,6 +88,7 @@ export default function StopTimerDialog({ timer, rates = [], onClose, onDone }) 
         source: 'timer',
         billing_rate_id: rateId || null,
         acknowledged,
+        schedule_reason: scheduleReason || undefined,
       });
       // Only once the hours are safely recorded. Stopping first and failing
       // here would lose both the timer and the time.
@@ -120,11 +122,21 @@ export default function StopTimerDialog({ timer, rates = [], onClose, onDone }) 
               <strong>Hours outside of scheduled time</strong>
               <p>{warning}</p>
             </div>
+            {/* Asked here too. Hours the office records for somebody else are
+                the ones most in need of a line saying where they came from —
+                the person whose hours they are is not in the room. */}
+            <label className={styles.field}>
+              <span>Why were these outside the booking? (required)</span>
+              <input type="text" value={reason} maxLength={400}
+                onChange={e => setReason(e.target.value)}
+                placeholder="e.g. Rang in — on site until 5, timer left running" />
+            </label>
             <div className={styles.actions}>
               <button type="button" className={styles.secondary}
                 onClick={() => setWarning('')}>Back</button>
               <button type="button" className={styles.primary}
-                disabled={busy !== ''} onClick={() => { setWarning(''); recordAndStop(true); }}>
+                disabled={busy !== '' || reason.trim().length < 5}
+                onClick={() => { const r = reason.trim(); setWarning(''); recordAndStop(true, r); }}>
                 Record anyway
               </button>
             </div>

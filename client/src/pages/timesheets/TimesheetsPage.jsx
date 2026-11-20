@@ -6,7 +6,7 @@ import { formatJobNumber } from '../../lib/formatJobNumber';
 import { toLocalDateStr } from '../../lib/date';
 import { htmlToText } from '../../lib/richText';
 import { isBillable } from '../../lib/billing';
-import { axisWindow, hourMarks, packLanes, pctFor, fmtHourMark, fmtTimeAmPm, hasOverlap } from '../../lib/timeline';
+import { axisWindow, hourMarks, packLanes, pctFor, fmtHourMark, fmtTimeAmPm, hasOverlap, needsApproval, approvalNote } from '../../lib/timeline';
 import OutsideScheduleDialog from '../../components/time/OutsideScheduleDialog';
 import styles from './Timesheets.module.css';
 import { overlayClose } from '../../lib/overlayClose';
@@ -174,7 +174,7 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
   // acknowledged says the person has read the warning and wants it recorded
   // anyway. Until then the server writes nothing and emails nobody, so this
   // is the same request twice rather than a save and an undo.
-  async function send(acknowledged) {
+  async function send(acknowledged, scheduleReason) {
     setSaving(true); setErr('');
     try {
       const payload = {
@@ -182,6 +182,7 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
         start_time: toIso(form.date, form.start_time),
         end_time: toIso(form.date, form.end_time),
         acknowledged,
+        schedule_reason: scheduleReason || undefined,
       };
       const { data } = entry
         ? await api.put(`/timesheets/${entry.id}`, payload)
@@ -214,7 +215,7 @@ function EntryModal({ entry, prefillUser, prefillDate, jobs, users, billingRates
           warning={warning}
           busy={saving}
           onCancel={() => { setWarning(''); setSaving(false); }}
-          onConfirm={() => send(true)}
+          onConfirm={reason => send(true, reason)}
         />
       )}
       <div className={styles.modal}>
@@ -335,6 +336,15 @@ function WeekTimeline({ dates, dayLabels, entries, billingRates, onEntryClick, f
               {clashing.size > 0 && (
                 <span className={styles.tlClashFlag} title="Overlapping entries on this day">⚠ overlap</span>
               )}
+              {/* Hours the diary did not expect, flagged the same way an
+                  overlap is, because they are the same kind of problem: one
+                  somebody has to settle before the job is invoiced. */}
+              {dayEntries.some(needsApproval) && (
+                <span className={styles.tlClashFlag}
+                  title="Logged outside the booking and not approved by the office yet">
+                  ⚠ outside diary
+                </span>
+              )}
             </div>
             <div className={styles.tlTrack}>
               {marks.map(h => (
@@ -355,7 +365,7 @@ function WeekTimeline({ dates, dayLabels, entries, billingRates, onEntryClick, f
                         className={[
                           styles.tlBar,
                           isBillable(e, billingRates) ? styles.entryPillBillable : styles.entryPillNonBillable,
-                          clashing.has(e.id) ? styles.tlBarClash : '',
+                          clashing.has(e.id) || needsApproval(e) ? styles.tlBarClash : '',
                         ].filter(Boolean).join(' ')}
                         style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
                         onClick={() => onEntryClick(e)}
@@ -364,6 +374,7 @@ function WeekTimeline({ dates, dayLabels, entries, billingRates, onEntryClick, f
                           formatJob(e),
                           e.description || '',
                           clashing.has(e.id) ? 'Overlaps another entry on this day' : '',
+                          approvalNote(e) || '',
                         ].filter(Boolean).join('\n')}>
                         {!tiny && <>
                           <span className={styles.tlBarJob}>{formatJob(e)}</span>
@@ -382,9 +393,13 @@ function WeekTimeline({ dates, dayLabels, entries, billingRates, onEntryClick, f
                   <span className={styles.tlUntimedLabel}>No times logged</span>
                   {untimed.map(e => (
                     <span key={e.id}
-                      className={`${styles.tlUntimedChip} ${isBillable(e, billingRates) ? styles.entryPillBillable : styles.entryPillNonBillable}`}
+                      className={[
+                        styles.tlUntimedChip,
+                        isBillable(e, billingRates) ? styles.entryPillBillable : styles.entryPillNonBillable,
+                        needsApproval(e) ? styles.tlBarClash : '',
+                      ].filter(Boolean).join(' ')}
                       onClick={() => onEntryClick(e)}
-                      title={e.description || ''}>
+                      title={[e.description || '', approvalNote(e) || ''].filter(Boolean).join('\n')}>
                       {formatJob(e)} · {fmtHours(e.hours)}
                     </span>
                   ))}
@@ -618,13 +633,22 @@ export default function TimesheetsPage() {
                         {weekDates.some(d => hasOverlap(entries.filter(e => e.user_id === u.id && e.date?.slice(0, 10) === d))) && (
                           <span className={styles.staffClashFlag} title="Overlapping entries this week — open the row to see them">⚠</span>
                         )}
+                        {/* Hours the diary did not expect, still waiting on
+                            the office. The same mark, because to whoever is
+                            scanning the week it is the same job: open this
+                            row, something needs settling. */}
+                        {entries.some(e => e.user_id === u.id
+                          && weekDates.includes(e.date?.slice(0, 10)) && needsApproval(e)) && (
+                          <span className={styles.staffClashFlag}
+                            title="Hours outside the diary this week, not approved yet — open the row to see them">⚠</span>
+                        )}
                       </td>
                       {weekDates.map(d => {
                         const hrs = hoursForUserDay(u.id, d);
                         const dayEntries = entries.filter(e => e.user_id === u.id && e.date?.slice(0,10) === d);
                         // Flagged in the collapsed grid too, so a double-booked
                         // day can be spotted without opening every row.
-                        const clash = hasOverlap(dayEntries);
+                        const clash = hasOverlap(dayEntries) || dayEntries.some(needsApproval);
                         return (
                           <td key={d} className={[
                             styles.dayCell,
@@ -634,7 +658,9 @@ export default function TimesheetsPage() {
                             onClick={() => hrs > 0 && setExpandedUser(x => x === u.id ? null : u.id)}
                             title={[
                               ...dayEntries.map(e => `${fmtHours(e.hours)}${e.job_id ? ` ${formatJobNumber(e)}` : ''}${e.description ? ` — ${e.description}` : ''}`),
-                              clash ? '⚠ Overlapping entries — open the row to see them' : '',
+                              hasOverlap(dayEntries) ? '⚠ Overlapping entries — open the row to see them' : '',
+                              dayEntries.some(needsApproval)
+                                ? '⚠ Hours outside the diary, waiting on the office — open the row to see them' : '',
                             ].filter(Boolean).join('\n')}>
                             {hrs > 0 ? fmtHours(hrs) : ''}
                             {clash && <span className={styles.dayCellClashMark}>⚠</span>}

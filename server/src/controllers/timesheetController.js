@@ -74,13 +74,21 @@ async function askTheDiary({ jobId, userId, date, startTime, endTime, hours }) {
 
 // Said out loud, once the entry exists and the person has chosen to keep it:
 // kept on the row so it can be found later, and emailed to the office.
-async function recordWarning(entry, warning) {
+//
+// The note goes on with it, and any approval comes off. An entry that has been
+// moved or retimed is a different entry from the one somebody signed off, and
+// carrying the old approval across would quietly clear the new problem.
+async function recordWarning(entry, warning, reason) {
   try {
     await pool.query(
-      `UPDATE timesheets SET schedule_warning = $1,
-              schedule_warned_at = CASE WHEN $1::text IS NULL THEN NULL ELSE NOW() END
-        WHERE id = $2`,
-      [warning, entry.id]);
+      `UPDATE timesheets
+          SET schedule_warning = $1,
+              schedule_warned_at = CASE WHEN $1::text IS NULL THEN NULL ELSE NOW() END,
+              schedule_reason = CASE WHEN $1::text IS NULL THEN NULL ELSE $2::text END,
+              schedule_approved_at = NULL,
+              schedule_approved_by = NULL
+        WHERE id = $3`,
+      [warning, reason || null, entry.id]);
   } catch (err) { console.error('[timesheets] could not record the warning:', err.message); }
 
   if (warning) {
@@ -89,7 +97,7 @@ async function recordWarning(entry, warning) {
       .catch(() => []);
     // Not awaited into the response: the person has already been told on
     // screen, and the office being emailed is not something they wait for.
-    timeWarning.notify({ entry, warning, bookings, appUrl: appUrl() })
+    timeWarning.notify({ entry, warning, reason, bookings, appUrl: appUrl() })
       .catch(err => console.error('[timesheets] notify failed:', err.message));
   }
   return warning;
@@ -99,8 +107,26 @@ async function recordWarning(entry, warning) {
 // been sent — saying yes is what does both.
 const askFirst = (res, warning) => res.status(409).json({
   needs_confirmation: true,
+  needs_reason: true,
   warning,
   error: warning,
+});
+
+// Enough of an answer to be worth reading.
+//
+// The office's question when the email lands is always "why", and an entry
+// that arrives with "asdf" against it has cost them the same phone call as one
+// with nothing. Short is fine — "picked up the gib on the way" is an answer —
+// but it has to be words.
+const MIN_REASON = 5;
+const tidyReason = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+const reasonMissing = v => tidyReason(v).length < MIN_REASON;
+const askForReason = res => res.status(400).json({
+  needs_confirmation: true,
+  needs_reason: true,
+  error: 'Say why these hours are outside the booking before recording them —'
+    + ' the office is asked to approve them and that is the first thing they'
+    + ' will want to know.',
 });
 
 // The day a person may log time for.
@@ -135,9 +161,11 @@ async function list(req, res) {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   try {
     const { rows } = await pool.query(
-      `SELECT t.*, u.name AS user_name, j.description AS job_title, j.job_number, j.external_ref
+      `SELECT t.*, u.name AS user_name, a.name AS schedule_approved_by_name,
+              j.description AS job_title, j.job_number, j.external_ref
        FROM timesheets t
        LEFT JOIN users u ON u.id = t.user_id
+       LEFT JOIN users a ON a.id = t.schedule_approved_by
        LEFT JOIN jobs j ON j.id = t.job_id
        ${where}
        ORDER BY t.date DESC, t.created_at DESC`,
@@ -181,6 +209,7 @@ async function create(req, res) {
   // Offered back before it is written. Saying no leaves no entry, no warning
   // on anything, and nothing in the office's inbox.
   if (warning && req.body?.acknowledged !== true) return askFirst(res, warning);
+  if (warning && reasonMissing(req.body?.schedule_reason)) return askForReason(res);
 
   try {
     const { rows } = await pool.query(
@@ -199,8 +228,11 @@ async function create(req, res) {
        WHERE t.id=$1`, [rows[0].id]
     );
     // Kept and told, now that it exists and they have said to keep it.
-    await recordWarning(full[0], warning);
-    res.status(201).json({ ...full[0], schedule_warning: warning, warning });
+    const reason = warning ? tidyReason(req.body?.schedule_reason) : null;
+    await recordWarning(full[0], warning, reason);
+    res.status(201).json({
+      ...full[0], schedule_warning: warning, schedule_reason: reason, warning,
+    });
   } catch (err) { console.error('Timesheet create error:', err); res.status(500).json({ error: err.message }); }
 }
 
@@ -239,6 +271,9 @@ async function update(req, res) {
       startTime: start_time, endTime: end_time, hours,
     });
     if (warning && req.body?.acknowledged !== true) return askFirst(res, warning);
+    // An edit that still does not match needs its own answer. Reusing the one
+    // from before would attach yesterday's explanation to today's times.
+    if (warning && reasonMissing(req.body?.schedule_reason)) return askForReason(res);
 
     const { rows } = await pool.query(
       `UPDATE timesheets SET job_id=$1, user_id=$2, date=$3, hours=$4, description=$5,
@@ -254,8 +289,9 @@ async function update(req, res) {
     // Moved to another job, or its times amended, is exactly when an entry
     // stops or starts matching the diary — so the answer is written back,
     // which is also how correcting one clears the warning off it.
-    await recordWarning(full[0], warning);
-    res.json({ ...full[0], schedule_warning: warning, warning });
+    const reason = warning ? tidyReason(req.body?.schedule_reason) : null;
+    await recordWarning(full[0], warning, reason);
+    res.json({ ...full[0], schedule_warning: warning, schedule_reason: reason, warning });
   } catch (err) { console.error(err); res.status(500).json({ error: 'Server error' }); }
 }
 
@@ -590,7 +626,46 @@ async function listTimers(req, res) {
   }
 }
 
+// The office saying these hours are fine after all.
+//
+// Not the same as deleting the warning. What happened stays on the row — the
+// hours were outside the booking, here is what the person said about it, and
+// here is who in the office accepted it. That is the record a job needs if
+// anybody asks about the invoice later; clearing the flag would leave none.
+//
+// Only ever a person in the app pressing a button. The email links here
+// rather than approving on its own, because an emailed link that writes an
+// approval approves for whoever the email was forwarded to.
+async function approveSchedule(req, res) {
+  const approve = req.body?.approved !== false;
+  try {
+    const { rows: [entry] } = await pool.query(
+      'SELECT id, schedule_warning FROM timesheets WHERE id = $1', [req.params.id]);
+    if (!entry) return res.status(404).json({ error: 'Not found' });
+    if (!entry.schedule_warning) {
+      return res.status(400).json({ error: 'Nothing to approve — this entry matches the diary.' });
+    }
+    await pool.query(
+      `UPDATE timesheets
+          SET schedule_approved_at = $1, schedule_approved_by = $2, updated_at = NOW()
+        WHERE id = $3`,
+      [approve ? new Date() : null, approve ? req.user.id : null, req.params.id]);
+    const { rows: full } = await pool.query(
+      `SELECT t.*, u.name AS user_name, a.name AS schedule_approved_by_name,
+              j.description AS job_title, j.job_number, j.external_ref
+         FROM timesheets t
+         LEFT JOIN users u ON u.id = t.user_id
+         LEFT JOIN users a ON a.id = t.schedule_approved_by
+         LEFT JOIN jobs j ON j.id = t.job_id
+        WHERE t.id = $1`, [req.params.id]);
+    res.json(full[0]);
+  } catch (err) {
+    console.error('[timesheets] approve failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+}
+
 module.exports = {
   list, create, update, remove, summary, jobSummary,
-  startTimer, stopTimer, stopTimerFor, listTimers,
+  startTimer, stopTimer, stopTimerFor, listTimers, approveSchedule,
 };

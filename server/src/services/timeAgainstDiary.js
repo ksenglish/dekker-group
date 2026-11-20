@@ -12,18 +12,19 @@
 // it saves, says so plainly, and tells the office the same minute.
 const pool = require('../db/pool');
 
-// How far outside the booked hours is still the same day's work. Fifteen
-// minutes covers arriving early, finishing late, and the rounding the timer
-// does to the nearest quarter hour, without letting a whole wrong afternoon
-// through.
 // How far outside the booked hours is still the same day's work.
 //
-// Forty-five minutes: a tech who stays to finish a run, or starts before
-// the booking because they were passing, is not an incident and the office
-// does not want an email about it. Set in Settings → Billing Rates, because
-// the right number is a thing a business learns rather than something that
-// should need a deploy.
-const DEFAULT_GRACE_MINUTES = Number(process.env.TIMESHEET_GRACE_MINUTES || 45);
+// An hour and a half. The booking is the time on site; the day is not. Driving
+// out, driving back, and the trip to the trade desk for what the job turned
+// out to need all sit either side of it, and none of them are an incident the
+// office wants an email about. Forty-five minutes covered the driving and
+// nothing else, so a morning that started at the merchant was flagged every
+// time it happened — which is most days, and a warning that fires most days
+// stops being read.
+//
+// Set in Settings → Billing Rates, because the right number is a thing a
+// business learns rather than something that should need a deploy.
+const DEFAULT_GRACE_MINUTES = Number(process.env.TIMESHEET_GRACE_MINUTES || 90);
 
 async function graceMinutes(client = pool) {
   try {

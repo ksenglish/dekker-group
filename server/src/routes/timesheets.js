@@ -16,6 +16,10 @@ router.delete('/timer/:userId', requireRole('admin'), c.stopTimerFor);
 router.get('/', c.list);
 router.get('/summary', c.summary);
 router.post('/', c.create);
+// The office accepting hours that fell outside the diary. Not c.update: the
+// person whose hours they are may edit their own entry, and may not sign off
+// their own exception.
+router.put('/:id/approve', requireRole('admin', 'office'), c.approveSchedule);
 router.put('/:id', c.update);
 router.delete('/:id', c.remove);
 

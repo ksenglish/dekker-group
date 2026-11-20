@@ -15,6 +15,25 @@ export function fmtHourMark(h) {
 // An entry that can actually be placed on the axis.
 export const isTimed = e => !!(e.start_time && e.end_time);
 
+// Hours the diary did not expect, which the office has not accepted yet.
+//
+// Red on a timesheet for the same reason an overlap is red: it is something
+// somebody has to settle before the job is invoiced, not something to notice
+// afterwards. Approving it is what clears it — the warning itself stays on the
+// row, because what happened is still what happened.
+export const needsApproval = e => !!e.schedule_warning && !e.schedule_approved_at;
+
+// What to put on the hover, said once so the weekly view and the job's Time
+// tab cannot drift into saying it differently.
+export function approvalNote(e) {
+  if (!e.schedule_warning) return null;
+  const said = e.schedule_reason ? `\nThey said: ${e.schedule_reason}` : '';
+  return e.schedule_approved_at
+    ? `Outside the diary — approved${e.schedule_approved_by_name ? ` by ${e.schedule_approved_by_name}` : ''}.`
+      + `\n${e.schedule_warning}${said}`
+    : `Outside the diary, waiting on the office.\n${e.schedule_warning}${said}`;
+}
+
 // Start and end of an entry in minutes from midnight, exactly as logged.
 //
 // Nothing is padded here. A short entry is kept visible by a minimum bar width

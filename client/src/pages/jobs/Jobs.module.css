@@ -706,6 +706,53 @@
    colour still reads. */
 .timeBarClash { border: 2px solid #b91c1c; box-shadow: 0 0 0 2px rgba(185, 28, 28, 0.12); }
 
+/* ── Hours the diary did not expect ───────────────────────────────────────── */
+
+/* What the office sees when they follow the link in the email. First thing on
+   the tab, and it goes when the last one has been approved. */
+.outsideDiary {
+  padding: 12px 16px;
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+}
+.outsideDiaryHead {
+  font-size: 13px; font-weight: 700; color: #b91c1c; margin-bottom: 8px;
+}
+.outsideDiaryRow {
+  display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 8px;
+  background: var(--color-surface);
+  border: 1px solid #fecaca; border-radius: 8px;
+}
+.outsideDiaryRow:last-child { margin-bottom: 0; }
+.outsideDiaryWhat { flex: 1; min-width: 220px; font-size: 13px; line-height: 1.5; }
+.outsideDiaryWhy {
+  display: block; margin-top: 4px;
+  font-size: 12.5px; color: #b91c1c;
+}
+/* What the person typed before they could record it. The whole reason the
+   office is not making a phone call. */
+.outsideDiarySaid {
+  display: block; margin-top: 5px;
+  font-size: 13px; line-height: 1.5; color: var(--color-text);
+  padding-left: 9px; border-left: 3px solid #cbd5e1;
+}
+.outsideDiaryQuiet {
+  display: block; margin-top: 5px;
+  font-size: 12.5px; font-style: italic; color: var(--color-text-muted);
+}
+.outsideDiaryOk {
+  padding: 8px 14px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  border: 1px solid #15803d; background: #15803d; color: #fff;
+}
+.outsideDiaryOk:hover:not(:disabled) { background: #166534; }
+.outsideDiaryOk:disabled { opacity: 0.6; cursor: default; }
+
+@media (max-width: 640px) {
+  .outsideDiaryOk { width: 100%; }
+}
+
 .timeAxisRow { display: grid; grid-template-columns: 150px 1fr; gap: 10px; margin-top: 6px; }
 .timeHourAxis { position: relative; height: 16px; border-top: 1px solid var(--color-border); }
 .timeHourAxis span {
