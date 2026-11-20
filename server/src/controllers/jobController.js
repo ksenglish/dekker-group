@@ -313,13 +313,23 @@ async function updateLineItems(req, res) {
   if (!Array.isArray(items)) return res.status(400).json({ error: 'Items must be an array' });
   const client = await pool.connect();
   try {
+    // A cost typed on the quote comes across with the line when the quote is
+    // accepted. This screen never shows one and never sends one, and every
+    // save rewrites every line — so it is read first and put back, or editing
+    // a quantity here would quietly throw the costing away.
+    const { rows: before } = await pool.query(
+      'SELECT id, unit_cost_cents FROM line_items WHERE job_id=$1 AND quote_id IS NULL',
+      [req.params.id]);
+    const wasCosted = new Map(before.map(r => [r.id, r.unit_cost_cents]));
+
     await client.query('BEGIN');
     await client.query('DELETE FROM line_items WHERE job_id=$1 AND quote_id IS NULL', [req.params.id]);
     for (const item of items) {
       if (!item.description) continue;
       await client.query(
-        'INSERT INTO line_items (job_id, description, quantity, unit_price, product_id, product_name) VALUES ($1,$2,$3,$4,$5,$6)',
-        [req.params.id, item.description, item.quantity || 1, Math.round((item.unit_price || 0) * 100), item.product_id || null, item.product_name || null]
+        'INSERT INTO line_items (job_id, description, quantity, unit_price, product_id, product_name, unit_cost_cents) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [req.params.id, item.description, item.quantity || 1, Math.round((item.unit_price || 0) * 100), item.product_id || null, item.product_name || null,
+         item.id ? wasCosted.get(item.id) ?? null : null]
       );
     }
     await client.query('COMMIT');

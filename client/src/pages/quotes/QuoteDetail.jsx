@@ -793,10 +793,21 @@ export default function QuoteDetail() {
                 </div>
                 {costing.uncosted_lines > 0 && (
                   <p className={styles.marginNote}>
-                    {costing.uncosted_lines} {costing.uncosted_lines === 1 ? 'line is' : 'lines are'} not
-                    a Price List product, so {costing.uncosted_lines === 1 ? 'it has' : 'they have'} no
-                    cost to read — ${(costing.uncosted_sell_cents / 100).toFixed(2)} of the sell price,
-                    counted here as though it were all margin.
+                    {costing.uncosted_lines} {costing.uncosted_lines === 1 ? 'line has' : 'lines have'} no
+                    cost against {costing.uncosted_lines === 1 ? 'it' : 'them'} —
+                    ${(costing.uncosted_sell_cents / 100).toFixed(2)} of the sell price, counted here as
+                    though it were all margin. Type what {costing.uncosted_lines === 1 ? 'it costs' : 'they cost'} in
+                    the Cost column above and this answers properly.
+                  </p>
+                )}
+                {/* Both are costs. Only one of them keeps itself up to date,
+                    and a margin built mostly on the other is a margin worth
+                    knowing the age of. */}
+                {costing.typed_lines > 0 && (
+                  <p className={styles.marginNote}>
+                    {costing.typed_lines} {costing.typed_lines === 1 ? 'cost was' : 'costs were'} typed
+                    in by hand rather than read off the Price List, so {costing.typed_lines === 1 ? 'it does' : 'they do'} not
+                    move when a supplier's price does.
                   </p>
                 )}
               </div>

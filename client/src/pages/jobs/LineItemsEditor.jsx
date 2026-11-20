@@ -27,37 +27,97 @@ const AUTOSAVE_DELAY = 1200;
 // What a line costs us, where that is known.
 //
 // Read off the Price List against the product the line is linked to, and sent
-// down with the line. A line typed in by hand — labour, an allowance, "supply
-// and install as discussed" — has no cost to read, and says so rather than
-// showing a zero, because a zero is a cost and "we do not know" is not.
+// down with the line — live, so it is today's cost. A line typed in by hand —
+// labour, an allowance, "supply and install as discussed" — has nothing on the
+// list to read, and takes a cost an admin types against it instead. Where
+// there is neither it still says so rather than showing a zero, because a zero
+// is a cost and "we do not know" is not.
+//
+// Per unit, excluding GST, the same shape as the Price List's own cost. The
+// line total beside it is what that comes to, so changing a quantity moves
+// both and neither has to be retyped.
 const costOf = item => (item.cost_cents == null ? null : item.cost_cents / 100);
 
-function CostCell({ item }) {
-  const cost = costOf(item);
-  if (cost == null) {
+const toCostCents = v => {
+  const n = parseFloat(v);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+};
+
+// What is left on this line, on the excluding-GST price. Said beside the cost
+// because the cost excludes GST and the line total further along includes it;
+// left to be eyeballed, those two read as a far better margin than the line is
+// really making.
+function marginPct(item, lineCost) {
+  const sellExGst = ((parseFloat(item.unit_price) || 0) * (parseFloat(item.quantity) || 0))
+    / (1 + GST_RATE);
+  if (!(sellExGst > 0)) return null;
+  return Math.round(((sellExGst - lineCost) / sellExGst) * 100);
+}
+
+function CostCell({ item, editable, value, onChange }) {
+  const qty = parseFloat(item.quantity) || 0;
+  // What the Price List says, where it says anything. That wins: it is the
+  // one that keeps itself up to date, so a product's own cost is shown rather
+  // than edited here.
+  const fromList = item.cost_source !== 'typed' ? costOf(item) : null;
+
+  if (fromList != null) {
+    const unit = qty > 0 ? fromList / qty : fromList;
+    const pct = marginPct(item, fromList);
     return (
-      <span
-        className={styles.costUnknown}
-        title="Not a Price List product, so there is no cost to read. Nothing is guessed here."
-      >
-        —
+      <span className={styles.costCell}>
+        <span title="Off the Price List, per unit, excluding GST">${unit.toFixed(2)}</span>
+        <em className={styles.costMargin}>
+          {qty !== 1 ? `= $${fromList.toFixed(2)}` : ''}
+          {pct !== null ? `${qty !== 1 ? ' · ' : ''}${pct}%` : ''}
+        </em>
       </span>
     );
   }
-  // The margin on this line, said here because the cost beside it is excluding
-  // GST and the line total further along includes it. Left to be eyeballed,
-  // those two read as a far better margin than the line is really making.
-  const sellExGst = ((parseFloat(item.unit_price) || 0) * (parseFloat(item.quantity) || 0))
-    / (1 + GST_RATE);
-  const pct = sellExGst > 0 ? Math.round(((sellExGst - cost) / sellExGst) * 100) : null;
-  return (
-    <span className={styles.costCell}>
-      ${cost.toFixed(2)}
-      {pct !== null && (
-        <em className={styles.costMargin} title="Margin on this line, on the excluding-GST price">
-          {pct}%
+
+  if (!editable) {
+    const typed = costOf(item);
+    if (typed == null) {
+      return (
+        <span
+          className={styles.costUnknown}
+          title="Not a Price List product and no cost typed against it, so there is nothing to read. Nothing is guessed here."
+        >
+          —
+        </span>
+      );
+    }
+    const unit = qty > 0 ? typed / qty : typed;
+    const pct = marginPct(item, typed);
+    return (
+      <span className={styles.costCell}>
+        <span title="Typed against this line, per unit, excluding GST">${unit.toFixed(2)}</span>
+        <em className={styles.costMargin}>
+          {qty !== 1 ? `= $${typed.toFixed(2)}` : ''}
+          {pct !== null ? `${qty !== 1 ? ' · ' : ''}${pct}%` : ''}
         </em>
-      )}
+      </span>
+    );
+  }
+
+  // Nothing on the list behind this line, so the cost is somebody's to put in.
+  const cents = toCostCents(value);
+  const lineCost = cents == null ? null : (cents / 100) * qty;
+  const pct = lineCost == null ? null : marginPct(item, lineCost);
+  return (
+    <span className={styles.costEdit}>
+      <input
+        type="number" min="0" step="0.01"
+        value={value ?? ''}
+        placeholder="—"
+        aria-label="Cost per unit, excluding GST"
+        title="What this line costs us, per unit, excluding GST. Leave it empty if you do not know — empty is not nought."
+        onChange={e => onChange(e.target.value)}
+      />
+      <em className={styles.costMargin}>
+        {lineCost == null ? 'no cost yet'
+          : `${qty !== 1 ? `= $${lineCost.toFixed(2)}` : ''}${pct !== null ? `${qty !== 1 ? ' · ' : ''}${pct}%` : ''}`}
+      </em>
     </span>
   );
 }
@@ -92,10 +152,22 @@ export default function LineItemsEditor({
       // Stored excl. GST (cents) — shown/edited here incl. GST, since that's
       // the figure the team quotes customers.
       unit_price: ((i.unit_price / 100) * (1 + GST_RATE)).toFixed(2),
+      // The typed cost as it is typed: dollars per unit, as a string, so a
+      // half-finished "12." is left alone rather than snapped to 12 under the
+      // cursor. Only a cost the server says was typed — a Price List one is
+      // read, not edited, and must not be copied into the box.
+      _cost: i.cost_source === 'typed' && i.cost_cents != null && Number(i.quantity) > 0
+        ? (i.cost_cents / 100 / Number(i.quantity)).toFixed(2)
+        : '',
     })));
   }, [initialItems]);
 
-  const toPayload = rows => rows.map(i => ({
+  const toPayload = useCallback(rows => rows.map(i => ({
+    // The row it was, where it was one already. Every line is deleted and
+    // rewritten on a save, so this is how the server knows which of the new
+    // rows is which old one — and therefore which cost to carry across for
+    // whoever is not allowed to change it.
+    id: i.id || null,
     description: i.description,
     quantity: parseFloat(i.quantity) || 1,
     // Convert the incl.-GST figure the team edits back to excl. GST for storage.
@@ -106,7 +178,11 @@ export default function LineItemsEditor({
     // but every line is rewritten on a save, so leaving it out of the payload
     // is the same as deleting it.
     proposal_id: i.proposal_id || null,
-  }));
+    // Only where there is a cost column to have typed it in. Sent as a number
+    // of cents per unit, or null for "we do not know" — which is not the same
+    // as nought, and is why an empty box is not sent as one.
+    ...(costColumn ? { unit_cost_cents: toCostCents(i._cost) } : {}),
+  })), [costColumn]);
 
   const save = useCallback(async rows => {
     clearTimeout(timerRef.current);
@@ -118,7 +194,7 @@ export default function LineItemsEditor({
     } finally {
       setSaving(false);
     }
-  }, [onSave]);
+  }, [onSave, toPayload]);
 
   // A blank row can't be saved — the server drops line items with no
   // description, so saving mid-entry would delete the row being typed into.
@@ -136,7 +212,7 @@ export default function LineItemsEditor({
   useEffect(() => () => clearTimeout(timerRef.current), []);
 
   function addRow() {
-    setItems(i => [...i, { _key: nextRowKey(), description: '', quantity: 1, unit_price: '0.00', product_id: null, product_name: '' }]);
+    setItems(i => [...i, { _key: nextRowKey(), description: '', quantity: 1, unit_price: '0.00', product_id: null, product_name: '', _cost: '' }]);
     setDirty(true);
   }
 
@@ -168,8 +244,8 @@ export default function LineItemsEditor({
         <div>Qty</div>
         <div>Unit Price (NZD, incl. GST)</div>
         {costColumn && (
-          <div title="What this line costs us, off the Price List. Excludes GST. Blank where the line is not a Price List product.">
-            Cost (excl. GST)
+          <div title="What this line costs us, per unit, excluding GST. Read off the Price List where the line is a product on it; typed in here where it is not.">
+            Cost each (excl. GST)
           </div>
         )}
         <div>Line Total</div>
@@ -188,7 +264,7 @@ export default function LineItemsEditor({
               <span className={styles.productCode}>{item.product_name || '—'}</span>
               <span>{item.quantity}</span>
               <span>${parseFloat(item.unit_price).toFixed(2)}</span>
-              {costColumn && <CostCell item={item} />}
+              {costColumn && <CostCell item={item} editable={false} />}
               <span>${(parseFloat(item.unit_price) * parseFloat(item.quantity)).toFixed(2)}</span>
             </>
           ) : (
@@ -226,7 +302,10 @@ export default function LineItemsEditor({
                 value={item.unit_price}
                 onChange={e => update(idx, 'unit_price', e.target.value)}
               />
-              {costColumn && <CostCell item={item} />}
+              {costColumn && (
+                <CostCell item={item} editable value={item._cost}
+                  onChange={v => update(idx, '_cost', v)} />
+              )}
               <span className={styles.lineTotal}>
                 ${((parseFloat(item.unit_price) || 0) * (parseFloat(item.quantity) || 0)).toFixed(2)}
               </span>

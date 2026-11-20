@@ -495,11 +495,11 @@
    that do not show it. */
 .lineItemsHeaderCost {
   composes: lineItemsHeader;
-  grid-template-columns: 3fr 115px 66px 125px 92px 105px 30px;
+  grid-template-columns: 3fr 115px 66px 125px 92px 118px 30px;
 }
 .lineItemRowCost {
   composes: lineItemRow;
-  grid-template-columns: 3fr 115px 66px 125px 92px 105px 30px;
+  grid-template-columns: 3fr 115px 66px 125px 92px 118px 30px;
 }
 
 .costCell { font-size: 13px; color: #334155; }
@@ -512,6 +512,28 @@
 /* A line with no Price List product behind it. Said as a dash rather than a
    zero, because a zero is a cost and this is not knowing. */
 .costUnknown { font-size: 13px; color: #94a3b8; }
+
+/* A cost nobody can read off the Price List, so somebody types it. The box is
+   the same size as the others on the row; what it comes to for the line, and
+   what is left on it, sit underneath in the same place the read-off ones put
+   them. */
+.costEdit { min-width: 0; }
+.costEdit input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+/* Dashed until it has something in it — an empty box here means "we do not
+   know", and it should not look like a field somebody forgot to fill in the
+   same way a blank price would. */
+.costEdit input:not(:placeholder-shown) { border-style: solid; }
+.costEdit input:focus { border-color: var(--color-primary); border-style: solid; outline: none; }
 
 .lineTotal { font-size: 13px; font-weight: 500; }
 
@@ -1007,7 +1029,8 @@
   .pipelineStep { font-size: 12px; padding: 6px 10px; }
   .lineItemsHeader, .lineItemsHeaderCost { display: none; }
   .lineItemRow { grid-template-columns: 2fr 100px 60px 100px 32px; }
-  .lineItemRowCost { grid-template-columns: 2fr 90px 56px 90px 80px 32px; }
+  /* The cost column takes a typed figure now, so it needs room for one. */
+  .lineItemRowCost { grid-template-columns: 2fr 90px 56px 90px 92px 32px; }
 }
 
 /* ── AI Scan ─────────────────────────────────────────────────── */

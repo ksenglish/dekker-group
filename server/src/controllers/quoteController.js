@@ -256,7 +256,8 @@ async function get(req, res) {
     if (req.user?.role === 'admin') {
       const costs = await costOfLines(items.rows.map(i => i.id));
       items.rows.forEach(i => {
-        if (costs.has(i.id)) i.cost_cents = costs.get(i.id);
+        const found = costs.get(i.id);
+        if (found) { i.cost_cents = found.cents; i.cost_source = found.source; }
       });
       costing = summarise(items.rows, costs);
     }
@@ -337,8 +338,10 @@ async function create(req, res) {
     // independently of the job and of any other quote on it.
     if (job_id) {
       await pool.query(
-        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name)
-         SELECT job_id, $1, description, quantity, unit_price, product_id, product_name
+        // unit_cost_cents travels with the line. It is a fact about that
+        // line, not about the document it happens to be sitting in.
+        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name, unit_cost_cents)
+         SELECT job_id, $1, description, quantity, unit_price, product_id, product_name, unit_cost_cents
          FROM line_items WHERE job_id=$2 AND quote_id IS NULL ORDER BY created_at`,
         [rows[0].id, job_id]
       );
@@ -361,8 +364,8 @@ async function syncJobLineItemsFromQuote(quoteId, jobId) {
     await client.query('BEGIN');
     await client.query('DELETE FROM line_items WHERE job_id=$1 AND quote_id IS NULL', [jobId]);
     await client.query(
-      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name)
-       SELECT $1, NULL, description, quantity, unit_price, product_id, product_name
+      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name, unit_cost_cents)
+       SELECT $1, NULL, description, quantity, unit_price, product_id, product_name, unit_cost_cents
        FROM line_items WHERE quote_id=$2 ORDER BY created_at`,
       [jobId, quoteId]
     );
@@ -464,20 +467,49 @@ async function updateLineItems(req, res) {
   try {
     const { rows: [quote] } = await pool.query('SELECT job_id FROM quotes WHERE id=$1', [req.params.id]);
     if (!quote) return res.status(404).json({ error: 'Quote not found' });
+
+    // Costs typed against these lines, before the lines are rewritten.
+    //
+    // Every save deletes every line and writes them all back, so anything not
+    // carried across is deleted. Only an admin sees a cost and only an admin
+    // may set one — so for everybody else the old figure is carried over
+    // rather than taken from what they sent, which they never had.
+    const admin = req.user?.role === 'admin';
+    const { rows: before } = await pool.query(
+      'SELECT id, unit_cost_cents FROM line_items WHERE quote_id=$1', [req.params.id]);
+    const wasCosted = new Map(before.map(r => [r.id, r.unit_cost_cents]));
+    const costFor = item => {
+      const carried = item.id ? wasCosted.get(item.id) ?? null : null;
+      if (!admin) return carried;
+      // An admin who did not send the field is editing something else; one
+      // who sent it blank is clearing it, and clearing it means unknown.
+      //
+      // Blank has to be checked before Number() gets near it: Number(null) and
+      // Number('') are both 0, and 0 is a cost. Emptying the box would have
+      // recorded a line that costs us nothing rather than one we have not
+      // costed, and that is the one error this whole column exists to stop.
+      if (!Object.prototype.hasOwnProperty.call(item, 'unit_cost_cents')) return carried;
+      const raw = item.unit_cost_cents;
+      if (raw === null || raw === undefined || raw === '') return null;
+      const typed = Number(raw);
+      return Number.isFinite(typed) && typed >= 0 ? Math.round(typed) : null;
+    };
+
     await client.query('BEGIN');
     await client.query('DELETE FROM line_items WHERE quote_id=$1', [req.params.id]);
     for (const item of items) {
       if (!item.description) continue;
       await client.query(
-        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name, proposal_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name, proposal_id, unit_cost_cents)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [quote.job_id, req.params.id, item.description, item.quantity || 1,
          Math.round((item.unit_price || 0) * 100), item.product_id || null, item.product_name || null,
          // Kept, rather than dropped on the floor. Every line is deleted and
          // rewritten on a save, and leaving this off meant opening a quote
          // and saving it severed the link back to the proposal it was built
          // from — which is where its materials come from.
-         item.proposal_id || null]
+         item.proposal_id || null,
+         costFor(item)]
       );
     }
     await client.query('COMMIT');
@@ -491,7 +523,10 @@ async function updateLineItems(req, res) {
     let costing = null;
     if (req.user?.role === 'admin') {
       const costs = await costOfLines(rows.map(i => i.id));
-      rows.forEach(i => { if (costs.has(i.id)) i.cost_cents = costs.get(i.id); });
+      rows.forEach(i => {
+        const found = costs.get(i.id);
+        if (found) { i.cost_cents = found.cents; i.cost_source = found.source; }
+      });
       costing = summarise(rows, costs);
     }
     res.json({ line_items: rows, subtotal, gst, total, costing });
@@ -671,8 +706,8 @@ async function copyQuote(req, res) {
 
     // The copy's own line items — same scope, owned by the new quote
     await client.query(
-      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name)
-       SELECT job_id, $1, description, quantity, unit_price, product_id, product_name
+      `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name, unit_cost_cents)
+       SELECT job_id, $1, description, quantity, unit_price, product_id, product_name, unit_cost_cents
        FROM line_items WHERE quote_id=$2 ORDER BY created_at`,
       [copy.id, req.params.id]
     );
