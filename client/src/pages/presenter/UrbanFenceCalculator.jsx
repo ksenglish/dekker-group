@@ -3,6 +3,7 @@ import api from '../../lib/api';
 import RunPlanner, {
   segmentsOf, setSegmentLength, setTurnAt, turnAt, appendRun, removeSegment,
 } from '../../components/plan/RunPlanner';
+import usePlan from '../../components/plan/usePlan';
 import {
   buildCatalogue, suggestPost, postsFor, takeOff, priceUp,
   runsFromPoints, DEFAULT_EMBEDMENT_MM,
@@ -123,6 +124,9 @@ function fenceOnPlan({ plan }) {
 
 export default function UrbanFenceCalculator({
   product, onPick, onQuantityChange, onRecommend, fullPage = false,
+  // The drawing, when somebody else owns it — a plan saved on a job, opened
+  // in the Drawing Tool. Left out, the calculator keeps its own.
+  plan: heldPlan, onPlanChange,
 }) {
   const [priceList, setPriceList] = useState([]);
   const [range, setRange] = useState('');
@@ -132,13 +136,13 @@ export default function UrbanFenceCalculator({
   // One fence, drawn or typed. Both are views of the same line on the ground:
   // drawing moves the corners and typing sets a measurement, and neither has a
   // copy of the other to fall out of step with.
-  const [points, setPoints] = useState([]);
-  const [closedLoop, setClosedLoop] = useState(false);
+  const {
+    points, closed: closedLoop, objects: drawnGates, setPlan, setPoints, setClosed: setClosedLoop,
+  } = usePlan(heldPlan, onPlanChange);
   const [draft, setDraft] = useState(null);   // a measurement part-typed
 
   const [gateSku, setGateSku] = useState('');
   const [gateCount, setGateCount] = useState(0);
-  const [drawnGates, setDrawnGates] = useState([]);
   const [gateWidthMm, setGateWidthMm] = useState(0);
 
   const [basePlate, setBasePlate] = useState(false);
@@ -278,14 +282,10 @@ export default function UrbanFenceCalculator({
   }, [plan, onQuantityChange]);
 
   function planned({ points: next, closed, objects }) {
-    setPoints(next);
-    setClosedLoop(closed);
+    setPlan(now => ({ ...now, points: next, closed, objects: objects ?? now.objects }));
     // Gates are dropped on the fence line and dragged to where they go, so
     // how many there are is read off the plan rather than typed twice.
-    if (objects) {
-      setDrawnGates(objects);
-      setGateCount(objects.length);
-    }
+    if (objects) setGateCount(objects.length);
   }
 
   // A measurement being typed is held as it is typed and applied when the

@@ -15,6 +15,7 @@ import { isBillable } from '../../lib/billing';
 import { axisWindow, hourMarks, packLanes, pctFor, fmtHourMark, fmtTimeAmPm, needsApproval, approvalNote } from '../../lib/timeline';
 import JobForm from './JobForm';
 import LineItemsEditor from './LineItemsEditor';
+import JobDrawing from './JobDrawing';
 import JobCosts from './JobCosts';
 import AddBillablesModal from './AddBillablesModal';
 import JobProposals from './JobProposals';
@@ -571,7 +572,7 @@ function PhotoLightbox({ photos, fileUrls, openId, onChange, onClose }) {
   );
 }
 
-function JobAttachments({ jobId, user, category = 'pre_install' }) {
+function JobAttachments({ jobId, user, category = 'pre_install', onDraw }) {
   const [attachments, setAttachments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -664,6 +665,18 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
             : '📷 Upload Photos or PDFs'}
           <input type="file" accept="image/*,application/pdf,.pdf" multiple style={{ display: 'none' }} onChange={handleFile} disabled={uploading} />
         </label>
+        {/* The site itself, measured rather than photographed. Lands on this
+            tab like anything else here, which is what puts it in front of the
+            quote's attachment picker with no new plumbing. */}
+        {onDraw && (
+          <button type="button" onClick={() => onDraw(null)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+              padding: '7px 14px', background: 'var(--color-surface)', color: 'var(--color-text)',
+              border: '1px solid var(--color-border)', borderRadius: 'var(--radius)',
+              fontSize: 13, fontWeight: 500, fontFamily: 'inherit' }}>
+            ✎ Drawing Tool
+          </button>
+        )}
         <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Photos (JPG, PNG, WebP, iPhone HEIC) or PDFs · select several at once</span>
       </div>
       {loading ? <div className={styles.emptySmall}>Loading…</div> :
@@ -700,6 +713,17 @@ function JobAttachments({ jobId, user, category = 'pre_install' }) {
                 <div style={{ padding: '4px 6px', fontSize: 10, color: 'var(--color-text-muted)', background: 'white' }}>
                   {a.uploader_name} · {new Date(a.created_at).toLocaleDateString('en-NZ')}
                 </div>
+                {/* A drawing has a plan behind it, so it can be opened and
+                    the walls moved. A photograph cannot, so it is not
+                    offered. */}
+                {a.plan_json && onDraw && (
+                  <button type="button" onClick={() => onDraw(a)}
+                    style={{ position: 'absolute', left: 4, top: 4, background: 'rgba(15,23,42,0.78)',
+                      color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer',
+                      padding: '3px 8px', fontSize: 11, fontFamily: 'inherit', fontWeight: 600 }}>
+                    ✎ Open
+                  </button>
+                )}
                 <button onClick={() => del(a.id)} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.5)', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', padding: '2px 5px', fontSize: 11 }}>✕</button>
               </div>
             );
@@ -1530,6 +1554,11 @@ export default function JobDetail() {
   const [syncingArcSite, setSyncingArcSite] = useState(false);
   const [pullingDrawings, setPullingDrawings] = useState(false);
   const [attachmentsRefreshKey, setAttachmentsRefreshKey] = useState(0);
+  // The Drawing Tool: undefined when it is shut, null for a new drawing, and
+  // the attachment itself when an existing one is being opened. Three states
+  // rather than two, because "no drawing" and "a new drawing" are different
+  // things and a boolean cannot tell them apart.
+  const [drawing, setDrawing] = useState(undefined);
   const [jobStatuses, setJobStatuses] = useState([]);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [statusMenuPos, setStatusMenuPos] = useState(null);
@@ -2028,8 +2057,20 @@ export default function JobDetail() {
             <>
               <JobFormsTab jobId={id} job={job} user={user} stage="pre_install" />
               <div style={{ marginTop: 16 }}>
-                <JobAttachments key={attachmentsRefreshKey} jobId={id} user={user} />
+                <JobAttachments key={attachmentsRefreshKey} jobId={id} user={user}
+                  onDraw={setDrawing} />
               </div>
+              {/* Over everything, because measuring a yard is the only thing
+                  anybody is doing while it is open. */}
+              {drawing !== undefined && (
+                <JobDrawing
+                  jobId={id}
+                  job={job}
+                  drawing={drawing}
+                  onClose={() => setDrawing(undefined)}
+                  onSaved={() => setAttachmentsRefreshKey(k => k + 1)}
+                />
+              )}
             </>
           )}
           {activeTab === 'forms' && (

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../lib/api';
 import RunPlanner from '../../components/plan/RunPlanner';
+import usePlan from '../../components/plan/usePlan';
 import { planDeckShape, DECK, COLOURS } from './deckPlan';
 import styles from './SalesPresenter.module.css';
 import own from './UrbanFenceCalculator.module.css';
@@ -156,13 +157,15 @@ function deckOnPlan({ plan, layers }) {
 
 export default function CompositeDeckCalculator({
   onPick, onQuantityChange, onRecommend, fullPage = false,
+  // The drawing, when somebody else owns it — a plan saved on a job, opened
+  // in the Drawing Tool. Left out, the calculator keeps its own.
+  plan: heldPlan, onPlanChange,
 }) {
   const [colour, setColour] = useState(COLOURS[2].key);   // Leatherwood, the usual pick
   const [design, setDesign] = useState('none');
   const [boardsAcross, setBoardsAcross] = useState(true);
   const [layers, setLayers] = useState({ boards: true, joists: false, clips: false });
-  const [points, setPoints] = useState([]);
-  const [closed, setClosed] = useState(false);
+  const { points, closed, setPlan } = usePlan(heldPlan, onPlanChange);
   const [priceList, setPriceList] = useState([]);
 
   useEffect(() => {
@@ -198,9 +201,8 @@ export default function CompositeDeckCalculator({
   const kitEach = kitProduct ? kitProduct.unit_price / 100 : 0;
   const total = plan ? plan.stockLengths * boardEach + plan.kits * kitEach : 0;
 
-  function drawn({ points: next, closed: shut }) {
-    setPoints(next);
-    setClosed(shut);
+  function drawn({ points: next, closed: shut, objects }) {
+    setPlan(now => ({ ...now, points: next, closed: shut, objects: objects ?? now.objects }));
   }
   const setLayer = (key, on) => setLayers(l => ({ ...l, [key]: on }));
 

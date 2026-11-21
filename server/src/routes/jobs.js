@@ -578,7 +578,12 @@ router.get('/:id/attachments', async (req, res) => {
   }
   try {
     const { rows } = await pool.query(
-      `SELECT a.id, a.filename, a.mime_type, a.created_at, a.arcsite_drawing_id, a.category, u.name AS uploader_name
+      // plan_json comes back with the list rather than behind another request:
+      // it is a handful of corners, the Pre-Install tab needs to know which
+      // rows are drawings in order to offer to open them, and the drawing tool
+      // needs the corners themselves the moment one is picked.
+      `SELECT a.id, a.filename, a.mime_type, a.created_at, a.arcsite_drawing_id, a.category,
+              a.plan_json, u.name AS uploader_name
        FROM job_attachments a LEFT JOIN users u ON u.id = a.uploaded_by
        WHERE a.job_id=$1${filter} ORDER BY a.created_at DESC`,
       params
@@ -601,9 +606,45 @@ router.get('/:id/attachments/:attId/data', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+// What a drawing is allowed to be, checked before it is stored rather than
+// trusted. A plan is a handful of corners; anything claiming to be one with
+// ten thousand of them is not a back yard, and the column is not a dumping
+// ground for whatever a client felt like posting.
+const MAX_PLAN_POINTS = 2000;
+function cleanPlan(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const num = v => (Number.isFinite(Number(v)) ? Number(v) : null);
+  const points = (Array.isArray(input.points) ? input.points : [])
+    .slice(0, MAX_PLAN_POINTS)
+    .map(p => ({ x: num(p?.x), y: num(p?.y) }))
+    .filter(p => p.x !== null && p.y !== null);
+  if (!points.length) return null;
+  const objects = (Array.isArray(input.objects) ? input.objects : [])
+    .slice(0, MAX_PLAN_POINTS)
+    .map(o => ({
+      id: String(o?.id ?? '').slice(0, 40) || null,
+      kind: String(o?.kind ?? '').slice(0, 40),
+      run: num(o?.run) ?? 0,
+      atM: num(o?.atM) ?? 0,
+      widthM: num(o?.widthM) ?? 1,
+    }))
+    .filter(o => o.kind);
+  return {
+    points,
+    closed: input.closed === true,
+    objects,
+    // Which calculator was last run over it, so opening it again picks up
+    // where it was left rather than as a bare outline.
+    calculator: typeof input.calculator === 'string' ? input.calculator.slice(0, 40) : null,
+    options: input.options && typeof input.options === 'object' && !Array.isArray(input.options)
+      ? input.options : null,
+  };
+}
+
 router.post('/:id/attachments', async (req, res) => {
   const { filename, mime_type, data_base64, category } = req.body;
   if (!data_base64 || !filename) return res.status(400).json({ error: 'filename and data_base64 required' });
+  const plan = cleanPlan(req.body.plan_json);
   try {
     // iPhone HEICs arrive uncompressed — no browser outside Safari can decode
     // them, so the client couldn't downscale them. Converted to JPEG here.
@@ -618,10 +659,12 @@ router.post('/:id/attachments', async (req, res) => {
 
     const { rows } = await pool.query(
       `INSERT INTO job_attachments
-         (job_id, uploaded_by, filename, mime_type, data_base64, category, storage_key, size_bytes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, filename, mime_type, created_at, category`,
+         (job_id, uploaded_by, filename, mime_type, data_base64, category, storage_key, size_bytes, plan_json)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id, filename, mime_type, created_at, category, plan_json`,
       [req.params.id, req.user.id, storedName, contentType, storageKey ? null : storedDataUrl,
-       category === 'post_install' ? 'post_install' : 'pre_install', storageKey, buffer.length]
+       category === 'post_install' ? 'post_install' : 'pre_install', storageKey, buffer.length,
+       plan ? JSON.stringify(plan) : null]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -629,6 +672,69 @@ router.post('/:id/attachments', async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+// Saving a drawing that already exists.
+//
+// A drawing gets opened again — the yard was measured on Tuesday and the deck
+// moved on Thursday — and what comes back has to replace it rather than sit
+// beside it. Without this, every visit to the drawing tool left another copy
+// on the Pre-Install tab and nobody could tell which was current.
+//
+// Only ever a drawing: a photograph has no plan behind it and nothing here
+// should be able to overwrite one.
+router.put('/:id/attachments/:attId', async (req, res) => {
+  const { filename, data_base64 } = req.body;
+  const plan = cleanPlan(req.body.plan_json);
+  if (!plan) return res.status(400).json({ error: 'A drawing needs a plan behind it.' });
+  try {
+    const { rows: [existing] } = await pool.query(
+      'SELECT id, plan_json, storage_key FROM job_attachments WHERE id=$1 AND job_id=$2',
+      [req.params.attId, req.params.id]);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    if (!existing.plan_json) {
+      return res.status(400).json({ error: 'That attachment is not a drawing.' });
+    }
+
+    const name = normaliseFilename(String(filename || 'Drawing.svg'), false);
+    let storageKey = existing.storage_key;
+    let inline = null;
+    let size = null;
+    if (data_base64) {
+      const buffer = Buffer.from(fileStore.stripDataUrl(data_base64), 'base64');
+      size = buffer.length;
+      if (fileStore.isConfigured()) {
+        storageKey = await fileStore.putObject({
+          prefix: `jobs/${req.params.id}/photos`, filename: name,
+          buffer, contentType: 'image/svg+xml',
+        });
+        // The old object is replaced, not kept: it is the same drawing, and a
+        // bucket full of every version anybody ever saved is not a feature.
+        if (existing.storage_key && existing.storage_key !== storageKey) {
+          await fileStore.deleteObject(existing.storage_key).catch(() => {});
+        }
+      } else {
+        storageKey = null;
+        inline = data_base64;
+      }
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE job_attachments
+          SET filename = $1,
+              mime_type = 'image/svg+xml',
+              plan_json = $2,
+              data_base64 = COALESCE($3, data_base64),
+              storage_key = $4,
+              size_bytes = COALESCE($5, size_bytes)
+        WHERE id = $6 AND job_id = $7
+        RETURNING id, filename, mime_type, created_at, category, plan_json`,
+      [name, JSON.stringify(plan), inline, storageKey, size, req.params.attId, req.params.id]);
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Drawing save failed:', err.message);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.delete('/:id/attachments/:attId', async (req, res) => {
   try {
     // Delete the row first — the record disappearing is what the user asked

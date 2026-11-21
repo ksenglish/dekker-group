@@ -474,7 +474,13 @@ export default function RunPlanner({
               stroke={colour} strokeWidth={unit * 0.9} strokeLinecap="round" />
           ))}
 
-          {overlay?.({ points: live, closed, segs, view, unit, objects: held })}
+          {/* Tagged so a saved drawing can carry what the calculator drew —
+              the decking, the posts — and not just the outline. Both are in
+              metres, so the marks land in the same places on the file as they
+              do on the screen. */}
+          <g data-plan-overlay="">
+            {overlay?.({ points: live, closed, segs, view, unit, objects: held })}
+          </g>
 
           {/* Gates, doors and windows, drawn where they were dropped: a gap in
               the wall, and the leaf swung out of it where it has one. */}

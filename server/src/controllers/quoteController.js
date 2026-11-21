@@ -408,7 +408,11 @@ async function update(req, res) {
     const items = await pool.query('SELECT * FROM line_items WHERE quote_id=$1', [req.params.id]);
     const { subtotal, gst, total } = calcTotals(items.rows);
     const { rows } = await pool.query(
-      `UPDATE quotes SET status=$1, subtotal=$2, gst=$3, total=$4, notes=$5, updated_at=NOW(),
+      // status is COALESCEd like the theme and the dates beside it. Set
+      // outright, a request that changed only the attachments — which is what
+      // raising a quote off a drawing sends — wrote NULL into a NOT NULL
+      // column and came back a 500 with nothing saved.
+      `UPDATE quotes SET status=COALESCE($1, status), subtotal=$2, gst=$3, total=$4, notes=$5, updated_at=NOW(),
               theme_id=COALESCE($6, theme_id), quote_date=COALESCE($7, quote_date), expires_at=COALESCE($8, expires_at),
               terms_and_conditions=CASE WHEN $9 THEN $10 ELSE terms_and_conditions END,
               payment_terms=CASE WHEN $11 THEN $12 ELSE payment_terms END

@@ -3,6 +3,7 @@ import api from '../../lib/api';
 import RunPlanner, {
   segmentsOf, setSegmentLength, setTurnAt, turnAt, appendRun, removeSegment,
 } from '../../components/plan/RunPlanner';
+import usePlan from '../../components/plan/usePlan';
 import { takeOff, priceUp, readSpec } from './palingFence';
 import styles from './SalesPresenter.module.css';
 import own from './UrbanFenceCalculator.module.css';
@@ -76,19 +77,20 @@ function fenceOnPlan({ plan, hex }) {
   };
 }
 
-export default function PalingFenceTakeoff({ onPick, onQuantityChange, fullPage = false }) {
+export default function PalingFenceTakeoff({
+  onPick, onQuantityChange, fullPage = false,
+  // The drawing, when somebody else owns it — a plan saved on a job, opened
+  // in the Drawing Tool. Left out, the calculator keeps its own.
+  plan: heldPlan, onPlanChange,
+}) {
   const [spec, setSpec] = useState(() => readSpec(null));
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [heightMm, setHeightMm] = useState(1800);
   const [topCap, setTopCap] = useState(false);
-  const [points, setPoints] = useState([]);
-  const [closedLoop, setClosedLoop] = useState(false);
+  const { points, closed: closedLoop, objects: gates, setPlan, setPoints, setClosed: setClosedLoop } = usePlan(heldPlan, onPlanChange);
   const [draft, setDraft] = useState(null);
-  // Gateways are dropped on the fence line and dragged to where they go,
-  // so the plan says where they are rather than the take-off assuming.
-  const [gates, setGates] = useState([]);
 
   useEffect(() => {
     Promise.all([
@@ -121,9 +123,7 @@ export default function PalingFenceTakeoff({ onPick, onQuantityChange, fullPage 
   useEffect(() => { onQuantityChange?.(plan ? plan.fenceMetres : 0); }, [plan, onQuantityChange]);
 
   function planned({ points: next, closed, objects }) {
-    setPoints(next);
-    setClosedLoop(closed);
-    if (objects) setGates(objects);
+    setPlan(now => ({ ...now, points: next, closed, objects: objects ?? now.objects }));
   }
 
   function fieldFor(s) {
