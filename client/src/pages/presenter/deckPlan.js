@@ -205,6 +205,62 @@ function cutRun(runMm) {
   return best || { pieces: 0, pieceMm: 0, joints: 0, perLength: 0 };
 }
 
+// The shortest end anybody wants on a deck.
+//
+// A join is only worth putting in where both sides of it are a board. Lining a
+// row up with the rest of the deck at the cost of a 47mm offcut on the end of
+// it is not lining it up, it is ruining it.
+const MIN_PIECE = 600;
+
+/**
+ * Where one run is cut, given the lines the whole deck joins on.
+ *
+ * Every row used to be cut on its own, into its own equal pieces. On a
+ * rectangle that is the same thing, because every row is the same length — but
+ * on an L the full-width rows were cut into thirds and the short rows into
+ * halves, so the joins landed in different places a metre apart and the deck
+ * read as two decks that had been pushed together.
+ *
+ * So the deck decides where it joins once, and every row that has to be
+ * jointed is jointed on those lines. A row that fits a board is left whole: a
+ * join put in for the sake of lining up with one somewhere else is a join
+ * nobody needs.
+ */
+function cutAlong(from, to, lines) {
+  const len = to - from;
+  if (!(len > 0)) return [];
+  if (len <= STOCK) return [{ from, to }];
+
+  const pieces = [];
+  let at = from;
+  for (const line of lines) {
+    // Behind where this run has got to, or so near either end that cutting
+    // there would leave an offcut rather than a board.
+    if (line <= at + MIN_PIECE) continue;
+    if (line + JOINT_MM >= to - MIN_PIECE) break;
+    pieces.push({ from: at, to: line });
+    at = line + JOINT_MM;
+  }
+  pieces.push({ from: at, to });
+
+  // A run that starts between two of the deck's lines can still have a piece
+  // in it longer than a board — the lines are a board apart, not a board apart
+  // from wherever this row happens to begin. That piece takes a join of its
+  // own, off the line, because a piece nobody can buy is worse than a join
+  // that does not line up.
+  const settled = [];
+  for (const piece of pieces) {
+    const run = piece.to - piece.from;
+    if (run <= STOCK) { settled.push(piece); continue; }
+    const cut = cutRun(run);
+    for (let k = 0; k < Math.max(1, cut.pieces); k++) {
+      const a0 = piece.from + k * (cut.pieceMm + JOINT_MM);
+      settled.push({ from: a0, to: a0 + cut.pieceMm, offLine: true });
+    }
+  }
+  return settled;
+}
+
 // Whole boards of stock, nesting as many pieces into each length as fit. Two
 // 2386mm pieces come out of one 5400 length; one 5000mm piece does not leave
 // enough for a second.
@@ -262,6 +318,27 @@ export function planDeckShape({ points, closed = true, pictureFrame = false, boa
 
   const crossStart = axis === 'x' ? inner.y0 : inner.x0;
 
+  // Where the deck joins, decided once for the whole of it.
+  //
+  // Taken off the longest the field gets, so the spacing is the one the rows
+  // that actually need cutting would have chosen anyway — which is what keeps
+  // a plain rectangle laid out exactly as it always was. Every line is a board
+  // and a joint on from the last, so each bay between them is one board long.
+  const fieldAlong0 = axis === 'x' ? inner.x0 : inner.y0;
+  const fieldAlong1 = axis === 'x' ? inner.x1 : inner.y1;
+  const widest = cutRun(fieldAlong1 - fieldAlong0);
+  const joinLines = [];
+  if (widest.pieces > 1) {
+    // Spaced on the exact division rather than the rounded piece length.
+    // Stepping by the rounded one accumulates half a millimetre a time, so the
+    // last bay came out a millimetre wider than the others and the cut list
+    // grew a second entry for what is the same board.
+    const exact = ((fieldAlong1 - fieldAlong0) - (widest.pieces - 1) * JOINT_MM) / widest.pieces;
+    for (let k = 1; k < widest.pieces; k++) {
+      joinLines.push(fieldAlong0 + k * exact + (k - 1) * JOINT_MM);
+    }
+  }
+
   // Every piece of board that will be cut, and where it goes. One pass, so the
   // drawing and the order cannot tell different stories.
   const boards = [];
@@ -271,36 +348,45 @@ export function planDeckShape({ points, closed = true, pictureFrame = false, boa
   let fieldMm = 0;
   let nesting = false;
   let mostPieces = 0;
+  // Rows where the deck's own join lines could not get every piece down to a
+  // board, so one of them had to be jointed somewhere else. Counted rather
+  // than hidden: it is the one case where the joins do not all line up.
+  let offLineJoins = 0;
   const rowLines = [];
   for (let i = 0; i < rows; i++) {
     const at = crossStart + i * PITCH + BOARD_W / 2;
     const spans = spansAt(field, at, axis);
     rowLines.push({ at, spans });
     for (const span of spans) {
-      const cut = cutRun(span.to - span.from);
-      if (!cut.pieces) continue;
-      if (cut.pieces > 1 && Math.floor(STOCK / cut.pieceMm) >= 2) nesting = true;
-      mostPieces = Math.max(mostPieces, cut.pieces);
-      cuts.set(cut.pieceMm, (cuts.get(cut.pieceMm) || 0) + cut.pieces);
-      fieldPieces += cut.pieces;
-      fieldMm += cut.pieces * cut.pieceMm;
-      for (let p = 0; p < cut.pieces; p++) {
-        const a0 = span.from + p * (cut.pieceMm + JOINT_MM);
-        boards.push({ a0, a1: a0 + cut.pieceMm, at });
+      const pieces = cutAlong(span.from, span.to, joinLines);
+      if (!pieces.length) continue;
+      mostPieces = Math.max(mostPieces, pieces.length);
+      if (pieces.some(p => p.offLine)) offLineJoins++;
+      pieces.forEach((piece, p) => {
+        const mm = Math.round(piece.to - piece.from);
+        if (mm <= 0) return;
+        if (pieces.length > 1 && Math.floor(STOCK / mm) >= 2) nesting = true;
+        cuts.set(mm, (cuts.get(mm) || 0) + 1);
+        fieldPieces += 1;
+        fieldMm += mm;
+        boards.push({ a0: piece.from, a1: piece.to, at });
         // Where two pieces in the same run meet, the gap between them is a
         // board width because a board goes in it, running the other way, and
-        // both cut ends land on it. Noted so the drawing can show one rather
-        // than a stripe of bare deck.
-        if (p < cut.pieces - 1) {
-          const key = Math.round(a0 + cut.pieceMm);
-          const was = breakers.get(key) || { a0: key, a1: key + JOINT_MM, c0: at, c1: at };
+        // both cut ends land on it. Keyed on where the gap starts, so every
+        // row jointed on the same line builds up one breaker board running the
+        // width of them rather than a stub per row.
+        if (p < pieces.length - 1) {
+          const key = Math.round(piece.to);
+          const was = breakers.get(key) || {
+            a0: key, a1: Math.round(pieces[p + 1].from), c0: at, c1: at,
+          };
           breakers.set(key, {
             ...was,
             c0: Math.min(was.c0, at - BOARD_W / 2),
             c1: Math.max(was.c1, at + BOARD_W / 2),
           });
         }
-      }
+      });
     }
   }
   if (!fieldPieces) return null;
@@ -396,6 +482,11 @@ export function planDeckShape({ points, closed = true, pictureFrame = false, boa
     // Breakers in the longest run on the deck, which is the number anybody
     // looking at the drawing is counting.
     joints: Math.max(0, mostPieces - 1),
+    // The lines the deck joins on, and whether every join made it onto one.
+    // A deck where they all did is one where the joins read as straight lines
+    // from one side to the other, which is the whole point of them.
+    joinLines: joinLines.length,
+    offLineJoins,
     fieldPieces,
     framePieces,
     boards: fieldPieces + framePieces,

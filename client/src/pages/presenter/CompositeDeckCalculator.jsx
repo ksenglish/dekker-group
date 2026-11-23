@@ -294,7 +294,19 @@ export default function CompositeDeckCalculator({
             <div className={own.breakdown}>
               {plan.sections.map(s => `${s.count} at ${s.pieceMm}mm`).join(' · ')}
               {plan.joints > 0 && ` · ${plan.joints} ${plan.joints === 1 ? 'breaker' : 'breakers'} in the longest run`}
+              {/* The joins are the deck's, not each row's, so they read as
+                  straight lines across it. Worth saying, because it is the
+                  thing somebody looking at the drawing is checking. */}
+              {plan.joinLines > 0 && ` · jointed on ${plan.joinLines} ${plan.joinLines === 1 ? 'line' : 'lines'} across the deck`}
             </div>
+            {plan.offLineJoins > 0 && (
+              <div className={deck.warn}>
+                {plan.offLineJoins} {plan.offLineJoins === 1 ? 'row has' : 'rows have'} a join that
+                could not sit on those lines — {plan.offLineJoins === 1 ? 'it starts' : 'they start'} part
+                way along, and the piece would have been longer than a board. Moving that edge a little
+                either way will usually bring {plan.offLineJoins === 1 ? 'it' : 'them'} back into line.
+              </div>
+            )}
             {plan.frame && (
               <div className={styles.calcResultRow}>
                 <span>Picture frame ({plan.perimeterM.toFixed(2)}m round)</span>
