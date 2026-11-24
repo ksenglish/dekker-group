@@ -389,21 +389,64 @@ function serveMedia(column) {
 //
 // Product images arrive at whatever size the supplier's export happened to be,
 // and a grid of forty of them at full size is several megabytes. Resizing here
-// keeps that to a few KB each. Generated per request and left to the browser's
-// cache rather than stored — replacing an image writes a new key, so a stale
-// thumbnail can't outlive the picture it came from.
+// keeps that to a few KB each.
+//
+// Made once and kept. It used to be made on every request and left to the
+// browser's cache — which meant a grid of forty products decoded forty full
+// size pictures, and a photo off a phone is about 48MB once it is pixels
+// rather than a JPEG. libvips allocates those outside the heap, frees them,
+// and glibc holds the space in its arenas rather than returning it, so the
+// instance climbed to 455MB of its 512MB with 52MB of heap and nothing in
+// flight. Not memory being used: memory being held, until the platform killed
+// it and signed the whole team out.
+//
+// The reason it was not stored before was that a stale thumbnail could outlive
+// the picture it came from. media_thumb_of answers that — it records which
+// picture this one was made from, and replacing a picture writes a new key.
 async function serveThumb(req, res) {
+  const sendThumb = (bytes) => {
+    res.set('Content-Type', 'image/webp');
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.send(bytes);
+  };
   try {
     const { rows } = await pool.query(
-      'SELECT media_key AS key, media_base64 AS inline FROM products WHERE id=$1', [req.params.id]
+      `SELECT media_key AS key, media_base64 AS inline, media_thumb AS thumb,
+              media_thumb_of AS thumb_of
+         FROM products WHERE id=$1`, [req.params.id]
     );
     if (!rows[0] || (!rows[0].key && !rows[0].inline)) return res.status(404).json({ error: 'Not found' });
 
-    const source = rows[0].key
-      ? await fileStore.getObjectBuffer(rows[0].key)
-      : Buffer.from(fileStore.stripDataUrl(rows[0].inline), 'base64');
+    // Which picture a thumbnail would have to have been made from to still be
+    // the right one. An inline image has no key, so its length and its last
+    // few bytes stand in: between them they change when the picture does,
+    // which is all this has to do.
+    const madeFrom = rows[0].key
+      || `inline:${String(rows[0].inline).length}:${String(rows[0].inline).slice(-16)}`;
+    if (rows[0].thumb && rows[0].thumb_of === madeFrom) {
+      return sendThumb(Buffer.from(fileStore.stripDataUrl(rows[0].thumb), 'base64'));
+    }
 
-    const thumb = await sharp(source, { failOn: 'none' })
+    let source;
+    try {
+      source = rows[0].key
+        ? await fileStore.getObjectBuffer(rows[0].key)
+        : Buffer.from(fileStore.stripDataUrl(rows[0].inline), 'base64');
+    } catch (err) {
+      // The row points at an object that is not in the bucket. That is a
+      // picture that is not there, not a server that is broken — and saying so
+      // as a 404 lets the browser remember the absence instead of asking again
+      // on every page load and filling the log each time.
+      if (missingObject(err)) return res.status(404).json({ error: 'No image for this product' });
+      throw err;
+    }
+
+    const thumb = await sharp(source, {
+      failOn: 'none',
+      // A picture big enough to be worth a gigabyte of bitmap is not a product
+      // photograph, and decoding it would take the instance down with it.
+      limitInputPixels: 80e6,
+    })
       // Phone photos record their orientation in EXIF rather than in the pixels.
       // Re-encoding drops that tag, so without applying it first every photo
       // taken in portrait comes out on its side.
@@ -412,14 +455,28 @@ async function serveThumb(req, res) {
       .webp({ quality: 78 })
       .toBuffer();
 
-    res.set('Content-Type', 'image/webp');
-    res.set('Cache-Control', 'private, max-age=86400');
-    res.send(thumb);
+    // Kept for next time. Not awaited into the response — the picture is ready
+    // and whoever asked for it should not wait on the bookkeeping — and a
+    // failure here costs a re-make rather than the request.
+    pool.query(
+      'UPDATE products SET media_thumb=$1, media_thumb_of=$2 WHERE id=$3',
+      [thumb.toString('base64'), madeFrom, req.params.id]
+    ).catch(err => console.error('Could not keep the thumbnail:', err.message));
+
+    sendThumb(thumb);
   } catch (err) {
     console.error('Product thumbnail failed:', err.message);
     res.status(500).json({ error: 'Server error' });
   }
 }
+
+// A key the bucket does not have. S3 says this four different ways depending
+// on which call and which provider, so all of them are read as the one thing.
+const missingObject = err => (
+  err?.name === 'NoSuchKey' || err?.Code === 'NoSuchKey'
+  || err?.$metadata?.httpStatusCode === 404
+  || /specified key does not exist/i.test(err?.message || '')
+);
 
 // Re-importing a price list should update what's there, not pile up copies.
 //

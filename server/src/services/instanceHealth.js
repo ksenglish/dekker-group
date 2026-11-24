@@ -96,8 +96,19 @@ function startMemoryWatch(intervalMs = 30_000) {
   // this cap does nothing to hold them, which is why the warnings below count
   // resident memory and not just heap.
   const heapCap = mb(v8.getHeapStatistics().heap_size_limit);
+  // Said out loud because it is the one setting here that cannot be applied
+  // from inside the process: glibc reads it when the process starts, so if it
+  // is missing the only way to know is to look. The instance that kept being
+  // killed was holding 360MB of freed image buffers in glibc's arenas, and
+  // this is what stops that — so the next restart should answer for itself
+  // whether it is on.
+  const arenas = process.env.MALLOC_ARENA_MAX;
   if (limit) {
     console.log(`Memory: ${mb(limit)}MB instance limit, V8 heap capped at ${heapCap}MB.`);
+    console.log(arenas
+      ? `Memory: MALLOC_ARENA_MAX=${arenas}, so freed image buffers go back to the OS.`
+      : 'Memory: MALLOC_ARENA_MAX is not set — glibc will keep freed image buffers '
+        + 'in per-thread arenas and resident memory will climb. Set it to 2 on the service.');
     if (heapCap > mb(limit)) {
       // Not expected: node sizes the heap from the container by itself. If it
       // ever does not, it will grow past the limit without feeling any

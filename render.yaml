@@ -7,11 +7,26 @@ services:
     # here means the deploy would have shipped a fault. Warnings do not fail
     # the build.
     buildCommand: npm install && npm run lint && cd client && npm install && npm run build && cd .. && cd server && npm install && cd ..
-    startCommand: node server/src/index.js
+    # MALLOC_ARENA_MAX is set on the command as well as in envVars below,
+    # because glibc reads it when the process starts and nothing the app does
+    # afterwards can change it — setting it here means it applies even if the
+    # service's environment is managed from the dashboard rather than from
+    # this file.
+    #
+    # Why: sharp decodes images in libvips, outside the V8 heap. glibc gives
+    # each thread its own arena — up to eight per core — and when a decode
+    # finishes it returns the space to the arena rather than to the operating
+    # system. The instance was sitting at 455MB of its 512MB with 52MB of heap
+    # and nothing in flight: memory held, not memory used, until the platform
+    # killed it. Two arenas is the documented answer and costs a little
+    # contention on an app that converts one image at a time anyway.
+    startCommand: MALLOC_ARENA_MAX=2 node server/src/index.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: MALLOC_ARENA_MAX
+        value: "2"
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
