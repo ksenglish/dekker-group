@@ -2034,12 +2034,50 @@ export default function JobDetail() {
                 items={job.line_items || []}
                 onSave={handleSaveLineItems}
                 readonly={!canAct(user?.role)}
+                costColumn={!!job.costing}
               />
               {job.line_items?.length > 0 && (
                 <div className={styles.totals}>
                   <div className={styles.totalRow}><span>Subtotal Excl. GST</span><span>${(subtotal / 100).toFixed(2)}</span></div>
                   <div className={styles.totalRow}><span>GST (15%)</span><span>${(gst / 100).toFixed(2)}</span></div>
                   <div className={`${styles.totalRow} ${styles.totalFinal}`}><span>Total</span><span>${(total / 100).toFixed(2)}</span></div>
+                </div>
+              )}
+              {/* What is left on the work, for the people whose business that
+                  is. These are the lines that get invoiced — once a quote is
+                  accepted they are its lines, costs and all — so this is the
+                  margin the job will actually make, and it is the same figure
+                  the forecast adds up. Worked on the excluding-GST price,
+                  because GST was never ours. */}
+              {job.costing && job.line_items?.length > 0 && (
+                <div className={styles.marginBlock}>
+                  <div className={styles.marginHead}>
+                    Margin <span>Admin only · not on the customer’s invoice</span>
+                  </div>
+                  <div className={styles.marginRow}>
+                    <span>Sell (excl. GST)</span><span>${(subtotal / 100).toFixed(2)}</span>
+                  </div>
+                  <div className={styles.marginRow}>
+                    <span>Cost</span><span>${(job.costing.cost_cents / 100).toFixed(2)}</span>
+                  </div>
+                  <div className={`${styles.marginRow} ${styles.marginFinal}`}>
+                    <span>Margin</span>
+                    <span>
+                      ${((subtotal - job.costing.cost_cents) / 100).toFixed(2)}
+                      {subtotal > 0 && (
+                        <em> · {Math.round(((subtotal - job.costing.cost_cents) / subtotal) * 100)}%</em>
+                      )}
+                    </span>
+                  </div>
+                  {job.costing.uncosted_lines > 0 && (
+                    <p className={styles.marginNote}>
+                      {job.costing.uncosted_lines} {job.costing.uncosted_lines === 1 ? 'line has' : 'lines have'} no
+                      cost against {job.costing.uncosted_lines === 1 ? 'it' : 'them'} —
+                      ${(job.costing.uncosted_sell_cents / 100).toFixed(2)} of the sell price, counted here as
+                      though it were all margin. Type what {job.costing.uncosted_lines === 1 ? 'it costs' : 'they cost'} in
+                      the Cost column above and this answers properly, on the forecast too.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

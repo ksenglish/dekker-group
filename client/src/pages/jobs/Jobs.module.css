@@ -1923,3 +1923,47 @@
   border-radius: var(--radius); font-size: 13px; font-weight: 600;
 }
 .costsSectionTotal > span:first-child { flex: 1; color: var(--color-text-muted); }
+
+/* ── What is left on the work ─────────────────────────────────────────────── */
+
+/* The same block the quote shows, on the lines that actually get invoiced.
+   Deliberately identical to Quotes.module.css: a margin that looks different
+   in two places reads as two different numbers, and it is the same number. */
+.marginBlock {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.marginHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.marginHead span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.marginRow { display: flex; justify-content: space-between; padding: 3px 0; font-size: 14px; }
+.marginRow span:first-child { color: var(--color-text-muted); }
+.marginFinal {
+  border-top: 1px solid var(--color-border);
+  margin-top: 6px; padding-top: 8px;
+  font-weight: 700;
+}
+.marginFinal em { font-style: normal; color: var(--color-text-muted); font-weight: 600; }
+.marginNote {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #92400e;
+}

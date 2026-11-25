@@ -6,6 +6,7 @@ const { buildElectricalCocPDF } = require('../utils/electricalCocPdf');
 const { sendMail } = require('../utils/email');
 const { OFFICE_RECORDS_EMAIL } = require('../utils/recordsEmail');
 const { quoteDeliveredSql } = require('../utils/quoteDelivery');
+const { costOfLines, summarise } = require('../services/lineCost');
 const { sanitizeHtml } = require('../utils/sanitizeHtml');
 const { attachDefaultForms } = require('./jobFormController');
 const { notifyJobNote, notifyTargets } = require('../utils/jobNoteNotify');
@@ -151,6 +152,22 @@ async function get(req, res) {
     if (!rows[0]) return res.status(404).json({ error: 'Job not found' });
 
     const items = await pool.query('SELECT * FROM line_items WHERE job_id = $1 AND quote_id IS NULL ORDER BY created_at', [req.params.id]);
+    // What the job costs us, read the same way the quote reads it — one
+    // definition, so the margin on the job, the margin on the quote it came
+    // from and the margin on the forecast cannot disagree.
+    //
+    // These are the lines that get invoiced. Once a quote is accepted they are
+    // its lines, costs and all, so this is where somebody checks what is
+    // actually left on the work before it goes out the door.
+    let costing = null;
+    if (req.user?.role === 'admin') {
+      const costs = await costOfLines(items.rows.map(i => i.id));
+      items.rows.forEach(i => {
+        const found = costs.get(i.id);
+        if (found) { i.cost_cents = found.cents; i.cost_source = found.source; }
+      });
+      costing = summarise(items.rows, costs);
+    }
     const notes = await pool.query(
       `SELECT n.*, u.name AS author_name FROM job_notes n JOIN users u ON u.id = n.user_id
        WHERE n.job_id = $1 ORDER BY n.created_at DESC`,
@@ -161,7 +178,7 @@ async function get(req, res) {
       [req.params.id]
     );
 
-    res.json({ ...rows[0], line_items: items.rows, notes: notes.rows, technicians: techs.rows });
+    res.json({ ...rows[0], line_items: items.rows, notes: notes.rows, technicians: techs.rows, costing });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
@@ -313,14 +330,28 @@ async function updateLineItems(req, res) {
   if (!Array.isArray(items)) return res.status(400).json({ error: 'Items must be an array' });
   const client = await pool.connect();
   try {
-    // A cost typed on the quote comes across with the line when the quote is
-    // accepted. This screen never shows one and never sends one, and every
-    // save rewrites every line — so it is read first and put back, or editing
-    // a quantity here would quietly throw the costing away.
+    // A cost comes across with the line when a quote is accepted, and these
+    // are the lines that get invoiced — so this is where the margin on the
+    // work is checked and corrected. Every save rewrites every line, so a cost
+    // not carried across is a cost deleted: only an admin sees one and only an
+    // admin may change one, and for everybody else the figure already on the
+    // row is put back rather than taken from a payload that never had it.
+    const admin = req.user?.role === 'admin';
     const { rows: before } = await pool.query(
       'SELECT id, unit_cost_cents FROM line_items WHERE job_id=$1 AND quote_id IS NULL',
       [req.params.id]);
     const wasCosted = new Map(before.map(r => [r.id, r.unit_cost_cents]));
+    const costFor = item => {
+      const carried = item.id ? wasCosted.get(item.id) ?? null : null;
+      if (!admin) return carried;
+      if (!Object.prototype.hasOwnProperty.call(item, 'unit_cost_cents')) return carried;
+      // Blank checked before Number() gets near it: Number('') and Number(null)
+      // are both 0, and 0 is a cost. Emptying the box has to mean unknown.
+      const raw = item.unit_cost_cents;
+      if (raw === null || raw === undefined || raw === '') return null;
+      const typed = Number(raw);
+      return Number.isFinite(typed) && typed >= 0 ? Math.round(typed) : null;
+    };
 
     await client.query('BEGIN');
     await client.query('DELETE FROM line_items WHERE job_id=$1 AND quote_id IS NULL', [req.params.id]);
@@ -329,7 +360,7 @@ async function updateLineItems(req, res) {
       await client.query(
         'INSERT INTO line_items (job_id, description, quantity, unit_price, product_id, product_name, unit_cost_cents) VALUES ($1,$2,$3,$4,$5,$6,$7)',
         [req.params.id, item.description, item.quantity || 1, Math.round((item.unit_price || 0) * 100), item.product_id || null, item.product_name || null,
-         item.id ? wasCosted.get(item.id) ?? null : null]
+         costFor(item)]
       );
     }
     await client.query('COMMIT');

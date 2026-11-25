@@ -270,28 +270,53 @@ async function remove(req, res) {
 //
 // `itemise: true` breaks it into materials and each labour line instead, for
 // customers who want to see the parts. Cost prices never leave either way.
+// unit_cost_cents travels with each line, and only ever inwards. It is what
+// the proposal already worked the margin out from — materials at cost plus
+// labour at cost — so a quote raised from a proposal arrives knowing what the
+// work costs instead of reading 100% margin on a job with four thousand
+// dollars of subcontractors in it. It never reaches a customer: the quote PDF
+// and the public page have no cost on them, and the column is admin-only.
 function proposalToLineItems(proposal, { itemise } = {}) {
   const t = proposal.totals;
   if (!itemise) {
-    return [{ description: proposal.name, quantity: 1, unit_price: t.quoted }];
+    return [{
+      description: proposal.name,
+      quantity: 1,
+      unit_price: t.quoted,
+      // One line for the whole scope, so the whole scope's cost is its cost.
+      unit_cost_cents: t.total_cost,
+    }];
   }
   const lines = [];
   for (const p of proposal.products) {
     const q = Number(p.quantity) || 0;
     if (q <= 0 || p.charge_price <= 0) continue;
-    lines.push({ description: p.description, quantity: q, unit_price: p.charge_price, product_id: p.product_id, product_name: p.product_name });
+    lines.push({
+      description: p.description, quantity: q, unit_price: p.charge_price,
+      product_id: p.product_id, product_name: p.product_name,
+      unit_cost_cents: p.cost_price,
+    });
   }
   for (const l of proposal.labour) {
     const q = Number(l.quantity) || 0;
     if (q <= 0 || l.charge_rate <= 0) continue;
-    lines.push({ description: l.label, quantity: q, unit_price: l.charge_rate });
+    lines.push({
+      description: l.label, quantity: q, unit_price: l.charge_rate,
+      unit_cost_cents: l.cost_rate,
+    });
   }
   // A rounded quote has to still add up to the rounded figure, or the customer
   // sees a total that disagrees with the lines. The difference goes on its own
   // line rather than being smeared across the others.
   const sum = lines.reduce((s, l) => s + Math.round(l.quantity * l.unit_price), 0);
   const diff = t.quoted - sum;
-  if (diff !== 0) lines.push({ description: 'Adjustment', quantity: 1, unit_price: diff });
+  // Nought rather than unknown, and they are different things everywhere else
+  // here. Rounding the quoted figure costs nothing — the cost is already on
+  // the lines above — so saying so keeps this off the "no cost against it"
+  // list it would otherwise head.
+  if (diff !== 0) {
+    lines.push({ description: 'Adjustment', quantity: 1, unit_price: diff, unit_cost_cents: 0 });
+  }
   return lines;
 }
 
@@ -381,10 +406,12 @@ async function createQuote(req, res) {
 
     for (const l of lines) {
       await client.query(
-        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name, proposal_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        `INSERT INTO line_items (job_id, quote_id, description, quantity, unit_price, product_id, product_name, proposal_id, unit_cost_cents)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
         [jobId, quote.id, l.description, l.quantity, l.unit_price,
-         l.product_id || null, l.product_name || null, l.proposal_id || null]
+         l.product_id || null, l.product_name || null, l.proposal_id || null,
+         Number.isFinite(l.unit_cost_cents) && l.unit_cost_cents >= 0
+           ? Math.round(l.unit_cost_cents) : null]
       );
     }
 
