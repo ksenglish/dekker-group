@@ -2,6 +2,32 @@ const pool = require('../db/pool');
 
 const FIELDS = 'name, company, contact_name, phone, mobile, email, lead_source, address_street, address_city, address_region, address_postcode, address_country';
 
+// Everybody else at this customer who should get a copy of a quote.
+//
+// One address or several, however they were typed — a comma, a semicolon or a
+// new line are all things people put between addresses. Anything that is not
+// an address is dropped rather than stored, since the only thing that happens
+// to these later is that mail is sent to them; and the main address is taken
+// out, because a customer emailed twice is a customer emailed twice.
+const looksLikeEmail = e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);
+const MAX_EXTRA_EMAILS = 20;
+
+function cleanExtraEmails(value, main) {
+  const list = Array.isArray(value) ? value : String(value ?? '').split(/[,;\s]+/);
+  const seen = new Set([String(main || '').trim().toLowerCase()].filter(Boolean));
+  const out = [];
+  for (const raw of list) {
+    const email = String(raw ?? '').trim();
+    if (!email || !looksLikeEmail(email)) continue;
+    const key = email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(email);
+    if (out.length >= MAX_EXTRA_EMAILS) break;
+  }
+  return out;
+}
+
 function addressLine(c) {
   return [c.address_street, c.address_city, c.address_region, c.address_postcode].filter(Boolean).join(', ');
 }
@@ -92,12 +118,13 @@ async function create(req, res) {
   try {
     const { rows } = await pool.query(
       `INSERT INTO customers (name, company, contact_name, phone, mobile, email, lead_source,
-         address_street, address_city, address_region, address_postcode, address_country)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+         address_street, address_city, address_region, address_postcode, address_country, extra_emails)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [name, company || null, contact_name || null, phone || null, mobile || null,
        email || null, lead_source || null,
        address_street || null, address_city || null, address_region || null,
-       address_postcode || null, address_country || 'New Zealand']
+       address_postcode || null, address_country || 'New Zealand',
+       cleanExtraEmails(req.body?.extra_emails, email)]
     );
     // Auto-create the default site from the customer's own address. It stays
     // in sync with that address on every later update (see syncPrimarySite).
@@ -122,12 +149,14 @@ async function update(req, res) {
     const { rows } = await pool.query(
       `UPDATE customers SET name=$1, company=$2, contact_name=$3, phone=$4, mobile=$5,
          email=$6, lead_source=$7, address_street=$8, address_city=$9,
-         address_region=$10, address_postcode=$11, address_country=$12, updated_at=NOW()
-       WHERE id=$13 RETURNING *`,
+         address_region=$10, address_postcode=$11, address_country=$12,
+         extra_emails=$13, updated_at=NOW()
+       WHERE id=$14 RETURNING *`,
       [name, company || null, contact_name || null, phone || null, mobile || null,
        email || null, lead_source || null,
        address_street || null, address_city || null, address_region || null,
-       address_postcode || null, address_country || 'New Zealand', req.params.id]
+       address_postcode || null, address_country || 'New Zealand',
+       cleanExtraEmails(req.body?.extra_emails, email), req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Customer not found' });
     await syncPrimarySite(rows[0]);

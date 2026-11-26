@@ -7,7 +7,9 @@ import { overlayClose } from '../../lib/overlayClose';
 // Compose-before-send modal for the quote "Email to Customer" button — loads a
 // saved, personalised template (with {{placeholders}} already resolved for this
 // quote), lets the user switch templates or edit freely, then sends on confirm.
-export default function EmailComposeModal({ quoteId, jobId, customerEmail, onClose, onSent }) {
+export default function EmailComposeModal({
+  quoteId, jobId, customerEmail, customerExtraEmails = [], onClose, onSent,
+}) {
   const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);
   const [templateId, setTemplateId] = useState('');
@@ -19,6 +21,20 @@ export default function EmailComposeModal({ quoteId, jobId, customerEmail, onClo
   const [error, setError] = useState('');
   const [jobAttachments, setJobAttachments] = useState([]);
   const [selectedAttachmentIds, setSelectedAttachmentIds] = useState([]);
+
+  // Everybody at this customer who could get it, with the main address first
+  // and ticked. A quote that used to go to one address still goes to that one
+  // unless somebody says otherwise.
+  const allEmails = [customerEmail, ...(customerExtraEmails || [])]
+    .map(e => String(e || '').trim())
+    .filter((e, i, list) => e && list.findIndex(x => x.toLowerCase() === e.toLowerCase()) === i);
+  const [sendTo, setSendTo] = useState(() => (customerEmail ? [customerEmail] : []));
+
+  function toggleEmail(address) {
+    setSendTo(list => (list.includes(address)
+      ? list.filter(e => e !== address)
+      : [...list, address]));
+  }
 
   useEffect(() => {
     Promise.all([
@@ -52,10 +68,13 @@ export default function EmailComposeModal({ quoteId, jobId, customerEmail, onClo
   async function handleSend(e) {
     e.preventDefault();
     if (!subject.trim() || !body.trim()) return;
+    if (!sendTo.length) { setError('Pick at least one address to send to.'); return; }
     setSending(true); setError('');
     try {
-      await api.post(`/quotes/${quoteId}/email`, { subject, body, attachment_ids: selectedAttachmentIds });
-      onSent(customerEmail);
+      await api.post(`/quotes/${quoteId}/email`, {
+        subject, body, attachment_ids: selectedAttachmentIds, email_to: sendTo,
+      });
+      onSent(sendTo.join(', '));
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to send email');
       setSending(false);
@@ -94,8 +113,29 @@ export default function EmailComposeModal({ quoteId, jobId, customerEmail, onClo
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <label style={{ fontSize: 13, fontWeight: 500 }}>To</label>
-                <input value={customerEmail} disabled
-                  style={{ padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 14, background: '#f8fafc', color: 'var(--color-text-muted)' }} />
+                {allEmails.length > 1 ? (
+                  // More than one person at this customer wants it. Each gets
+                  // their own message rather than a copy of somebody else's,
+                  // so an open can be traced to the address that opened it.
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4,
+                    border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: '8px 12px' }}>
+                    {allEmails.map(address => (
+                      <label key={address} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={sendTo.includes(address)} onChange={() => toggleEmail(address)} />
+                        {address}
+                        {address === customerEmail && (
+                          <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>main</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <input value={customerEmail || ''} disabled
+                    style={{ padding: '9px 12px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', fontSize: 14, background: '#f8fafc', color: 'var(--color-text-muted)' }} />
+                )}
+                {allEmails.length > 1 && sendTo.length === 0 && (
+                  <span style={{ fontSize: 12, color: '#b91c1c' }}>Pick at least one address.</span>
+                )}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -129,7 +169,7 @@ export default function EmailComposeModal({ quoteId, jobId, customerEmail, onClo
 
             <div className={styles.modalFooter} style={{ marginTop: 20 }}>
               <button type="button" className={styles.btnSecondary} onClick={onClose}>Cancel</button>
-              <button type="submit" className={styles.btnPrimary} disabled={sending || switching}>
+              <button type="submit" className={styles.btnPrimary} disabled={sending || switching || !sendTo.length}>
                 {sending ? 'Sending…' : '✉ Send Email'}
               </button>
             </div>

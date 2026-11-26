@@ -222,6 +222,7 @@ async function get(req, res) {
     const { rows } = await pool.query(
       `SELECT q.*, q.public_token, q.accepted_at, q.accepted_name,
               c.name AS customer_name, c.email AS customer_email,
+              c.extra_emails AS customer_extra_emails,
               c.phone AS customer_phone, c.company AS customer_company,
               j.job_number, j.external_ref, j.description AS job_description
        FROM quotes q
@@ -798,6 +799,7 @@ async function getQuoteFull({ id, token }) {
   const { rows: [q] } = await pool.query(
     `SELECT q.*,
             c.name AS customer_name, c.email AS customer_email,
+            c.extra_emails AS customer_extra_emails,
             c.company AS customer_company, c.phone AS customer_phone,
             c.address_street AS customer_address_street, c.address_city AS customer_address_city,
             c.address_region AS customer_address_region, c.address_postcode AS customer_address_postcode,
@@ -1190,8 +1192,32 @@ async function sendEmail(req, res) {
     // so the rep's copy carried the customer's tracking pixel and their opening
     // it was logged as the customer reading the quote. Separate messages let
     // each copy carry its own tracking id.
-    const recipients = [{ email: q.customer_email, role: 'customer' }];
-    if (req.user?.email && req.user.email.toLowerCase() !== String(q.customer_email).toLowerCase()) {
+    // Who at the customer is getting it.
+    //
+    // A household or a company often has two people who both want the quote,
+    // and they are kept on the customer so nobody has to remember the second
+    // one. The compose screen ticks which of them this quote goes to; asked
+    // for none, it goes to the main address, which is what it always did.
+    //
+    // Only ever addresses that are already on this customer. This endpoint
+    // sends a PDF of their own quote to whoever it is told to, and "whoever it
+    // is told to" should mean one of their people rather than anything a
+    // request happens to carry.
+    const known = [q.customer_email, ...(q.customer_extra_emails || [])]
+      .map(e => String(e || '').trim()).filter(Boolean);
+    const asked = Array.isArray(req.body?.email_to) ? req.body.email_to : null;
+    const chosen = asked
+      ? known.filter(k => asked.some(a => String(a).trim().toLowerCase() === k.toLowerCase()))
+      : [q.customer_email];
+    if (!chosen.length) {
+      return res.status(400).json({
+        error: 'Pick at least one of this customer’s email addresses to send to.',
+      });
+    }
+
+    const recipients = chosen.map(email => ({ email, role: 'customer' }));
+    const toCustomer = new Set(chosen.map(e => e.toLowerCase()));
+    if (req.user?.email && !toCustomer.has(req.user.email.toLowerCase())) {
       recipients.push({ email: req.user.email, role: 'sender' });
     }
 
@@ -1214,12 +1240,17 @@ async function sendEmail(req, res) {
       });
     }
     await pool.query('UPDATE quotes SET status=\'sent\', delivery_status=\'sent\', sent_at=NOW(), updated_at=NOW() WHERE id=$1', [req.params.id]);
+    // Who it went to, not who it would have gone to. A quote sent to two
+    // people and logged against one is a log that cannot answer the only
+    // question anybody asks it afterwards.
     await logActivity({ type: 'quote_sent', entity_type: 'quote', entity_id: req.params.id, user_id: req.user?.id,
-      message: `Quote emailed to ${q.customer_email} ($${(q.total/100).toFixed(2)})` });
-    await pool.query(
-      `INSERT INTO email_log (job_id, customer_id, type, recipient, status) VALUES ($1,$2,'quote',$3,'sent')`,
-      [q.job_id, q.customer_id, q.customer_email]
-    );
+      message: `Quote emailed to ${chosen.join(', ')} ($${(q.total/100).toFixed(2)})` });
+    for (const email of chosen) {
+      await pool.query(
+        `INSERT INTO email_log (job_id, customer_id, type, recipient, status) VALUES ($1,$2,'quote',$3,'sent')`,
+        [q.job_id, q.customer_id, email]
+      );
+    }
     // The quote has actually reached the customer now, so the job can move to
     // Quoted — only forwards, so a job already further along stays put.
     await advanceJobStatus(q.job_id, 'quoted');

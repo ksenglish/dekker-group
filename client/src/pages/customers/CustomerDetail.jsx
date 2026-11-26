@@ -17,6 +17,9 @@ const STATUS_COLOURS = {
 
 const EMPTY_FORM = {
   name: '', contact_name: '', company: '', phone: '', mobile: '', email: '',
+  // Everybody else at this customer who should get a quote. The main address
+  // above stays the one it is addressed to.
+  extra_emails: [],
   lead_source: '',
   address_street: '', address_city: '', address_region: '', address_postcode: '',
   address_country: 'New Zealand',
@@ -81,6 +84,7 @@ export default function CustomerDetail() {
           phone:            data.phone || '',
           mobile:           data.mobile || '',
           email:            data.email || '',
+          extra_emails:     Array.isArray(data.extra_emails) ? data.extra_emails : [],
           lead_source:      data.lead_source || '',
           address_street:   data.address_street || '',
           address_city:     data.address_city || '',
@@ -385,6 +389,37 @@ export default function CustomerDetail() {
                 <div className={styles.field}>
                   <label>Email Address</label>
                   <input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="e.g. john@example.com" />
+                  {/* The second person who wants the quote. A household or a
+                      company often has one, and with nowhere to put them the
+                      address ended up in whichever box had room. */}
+                  <div className={styles.extraEmails}>
+                    {form.extra_emails.map((address, i) => (
+                      <div key={i} className={styles.extraEmailRow}>
+                        <input
+                          type="email"
+                          value={address}
+                          placeholder="e.g. partner@example.com"
+                          onChange={e => set('extra_emails',
+                            form.extra_emails.map((v, j) => (j === i ? e.target.value : v)))}
+                        />
+                        <button type="button" className={styles.extraEmailDrop}
+                          aria-label={`Remove ${address || 'this address'}`}
+                          onClick={() => set('extra_emails', form.extra_emails.filter((_, j) => j !== i))}>
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    <button type="button" className={styles.extraEmailAdd}
+                      onClick={() => set('extra_emails', [...form.extra_emails, ''])}>
+                      + Another email
+                    </button>
+                    {form.extra_emails.length > 0 && (
+                      <span className={styles.extraEmailHint}>
+                        Offered alongside the main address when a quote is emailed, so you pick
+                        who gets it.
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {user?.role !== 'operations' && (
                   <div className={styles.field}>

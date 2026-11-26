@@ -812,3 +812,36 @@
   grid-row: 1 / span 2; align-self: center; font-size: 12px;
   color: var(--color-text-muted); white-space: nowrap;
 }
+
+/* ── The other people at this customer ────────────────────────────────────── */
+
+/* A second address for a household or a company with two people in it. Sits
+   under the main one rather than beside it, because the main one is still the
+   address a quote is addressed to and these are everybody else. */
+.extraEmails { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+
+.extraEmailRow { display: flex; align-items: center; gap: 6px; }
+.extraEmailRow input { flex: 1; min-width: 0; }
+
+.extraEmailDrop {
+  flex: 0 0 auto;
+  width: 30px; height: 30px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--color-border); border-radius: var(--radius);
+  background: var(--color-surface); color: var(--color-text-muted);
+  font-family: inherit; font-size: 13px; cursor: pointer;
+}
+.extraEmailDrop:hover { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
+
+.extraEmailAdd {
+  align-self: flex-start;
+  padding: 5px 10px;
+  border: 1px dashed var(--color-border); border-radius: var(--radius);
+  background: none; color: var(--color-primary);
+  font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.extraEmailAdd:hover { background: var(--color-bg); border-style: solid; }
+
+.extraEmailHint {
+  font-size: 11.5px; line-height: 1.45; color: var(--color-text-muted);
+}

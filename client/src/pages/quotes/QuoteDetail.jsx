@@ -622,6 +622,7 @@ export default function QuoteDetail() {
           quoteId={id}
           jobId={quote.job_id}
           customerEmail={quote.customer_email}
+          customerExtraEmails={quote.customer_extra_emails}
           onClose={() => setShowEmailModal(false)}
           onSent={handleEmailSent}
         />
